@@ -72,9 +72,23 @@ class DummyOrderExecutionProvider(OrderExecutionProvider):
                 )
                 self._orders.append(result)
                 return result
+            realized_pnl = (fill_price - pos.avg_price) * order.qty
             self._cash += cost
             remaining = pos.qty - order.qty
             self._positions[order.symbol] = Position(order.symbol, remaining, pos.avg_price if remaining else 0.0)
+            result = OrderResult(
+                order_id=str(uuid.uuid4()),
+                symbol=order.symbol,
+                side=order.side,
+                order_type=order.order_type,
+                qty=order.qty,
+                price=fill_price,
+                status="filled",
+                filled_at=datetime.now(),
+                realized_pnl=realized_pnl,
+            )
+            self._orders.append(result)
+            return result
 
         result = OrderResult(
             order_id=str(uuid.uuid4()),

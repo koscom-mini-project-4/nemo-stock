@@ -72,3 +72,23 @@ class PriceBarORM(Base):
     close: Mapped[float] = mapped_column(Float)
     volume: Mapped[int] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(String(32), default="public_data")
+
+
+class BacktestResultORM(Base):
+    __tablename__ = "backtest_results"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(64), index=True)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    initial_capital: Mapped[float] = mapped_column(Float)
+    final_equity: Mapped[float] = mapped_column(Float)
+    total_return_pct: Mapped[float] = mapped_column(Float)
+    cagr_pct: Mapped[float] = mapped_column(Float)
+    mdd_pct: Mapped[float] = mapped_column(Float)
+    volatility_pct: Mapped[float] = mapped_column(Float)
+    win_rate_pct: Mapped[float] = mapped_column(Float)
+    profit_loss_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trade_count: Mapped[int] = mapped_column(Integer)
+    equity_curve_json: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

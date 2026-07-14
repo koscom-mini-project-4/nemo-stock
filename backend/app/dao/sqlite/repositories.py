@@ -8,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.dao.base import (
+    BacktestResultRecord,
+    BacktestResultRepository,
     NodeEventRecord,
     NodeEventRepository,
     PriceBarRecord,
@@ -19,7 +21,14 @@ from app.dao.base import (
     WorkflowRecord,
     WorkflowRepository,
 )
-from app.dao.sqlite.models import NodeEventORM, PriceBarORM, RunORM, UserORM, WorkflowORM
+from app.dao.sqlite.models import (
+    BacktestResultORM,
+    NodeEventORM,
+    PriceBarORM,
+    RunORM,
+    UserORM,
+    WorkflowORM,
+)
 
 
 class SqliteUserRepository(UserRepository):
@@ -238,3 +247,64 @@ class SqlitePriceBarRepository(PriceBarRepository):
                 )
                 for r in rows
             ]
+
+
+class SqliteBacktestResultRepository(BacktestResultRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def save(self, result: BacktestResultRecord) -> None:
+        with self._sf() as session:
+            row = session.get(BacktestResultORM, result.id)
+            if row is None:
+                row = BacktestResultORM(id=result.id)
+                session.add(row)
+            row.workflow_id = result.workflow_id
+            row.start_date = result.start_date
+            row.end_date = result.end_date
+            row.initial_capital = result.initial_capital
+            row.final_equity = result.final_equity
+            row.total_return_pct = result.total_return_pct
+            row.cagr_pct = result.cagr_pct
+            row.mdd_pct = result.mdd_pct
+            row.volatility_pct = result.volatility_pct
+            row.win_rate_pct = result.win_rate_pct
+            row.profit_loss_ratio = result.profit_loss_ratio
+            row.trade_count = result.trade_count
+            row.equity_curve_json = result.equity_curve
+            row.created_at = result.created_at
+            session.commit()
+
+    def get(self, result_id: str) -> BacktestResultRecord | None:
+        with self._sf() as session:
+            row = session.get(BacktestResultORM, result_id)
+            return self._to_record(row) if row else None
+
+    def list_by_workflow(self, workflow_id: str) -> list[BacktestResultRecord]:
+        with self._sf() as session:
+            rows = session.scalars(
+                select(BacktestResultORM)
+                .where(BacktestResultORM.workflow_id == workflow_id)
+                .order_by(BacktestResultORM.created_at.desc())
+            ).all()
+            return [self._to_record(r) for r in rows]
+
+    @staticmethod
+    def _to_record(row: BacktestResultORM) -> BacktestResultRecord:
+        return BacktestResultRecord(
+            id=row.id,
+            workflow_id=row.workflow_id,
+            start_date=row.start_date,
+            end_date=row.end_date,
+            initial_capital=row.initial_capital,
+            final_equity=row.final_equity,
+            total_return_pct=row.total_return_pct,
+            cagr_pct=row.cagr_pct,
+            mdd_pct=row.mdd_pct,
+            volatility_pct=row.volatility_pct,
+            win_rate_pct=row.win_rate_pct,
+            profit_loss_ratio=row.profit_loss_ratio,
+            trade_count=row.trade_count,
+            equity_curve=row.equity_curve_json,
+            created_at=row.created_at,
+        )

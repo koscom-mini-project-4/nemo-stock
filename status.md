@@ -25,8 +25,8 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 
 - [x] **설계**: `DESIGN.md` 작성 완료 (아키텍처, 노드 시스템, 워크플로 엔진, 트리거 큐/스케줄러/워커, DAO, 마켓데이터/브로커 어댑터, AI 모듈, 백테스트, DB 스키마, API, 프론트엔드, 디렉토리 구조, 테스트 전략, Phase 1~6 로드맵).
 - [x] **Phase 1 — 코어 실행 엔진** (완료, 2026-07-14)
-- [ ] **Phase 2 — 백테스트 + 공공데이터** (진행 예정/진행 중 — 아래 "다음 작업" 참조)
-- [ ] **Phase 3 — AI 모듈** (자연어→워크플로 초안, DART 공시 점수화+캐시, 뉴스 감성)
+- [x] **Phase 2 — 백테스트 + 공공데이터** (완료, 2026-07-14)
+- [ ] **Phase 3 — AI 모듈** (자연어→워크플로 초안, DART 공시 점수화+캐시, 뉴스 감성) — 다음 작업
 - [ ] **Phase 4 — 인증/이벤트버스/WS 마감 + Toss 어댑터 스켈레톤** (Phase 1에서 인증/이벤트버스/WS는 이미 구현됨 — Toss 스켈레톤만 남음)
 - [ ] **Phase 5 — 프론트엔드** (Vue3 + Vue Flow)
 - [ ] **Phase 6 — 통합 QA**
@@ -48,15 +48,30 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 
 **이슈/결정**: `passlib[bcrypt]`가 최신 `bcrypt`(5.0)와 호환성 버그(`password cannot be longer than 72 bytes` 오탐)로 실패 → `passlib` 제거하고 `bcrypt` 라이브러리를 `app/auth/security.py`에서 직접 사용하도록 변경. `pyproject.toml`도 반영됨.
 
-### 다음 작업 (Phase 2)
+### Phase 2 상세 (완료, 2026-07-14)
 
-1. `app/data_ingestion/public_data_price.py`: 공공데이터포털 금융위원회_주식시세정보 API 클라이언트 (서비스키는 `.env`의 `DATA_GO_KR_SERVICE_KEY`) → `PriceBarRepository`에 적재
-2. `app/market_data/historical.py`: `HistoricalMarketDataProvider` (sqlite `price_bars` 리플레이)
-3. `app/backtest/runner.py` + `metrics.py`: BacktestRunner(날짜 순회, WorkflowEngine 재사용) + 성과지표(CAGR/MDD/승률/손익비/거래횟수/자산곡선)
-4. `backtest_results` 테이블/Repository, API: `POST /backtest`, `GET /backtest/{id}`
-5. 테스트: 합성 가격 시계열로 백테스트 end-to-end, 지표 계산 유닛테스트
+- `app/data_ingestion/public_data_price.py`: 공공데이터포털 금융위원회_주식시세정보 API 클라이언트(`PublicDataPriceClient`). 엔드포인트 `GetStockSecuritiesInfoService/getStockPriceInfo`, `srtnCd`+`beginBasDt`/`endBasDt`로 조회, 페이지네이션 자동 처리, `resultCode` 오류 시 `PublicDataAPIError`. 실제 서비스키 없이도 `httpx.MockTransport`로 단위테스트 가능하도록 `http_client` 주입 지원.
+- `app/market_data/historical.py`: `HistoricalMarketDataProvider` — `advance_to(date)`로 리플레이 커서를 이동시키고 `price_bars`를 조회. 라이브/테스트와 동일한 `MarketDataProvider` 인터페이스라 노드 코드 변경 없이 백테스트에 재사용됨.
+- `app/backtest/metrics.py`: `compute_metrics()` — 총수익률/CAGR/MDD/변동성(연환산)/승률/손익비/거래횟수. 손익비·승률은 매도 체결의 `realized_pnl`(신규 필드, `OrderResult.realized_pnl`, `DummyOrderExecutionProvider`가 평단가 대비 실현손익을 계산해 채움) 기준.
+- `app/backtest/runner.py`: `BacktestRunner` — 종목별 `price_bars`의 거래일 합집합을 캘린더로 사용, 날짜별로 `HistoricalMarketDataProvider.advance_to()` 후 `WorkflowEngine.execute(mode="backtest")` 재사용(라이브/테스트와 동일 실행 경로). 종가 기준 시가평가로 자산곡선(equity curve) 산출. 가격 데이터가 없으면 `ValueError`.
+- DAO: `BacktestResultRecord`/`BacktestResultRepository`(`dao/base.py`) + SQLite 구현체(`backtest_results` 테이블, `equity_curve_json` 컬럼).
+- API 신규:
+  - `POST /data/ingest/prices/manual` — 임의 값으로 직접 시세를 넣어 테스트/백테스트 가능(기획서의 "임의의 값으로 테스트" 요건 충족).
+  - `POST /data/ingest/prices/public` — 공공데이터포털 실제 수집(서비스키 없으면 400).
+  - `POST /backtest`(workflow_id+universe+기간+초기자본 → 즉시 동기 실행 후 결과 반환·저장), `GET /backtest/{id}`.
+- 테스트: 신규 14개(유닛 `test_metrics.py`, `test_historical_provider_and_backtest.py`, `test_public_data_price_client.py` + 통합 `test_api_backtest_flow.py`) 포함 **총 38개 전부 통과**. 합성 우상향 가격 시계열로 백테스트 end-to-end(최종자산 > 초기자본, MDD=0) 검증.
+- 설계 대비 단순화: DESIGN.md는 `POST /backtest`를 "비동기, run_id 반환"으로 서술했으나 PoC 규모상 **동기 실행**으로 구현(작업 큐 불필요, 응답에 결과 즉시 포함). 데이터 규모가 커지는 시점에 비동기로 전환 가능(엔드포인트 계약은 유지하고 내부만 교체하면 됨).
 
-완료 후 `status.md` 갱신 + 커밋 → Phase 3로 진행.
+### 다음 작업 (Phase 3 — AI 모듈)
+
+1. `app/ai/openai_client.py`: OpenAI 클라이언트 래퍼(`OPENAI_API_KEY`는 백엔드 전용)
+2. `app/ai/workflow_draft.py`: 자연어 → 워크플로 JSON 초안 생성(구조화 출력 + `WorkflowGraph.validate()` 재검증 + 1회 재시도), `POST /ai/generate-draft`
+3. `app/data_ingestion/opendart_client.py`: OpenDART 공시 수집 클라이언트
+4. `app/ai/scoring_cache.py` + `disclosure_scoring.py`(+`news_sentiment.py`): `ai_score_cache` 테이블/Repository로 캐싱, 캐시 히트 시 AI 미호출
+5. AI 노드 추가: `ai.sentiment_score`, `ai.regime` (+ `data.news`, `data.disclosure` 데이터 노드도 이 단계에서 함께 구현)
+6. 테스트: OpenAI 클라이언트는 mock으로 단위테스트(실제 키 불필요), 캐시 히트/미스 테스트, 자연어→워크플로 생성 결과가 `WorkflowGraph.validate()`를 통과하는지 검증
+
+완료 후 `status.md` 갱신 + 커밋 → Phase 4(Toss 어댑터 스켈레톤)로 진행.
 
 ## 커밋 이력 참고
 

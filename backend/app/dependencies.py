@@ -15,7 +15,9 @@ from app.broker.base import OrderExecutionProvider
 from app.broker.dummy import DummyOrderExecutionProvider
 from app.config import Settings
 from app.dao.base import (
+    BacktestResultRepository,
     NodeEventRepository,
+    PriceBarRepository,
     RunRepository,
     UserRecord,
     UserRepository,
@@ -23,7 +25,9 @@ from app.dao.base import (
 )
 from app.dao.sqlite.database import init_db, make_engine, make_session_factory
 from app.dao.sqlite.repositories import (
+    SqliteBacktestResultRepository,
     SqliteNodeEventRepository,
+    SqlitePriceBarRepository,
     SqliteRunRepository,
     SqliteUserRepository,
     SqliteWorkflowRepository,
@@ -46,6 +50,8 @@ class Container:
     workflow_repo: WorkflowRepository
     run_repo: RunRepository
     node_event_repo: NodeEventRepository
+    price_bar_repo: PriceBarRepository
+    backtest_result_repo: BacktestResultRepository
     event_bus: EventBus
     market_data: MarketDataProvider
     broker: OrderExecutionProvider
@@ -66,6 +72,8 @@ def build_container(settings: Settings) -> Container:
     workflow_repo = SqliteWorkflowRepository(session_factory)
     run_repo = SqliteRunRepository(session_factory)
     node_event_repo = SqliteNodeEventRepository(session_factory)
+    price_bar_repo = SqlitePriceBarRepository(session_factory)
+    backtest_result_repo = SqliteBacktestResultRepository(session_factory)
 
     # 최초 기동 시 단일 관리자 계정 부트스트랩
     existing = user_repo.get_by_username(settings.admin_username)
@@ -107,6 +115,8 @@ def build_container(settings: Settings) -> Container:
         workflow_repo=workflow_repo,
         run_repo=run_repo,
         node_event_repo=node_event_repo,
+        price_bar_repo=price_bar_repo,
+        backtest_result_repo=backtest_result_repo,
         event_bus=event_bus,
         market_data=market_data,
         broker=broker,

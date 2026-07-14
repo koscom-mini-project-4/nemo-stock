@@ -36,6 +36,8 @@ class OrderResult:
     status: OrderStatus
     filled_at: datetime | None
     reason: str | None = None
+    realized_pnl: float | None = None
+    """매도 체결 시 실현손익(평단가 대비). 매수/미체결이면 None. 백테스트 승률/손익비 계산에 사용."""
 
 
 @dataclass

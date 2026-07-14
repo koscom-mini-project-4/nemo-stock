@@ -122,3 +122,33 @@ class PriceBarRepository(ABC):
 
     @abstractmethod
     def list_range(self, symbol: str, start: date, end: date) -> list[PriceBarRecord]: ...
+
+
+@dataclass
+class BacktestResultRecord:
+    id: str
+    workflow_id: str
+    start_date: date
+    end_date: date
+    initial_capital: float
+    final_equity: float
+    total_return_pct: float
+    cagr_pct: float
+    mdd_pct: float
+    volatility_pct: float
+    win_rate_pct: float
+    profit_loss_ratio: float | None
+    trade_count: int
+    equity_curve: list[dict[str, Any]]  # [{"date": "YYYY-MM-DD", "equity": float}, ...]
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+class BacktestResultRepository(ABC):
+    @abstractmethod
+    def save(self, result: BacktestResultRecord) -> None: ...
+
+    @abstractmethod
+    def get(self, result_id: str) -> BacktestResultRecord | None: ...
+
+    @abstractmethod
+    def list_by_workflow(self, workflow_id: str) -> list[BacktestResultRecord]: ...
