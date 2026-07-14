@@ -14,3 +14,4 @@
 - 확정되지 않은 요구사항이 생기면 `DESIGN.md` §0 결정 이력에 준하는 방식으로 사용자에게 확인 후 `status.md`/`DESIGN.md`에 기록한다. 이미 확정된 설계 범위 내 구현 중에는 불필요하게 재질문하지 않는다.
 - 백엔드는 `backend/.venv`(Python 3.12)를 사용한다. 의존성 변경 시 `backend/pyproject.toml`을 갱신하고 `pip install -e ".[dev]"`로 재설치한다.
 - 테스트: `cd backend && ./.venv/bin/python -m pytest -q`. 커밋 전 반드시 통과 확인.
+- 프론트엔드는 `frontend/`(Vite + Vue 3 + TypeScript, Node 26). 커밋 전 `cd frontend && npx vue-tsc -b`로 타입체크한다. UI 변경 시 `npm run dev`(:5173)와 백엔드(:8000)를 함께 띄우고 브라우저(Playwright 등)로 실제 동작을 확인한 뒤 커밋한다 — 타입체크/빌드 통과만으로 완료로 간주하지 않는다.

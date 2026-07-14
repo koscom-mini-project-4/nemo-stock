@@ -28,8 +28,8 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 - [x] **Phase 2 — 백테스트 + 공공데이터** (완료, 2026-07-14)
 - [x] **Phase 3 — AI 모듈** (완료, 2026-07-14)
 - [x] **Phase 4 — Toss 어댑터 스켈레톤** (완료, 2026-07-14)
-- [ ] **Phase 5 — 프론트엔드** (Vue3 + Vue Flow) — 다음 작업
-- [ ] **Phase 6 — 통합 QA**
+- [x] **Phase 5 — 프론트엔드** (완료, 2026-07-14)
+- [ ] **Phase 6 — 통합 QA** — 다음 작업
 
 ### Phase 1 상세 (완료)
 
@@ -85,18 +85,31 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 - `app/dependencies.py`: `_build_market_data_provider()`/`_build_order_provider()` 팩토리 추가. `MARKET_DATA_PROVIDER=toss`/`ORDER_PROVIDER=toss`일 때 필요한 자격증명이 없으면 앱 기동 시점에 `RuntimeError`로 즉시 실패(조용한 폴백 없음). 기본값은 계속 dummy.
 - 테스트: `test_toss_adapter.py`(토큰 캐싱, 인터페이스 준수, Bearer/Account 헤더 검증 — httpx.MockTransport, 실제 서비스 호출 아님) + `test_provider_selection.py`(설정값에 따른 Container 팩토리 선택/실패 검증) 총 11개 추가. **총 68개 전부 통과**.
 
-### 다음 작업 (Phase 5 — 프론트엔드, Vue 3 + Vue Flow)
+### Phase 5 상세 (완료, 2026-07-14)
 
-1. `frontend/` 스캐폴딩: Vite + Vue 3 + TypeScript + Pinia + `@vue-flow/core` + axios + 경량 차트 라이브러리(Chart.js).
-2. 로그인 화면(JWT) + axios interceptor로 토큰 자동 첨부.
-3. 전략 빌더 화면(핵심): 좌측 노드 팔레트(`GET /nodes` 기반 동적 렌더) / 중앙 Vue Flow 캔버스 / 우측 속성 패널(`param_schema` 기반 동적 폼) + 검증 패널(`POST /workflows/{id}/validate`).
-4. 테스트 실행 + 디버그: `POST /workflows/{id}/run`(overrides 입력 모달) 실행 후 `WS /ws/runs/{run_id}` 구독 → 실행 중인 노드 하이라이트(깜빡임) + 입출력 JSON 패널(기획 요구사항 "수행되는 블럭이 깜빡이며 디버그 값을 볼 수 있어야").
-5. 백테스트 결과 화면: `POST /backtest`/`GET /backtest/{id}` 연동, 자산곡선 차트 + 지표 요약 + 거래내역.
-6. AI 전략 생성 화면: 자연어 입력 → `POST /ai/generate-draft` → 미리보기 + 위험고지 문구 표시 → "캔버스에서 편집" 이동.
-7. 대시보드(워크플로 목록/상태/빠른 실행) — 최소 버전.
-8. 개발 서버로 실제 브라우저에서 golden path(로그인→전략 생성/편집→테스트 실행 하이라이트 확인→백테스트) 수동 검증(프로젝트 규칙상 UI 변경은 브라우저 확인 필수).
+`frontend/` (Vite + Vue 3 + TypeScript, Node 26 / npm 11). 구현 범위:
+- 스캐폴딩: `npm create vite -- --template vue-ts` + pinia, vue-router, axios, `@vue-flow/{core,background,controls,minimap}`, chart.js/vue-chartjs. `@` → `src` 경로 별칭(`tsconfig.app.json`/`vite.config.ts`).
+- `src/api/`: `client.ts`(axios 인스턴스, 요청 인터셉터로 JWT 자동 첨부, 401 시 `setUnauthorizedHandler` 콜백으로 로그아웃+리다이렉트 — router와 순환 의존 피하려 콜백 주입 방식 사용), `types.ts`(백엔드 스키마 미러링), `services.ts`(엔드포인트별 함수), `ws.ts`(`/ws/runs/{run_id}` 구독 유틸 — 현재 미사용, 아래 참고).
+- `src/stores/`: `auth.ts`(JWT, sessionStorage 영속), `draft.ts`(AI 생성 화면 → 빌더로 초안 1회성 전달).
+- `src/router/`: `/login`, `/`(대시보드), `/strategies/new`, `/strategies/:id`, `/backtests/new`, `/backtests/:id`, `/ai/generate`. `beforeEach`로 미인증 접근 차단.
+- `src/utils/layout.ts` + `flowAdapter.ts`: 백엔드는 노드 좌표를 저장하지 않으므로, 로드/노드 추가 시마다 스케줄러 기준 레이어드 레이아웃(Kahn 유사, max-level)으로 자동 배치. `graphToFlowElements`/`flowElementsToGraph`로 백엔드 그래프 ↔ Vue Flow 노드/엣지 상호 변환.
+- **전략 빌더**(`StrategyBuilderView.vue`, 핵심 화면): `NodePalette`(카테고리별 클릭-추가) / `VueFlow` 캔버스(핸들 드래그로 연결, `useVueFlow().fitView`로 노드 추가 시 자동 화면맞춤) / 우측 탭(`PropertyPanel` — `param_schema` 기반 동적 폼, `ValidationPanel`, `DebugPanel`). 저장(생성/수정 자동 분기) → 검증 → 테스트 실행(`TestRunModal`, overrides JSON 직접 입력) → 활성화/비활성화 → 백테스트 이동.
+- **테스트 실행 디버그 하이라이트**: `POST /workflows/{id}/run`의 동기 응답(`events` 배열)을 프론트에서 노드별로 순차 재생 — 실행 중인 노드는 노란 펄스(`.status-running`), 완료 노드는 초록/빨강 테두리(`.status-success`/`.status-error`)로 캔버스에 표시하고 동시에 `DebugPanel`에 이벤트가 하나씩 추가되며 클릭 시 input/output JSON을 볼 수 있다. **설계 대비 단순화**: DESIGN.md는 WS 실시간 스트리밍을 전제했으나, 테스트 실행은 이미 동기 응답으로 전체 이벤트를 받으므로 WS 없이 프론트에서 타이밍을 재현하는 방식을 채택(더 단순하고 결정적). `/ws/runs/{run_id}` 구독 유틸(`api/ws.ts`)은 준비만 해두고 실제 연동은 하지 않음 — 활성화된 워크플로를 실시간 관전하는 "라이브 모니터링" UI는 이번 Phase 범위 밖(다음 이터레이션 후보).
+- **백테스트 결과 화면**(`BacktestResultView.vue`): `/backtests/new`는 workflow_id/종목/기간/초기자본 입력 폼(쿼리스트링으로 전략빌더에서 전달받음) → 실행 후 `/backtests/{id}`로 교체 이동, 지표 카드(수익률/CAGR/MDD/변동성/승률/손익비/거래횟수) + `EquityCurveChart`(vue-chartjs 자산곡선).
+- **AI 전략 생성 화면**(`AIGenerateView.vue`): 자연어 입력 → `POST /ai/generate-draft` → 위험고지 문구 + 노드 목록 미리보기 → "캔버스에서 편집" 클릭 시 `draft` 스토어에 담아 `/strategies/new`로 이동, 빌더가 로드 시 소비.
+- **대시보드**(`DashboardView.vue`): 워크플로 카드 목록(상태 배지/노드 수/수정시각), 편집/활성화-중지/삭제.
+- 타입체크(`vue-tsc -b`) 및 프로덕션 빌드(`npm run build`) 통과. `ref<VFNode<FlowNodeData>[]>` 선언에서 `TS2589`(과도한 타입 재귀) 발생 → `ref([]) as Ref<...>` 캐스트 패턴 + `computed<T>()` 명시적 반환 타입으로 해결(원인: Vue Flow의 복잡한 제네릭과 Vue의 `UnwrapRef` 재귀 계산 충돌, 커뮤니티에 알려진 이슈).
+- **브라우저 실증(Playwright, headless Chromium)**: `backend/.venv/bin/uvicorn`(:8000) + `npm run dev`(:5173) 동시 기동 후 로그인→대시보드→새 전략→팔레트에서 노드 3~4개 추가(fitView로 자동 화면맞춤 확인)→핸들 드래그로 연결→저장→검증(오류/성공 케이스 모두)→**테스트 실행 시 노드가 노란색으로 펄스했다가 초록색으로 바뀌는 애니메이션과 디버그 패널 실시간 채워짐을 스크린샷으로 직접 확인**→AI 생성 화면(키 미설정 시 400 오류 정상 처리)→백테스트 신규 폼까지 전체 골든 패스 구동, 콘솔 런타임 에러 0건.
 
-완료 후 `status.md` 갱신 + 커밋 → Phase 6(통합 QA)로 진행.
+### 다음 작업 (Phase 6 — 통합 QA)
+
+1. 기획서 `logic_sample.png` 원본 시나리오(스케줄러→시세→[조건]→뉴스/공시→[긍정]→매수)를 Phase 3의 `data.news`/`ai.sentiment_score` 노드까지 포함해 백엔드 통합 테스트로 재검증(Phase 1 통합 테스트는 AI 노드 없이 축소된 버전이었음).
+2. 프론트-백엔드 회귀 점검: 지금까지 Phase별로 늘어난 API 표면 전체(auth/nodes/workflows/backtest/data/ai)를 한 번씩 브라우저로 훑기.
+3. `backend`와 `frontend`의 README/`.env.example` 최신화 확인, 최상위 README(프로젝트 전체 실행 가이드) 작성 여부 검토.
+4. 알려진 단순화/한계(백테스트 동기실행, Toss 어댑터 미검증, 라이브 모니터링 UI 없음, ai.regime 미구현 등) 목록을 한 곳에 정리해 "PoC 완료 보고" 형태로 status.md에 요약.
+5. 전체 백엔드 테스트(`pytest`) + 프론트 타입체크/빌드 마지막 재확인.
+
+완료 후 `status.md` 갱신 + 커밋. 여기까지가 DESIGN.md에 정의된 Phase 1~6의 전 범위이며, Phase 6 완료 시 PoC 1차 구현이 마무리된다.
 
 ## 커밋 이력 참고
 
