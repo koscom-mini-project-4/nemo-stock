@@ -7,15 +7,21 @@ FastAPI Depends는 이 컨테이너를 request.app.state.container에서 꺼내 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.orm import sessionmaker
 
+from app.ai.base import AIClient
+from app.ai.openai_client import OpenAIClient
 from app.auth.security import hash_password
 from app.broker.base import OrderExecutionProvider
 from app.broker.dummy import DummyOrderExecutionProvider
 from app.config import Settings
 from app.dao.base import (
+    AIScoreCacheRepository,
     BacktestResultRepository,
+    DisclosureRepository,
+    NewsRepository,
     NodeEventRepository,
     PriceBarRepository,
     RunRepository,
@@ -25,7 +31,10 @@ from app.dao.base import (
 )
 from app.dao.sqlite.database import init_db, make_engine, make_session_factory
 from app.dao.sqlite.repositories import (
+    SqliteAIScoreCacheRepository,
     SqliteBacktestResultRepository,
+    SqliteDisclosureRepository,
+    SqliteNewsRepository,
     SqliteNodeEventRepository,
     SqlitePriceBarRepository,
     SqliteRunRepository,
@@ -52,6 +61,10 @@ class Container:
     node_event_repo: NodeEventRepository
     price_bar_repo: PriceBarRepository
     backtest_result_repo: BacktestResultRepository
+    disclosure_repo: DisclosureRepository
+    news_repo: NewsRepository
+    ai_score_cache_repo: AIScoreCacheRepository
+    ai_client: AIClient
     event_bus: EventBus
     market_data: MarketDataProvider
     broker: OrderExecutionProvider
@@ -59,6 +72,15 @@ class Container:
     trigger_queue: TriggerQueue
     scheduler_service: SchedulerService
     worker_pool: WorkerPool
+
+    def node_providers(self) -> dict[str, Any]:
+        """market_data/broker 외에 노드가 필요로 하는 추가 의존성(AI/뉴스/공시)."""
+        return {
+            "ai_client": self.ai_client,
+            "ai_score_cache_repo": self.ai_score_cache_repo,
+            "news_repo": self.news_repo,
+            "disclosure_repo": self.disclosure_repo,
+        }
 
 
 def build_container(settings: Settings) -> Container:
@@ -74,6 +96,10 @@ def build_container(settings: Settings) -> Container:
     node_event_repo = SqliteNodeEventRepository(session_factory)
     price_bar_repo = SqlitePriceBarRepository(session_factory)
     backtest_result_repo = SqliteBacktestResultRepository(session_factory)
+    disclosure_repo = SqliteDisclosureRepository(session_factory)
+    news_repo = SqliteNewsRepository(session_factory)
+    ai_score_cache_repo = SqliteAIScoreCacheRepository(session_factory)
+    ai_client: AIClient = OpenAIClient(settings.openai_api_key, settings.openai_model)
 
     # 최초 기동 시 단일 관리자 계정 부트스트랩
     existing = user_repo.get_by_username(settings.admin_username)
@@ -97,6 +123,12 @@ def build_container(settings: Settings) -> Container:
         trigger_queue=trigger_queue,
         tick_seconds=settings.scheduler_tick_seconds,
     )
+    node_providers = {
+        "ai_client": ai_client,
+        "ai_score_cache_repo": ai_score_cache_repo,
+        "news_repo": news_repo,
+        "disclosure_repo": disclosure_repo,
+    }
     worker_pool = WorkerPool(
         trigger_queue=trigger_queue,
         workflow_repo=workflow_repo,
@@ -106,6 +138,7 @@ def build_container(settings: Settings) -> Container:
         market_data=market_data,
         broker=broker,
         pool_size=settings.worker_pool_size,
+        extra_providers=node_providers,
     )
 
     return Container(
@@ -117,6 +150,10 @@ def build_container(settings: Settings) -> Container:
         node_event_repo=node_event_repo,
         price_bar_repo=price_bar_repo,
         backtest_result_repo=backtest_result_repo,
+        disclosure_repo=disclosure_repo,
+        news_repo=news_repo,
+        ai_score_cache_repo=ai_score_cache_repo,
+        ai_client=ai_client,
         event_bus=event_bus,
         market_data=market_data,
         broker=broker,

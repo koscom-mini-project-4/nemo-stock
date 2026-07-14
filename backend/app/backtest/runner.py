@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
+from typing import Any
 
 from app.backtest.metrics import BacktestMetrics, compute_metrics
 from app.broker.base import OrderResult
@@ -45,6 +46,7 @@ class BacktestRunner:
         start: date,
         end: date,
         initial_capital: float = 10_000_000.0,
+        extra_providers: dict[str, Any] | None = None,
     ) -> BacktestResult:
         if not universe:
             raise ValueError("백테스트 대상 종목(universe)이 비어 있습니다.")
@@ -68,6 +70,7 @@ class BacktestRunner:
                 market_data=market_data,
                 broker=broker,
                 timestamp=datetime.combine(day, time()),
+                extra_providers=extra_providers,
             )
             if result.status != "success":
                 continue

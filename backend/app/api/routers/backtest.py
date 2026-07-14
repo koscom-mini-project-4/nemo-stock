@@ -55,6 +55,7 @@ def run_backtest(payload: BacktestRequest, container: Container = Depends(get_co
             start=payload.start_date,
             end=payload.end_date,
             initial_capital=payload.initial_capital,
+            extra_providers=container.node_providers(),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

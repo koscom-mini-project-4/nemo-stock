@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, Integer, String, Text
+from sqlalchemy import JSON, Date, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -91,4 +91,45 @@ class BacktestResultORM(Base):
     profit_loss_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     trade_count: Mapped[int] = mapped_column(Integer)
     equity_curve_json: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class DisclosureORM(Base):
+    __tablename__ = "disclosures"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    corp_name: Mapped[str] = mapped_column(String(255))
+    report_nm: Mapped[str] = mapped_column(String(255))
+    rcept_dt: Mapped[date] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(32), default="opendart")
+
+
+class NewsORM(Base):
+    __tablename__ = "news"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    body: Mapped[str] = mapped_column(Text)
+    published_at: Mapped[datetime] = mapped_column(DateTime)
+    source: Mapped[str] = mapped_column(String(32), default="manual")
+
+
+class AIScoreCacheORM(Base):
+    __tablename__ = "ai_score_cache"
+    __table_args__ = (
+        Index(
+            "ix_ai_score_cache_lookup",
+            "subject_type", "subject_id", "prompt_version", "model",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    subject_type: Mapped[str] = mapped_column(String(16))
+    subject_id: Mapped[str] = mapped_column(String(64))
+    prompt_version: Mapped[str] = mapped_column(String(16))
+    model: Mapped[str] = mapped_column(String(64))
+    score_json: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

@@ -146,6 +146,7 @@ def run_workflow(
             broker=container.broker,
             overrides=payload.overrides,
             run_id=run_id,
+            extra_providers=container.node_providers(),
         )
     except WorkflowValidationError as exc:
         run_record.status = "error"

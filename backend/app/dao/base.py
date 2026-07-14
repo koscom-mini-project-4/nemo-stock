@@ -152,3 +152,58 @@ class BacktestResultRepository(ABC):
 
     @abstractmethod
     def list_by_workflow(self, workflow_id: str) -> list[BacktestResultRecord]: ...
+
+
+@dataclass
+class DisclosureRecord:
+    id: str  # OpenDART rcept_no
+    symbol: str
+    corp_name: str
+    report_nm: str
+    rcept_dt: date
+    source: str = "opendart"
+
+
+class DisclosureRepository(ABC):
+    @abstractmethod
+    def save_many(self, items: list[DisclosureRecord]) -> None: ...
+
+    @abstractmethod
+    def list_recent(self, symbol: str, limit: int = 5) -> list[DisclosureRecord]: ...
+
+
+@dataclass
+class NewsRecord:
+    id: str
+    symbol: str
+    title: str
+    body: str
+    published_at: datetime
+    source: str = "manual"
+
+
+class NewsRepository(ABC):
+    @abstractmethod
+    def save_many(self, items: list[NewsRecord]) -> None: ...
+
+    @abstractmethod
+    def list_recent(self, symbol: str, limit: int = 5) -> list[NewsRecord]: ...
+
+
+@dataclass
+class AIScoreCacheRecord:
+    id: str
+    subject_type: str  # "disclosure" | "news"
+    subject_id: str
+    prompt_version: str
+    model: str
+    score_json: dict[str, Any]
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+class AIScoreCacheRepository(ABC):
+    @abstractmethod
+    def get(self, subject_type: str, subject_id: str, prompt_version: str, model: str) -> AIScoreCacheRecord | None: ...
+
+    @abstractmethod
+    def save(self, record: AIScoreCacheRecord) -> None: ...

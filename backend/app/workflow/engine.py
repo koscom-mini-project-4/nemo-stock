@@ -53,11 +53,16 @@ class WorkflowEngine:
         overrides: dict[str, dict[str, dict[str, Any]]] | None = None,
         run_id: str | None = None,
         timestamp: datetime | None = None,
+        extra_providers: dict[str, Any] | None = None,
     ) -> RunResult:
+        """extra_providers: ai_client/news_repo/disclosure_repo/ai_score_cache_repo 등
+        market_data/broker 외에 노드가 필요로 하는 추가 의존성을 node.execute(**providers)로 전달한다.
+        """
         run_id = run_id or str(uuid.uuid4())
         started_at = datetime.now()
         timestamp = timestamp or started_at
         overrides = overrides or {}
+        extra_providers = extra_providers or {}
 
         errors = graph.validate()
         if errors:
@@ -99,7 +104,9 @@ class WorkflowEngine:
                         for symbol, values in node_overrides.items():
                             output_ctx.symbols.setdefault(symbol, {}).update(values)
                     else:
-                        output_ctx = node.execute(input_ctx, market_data=market_data, broker=broker)
+                        output_ctx = node.execute(
+                            input_ctx, market_data=market_data, broker=broker, **extra_providers
+                        )
                     duration_ms = (time.perf_counter() - start) * 1000
                     ctx_by_node[node_id] = output_ctx
                     self._event_bus.publish(

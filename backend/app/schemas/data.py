@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -27,3 +27,20 @@ class PublicPriceIngestRequest(BaseModel):
 
 class IngestResponse(BaseModel):
     ingested: int
+
+
+class NewsItemIn(BaseModel):
+    title: str
+    body: str
+    published_at: datetime
+
+
+class ManualNewsIngestRequest(BaseModel):
+    symbol: str
+    items: list[NewsItemIn] = Field(default_factory=list)
+
+
+class PublicDisclosureIngestRequest(BaseModel):
+    symbols: list[str]
+    start: date
+    end: date

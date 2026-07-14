@@ -8,8 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.dao.base import (
+    AIScoreCacheRecord,
+    AIScoreCacheRepository,
     BacktestResultRecord,
     BacktestResultRepository,
+    DisclosureRecord,
+    DisclosureRepository,
+    NewsRecord,
+    NewsRepository,
     NodeEventRecord,
     NodeEventRepository,
     PriceBarRecord,
@@ -22,7 +28,10 @@ from app.dao.base import (
     WorkflowRepository,
 )
 from app.dao.sqlite.models import (
+    AIScoreCacheORM,
     BacktestResultORM,
+    DisclosureORM,
+    NewsORM,
     NodeEventORM,
     PriceBarORM,
     RunORM,
@@ -308,3 +317,112 @@ class SqliteBacktestResultRepository(BacktestResultRepository):
             equity_curve=row.equity_curve_json,
             created_at=row.created_at,
         )
+
+
+class SqliteDisclosureRepository(DisclosureRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def save_many(self, items: list[DisclosureRecord]) -> None:
+        if not items:
+            return
+        with self._sf() as session:
+            for item in items:
+                existing = session.get(DisclosureORM, item.id)
+                if existing is None:
+                    session.add(
+                        DisclosureORM(
+                            id=item.id, symbol=item.symbol, corp_name=item.corp_name,
+                            report_nm=item.report_nm, rcept_dt=item.rcept_dt, source=item.source,
+                        )
+                    )
+            session.commit()
+
+    def list_recent(self, symbol: str, limit: int = 5) -> list[DisclosureRecord]:
+        with self._sf() as session:
+            rows = session.scalars(
+                select(DisclosureORM)
+                .where(DisclosureORM.symbol == symbol)
+                .order_by(DisclosureORM.rcept_dt.desc())
+                .limit(limit)
+            ).all()
+            return [
+                DisclosureRecord(
+                    id=r.id, symbol=r.symbol, corp_name=r.corp_name, report_nm=r.report_nm,
+                    rcept_dt=r.rcept_dt, source=r.source,
+                )
+                for r in rows
+            ]
+
+
+class SqliteNewsRepository(NewsRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def save_many(self, items: list[NewsRecord]) -> None:
+        if not items:
+            return
+        with self._sf() as session:
+            for item in items:
+                existing = session.get(NewsORM, item.id)
+                if existing is None:
+                    session.add(
+                        NewsORM(
+                            id=item.id, symbol=item.symbol, title=item.title, body=item.body,
+                            published_at=item.published_at, source=item.source,
+                        )
+                    )
+            session.commit()
+
+    def list_recent(self, symbol: str, limit: int = 5) -> list[NewsRecord]:
+        with self._sf() as session:
+            rows = session.scalars(
+                select(NewsORM)
+                .where(NewsORM.symbol == symbol)
+                .order_by(NewsORM.published_at.desc())
+                .limit(limit)
+            ).all()
+            return [
+                NewsRecord(
+                    id=r.id, symbol=r.symbol, title=r.title, body=r.body,
+                    published_at=r.published_at, source=r.source,
+                )
+                for r in rows
+            ]
+
+
+class SqliteAIScoreCacheRepository(AIScoreCacheRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def get(self, subject_type: str, subject_id: str, prompt_version: str, model: str) -> AIScoreCacheRecord | None:
+        with self._sf() as session:
+            row = session.scalar(
+                select(AIScoreCacheORM).where(
+                    AIScoreCacheORM.subject_type == subject_type,
+                    AIScoreCacheORM.subject_id == subject_id,
+                    AIScoreCacheORM.prompt_version == prompt_version,
+                    AIScoreCacheORM.model == model,
+                )
+            )
+            if row is None:
+                return None
+            return AIScoreCacheRecord(
+                id=row.id, subject_type=row.subject_type, subject_id=row.subject_id,
+                prompt_version=row.prompt_version, model=row.model, score_json=row.score_json,
+                created_at=row.created_at,
+            )
+
+    def save(self, record: AIScoreCacheRecord) -> None:
+        with self._sf() as session:
+            row = session.get(AIScoreCacheORM, record.id)
+            if row is None:
+                row = AIScoreCacheORM(id=record.id)
+                session.add(row)
+            row.subject_type = record.subject_type
+            row.subject_id = record.subject_id
+            row.prompt_version = record.prompt_version
+            row.model = record.model
+            row.score_json = record.score_json
+            row.created_at = record.created_at
+            session.commit()

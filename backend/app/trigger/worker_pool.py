@@ -11,6 +11,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from typing import Any
 
 from app.broker.base import OrderExecutionProvider
 from app.dao.base import NodeEventRecord, NodeEventRepository, RunRecord, RunRepository, WorkflowRepository
@@ -32,6 +33,7 @@ class WorkerPool:
         market_data: MarketDataProvider,
         broker: OrderExecutionProvider,
         pool_size: int = 4,
+        extra_providers: dict[str, Any] | None = None,
     ) -> None:
         self._queue = trigger_queue
         self._workflow_repo = workflow_repo
@@ -40,6 +42,7 @@ class WorkerPool:
         self._event_bus = event_bus
         self._market_data = market_data
         self._broker = broker
+        self._extra_providers = extra_providers or {}
         self._engine = WorkflowEngine(event_bus)
         self._executor = ThreadPoolExecutor(max_workers=pool_size)
         self._stop_event = threading.Event()
@@ -89,6 +92,7 @@ class WorkerPool:
                 broker=self._broker,
                 run_id=trigger.run_id,
                 timestamp=trigger.fired_at,
+                extra_providers=self._extra_providers,
             )
             run_record.status = result.status
             run_record.error = result.error

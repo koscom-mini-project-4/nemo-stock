@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, backtest, data, nodes, workflows
+from app.api.routers import ai, auth, backtest, data, nodes, workflows
 from app.api.ws import router as ws_router
 from app.config import get_settings
 from app.dependencies import build_container
@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(workflows.router)
     app.include_router(backtest.router)
     app.include_router(data.router)
+    app.include_router(ai.router)
     app.include_router(ws_router)
 
     @app.get("/health")

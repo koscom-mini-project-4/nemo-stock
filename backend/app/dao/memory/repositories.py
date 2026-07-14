@@ -8,6 +8,12 @@ from __future__ import annotations
 from datetime import date
 
 from app.dao.base import (
+    AIScoreCacheRecord,
+    AIScoreCacheRepository,
+    DisclosureRecord,
+    DisclosureRepository,
+    NewsRecord,
+    NewsRepository,
     NodeEventRecord,
     NodeEventRepository,
     PriceBarRecord,
@@ -91,3 +97,42 @@ class InMemoryPriceBarRepository(PriceBarRepository):
             (b for (s, d), b in self._store.items() if s == symbol and start <= d <= end),
             key=lambda b: b.trade_date,
         )
+
+
+class InMemoryDisclosureRepository(DisclosureRepository):
+    def __init__(self) -> None:
+        self._store: dict[str, DisclosureRecord] = {}
+
+    def save_many(self, items: list[DisclosureRecord]) -> None:
+        for item in items:
+            self._store.setdefault(item.id, item)
+
+    def list_recent(self, symbol: str, limit: int = 5) -> list[DisclosureRecord]:
+        items = [d for d in self._store.values() if d.symbol == symbol]
+        items.sort(key=lambda d: d.rcept_dt, reverse=True)
+        return items[:limit]
+
+
+class InMemoryNewsRepository(NewsRepository):
+    def __init__(self) -> None:
+        self._store: dict[str, NewsRecord] = {}
+
+    def save_many(self, items: list[NewsRecord]) -> None:
+        for item in items:
+            self._store[item.id] = item
+
+    def list_recent(self, symbol: str, limit: int = 5) -> list[NewsRecord]:
+        items = [n for n in self._store.values() if n.symbol == symbol]
+        items.sort(key=lambda n: n.published_at, reverse=True)
+        return items[:limit]
+
+
+class InMemoryAIScoreCacheRepository(AIScoreCacheRepository):
+    def __init__(self) -> None:
+        self._store: dict[tuple[str, str, str, str], AIScoreCacheRecord] = {}
+
+    def get(self, subject_type: str, subject_id: str, prompt_version: str, model: str) -> AIScoreCacheRecord | None:
+        return self._store.get((subject_type, subject_id, prompt_version, model))
+
+    def save(self, record: AIScoreCacheRecord) -> None:
+        self._store[(record.subject_type, record.subject_id, record.prompt_version, record.model)] = record
