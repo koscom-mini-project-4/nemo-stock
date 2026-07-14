@@ -129,6 +129,20 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 **아키텍처 검증된 확장 포인트** (설계 원칙대로 인터페이스 교체만으로 대체 가능함을 실증):
 - `TriggerQueue`(인메모리 → Redis/Kafka), `MarketDataProvider`/`OrderExecutionProvider`(dummy → Toss/타 증권사), `Repository`(SQLite → 타 RDB, DATABASE_URL만 변경), `AIClient`(OpenAI → 타 LLM), `EventBus`(인메모리 → Redis pub/sub).
 
+## E2E 브라우저 QA (2026-07-14, Phase 6 이후 추가 검증)
+
+Playwright(headless Chromium)로 백엔드+프론트엔드를 동시 기동한 실제 애플리케이션을 구동해 로그인부터
+대시보드 반영까지 골든 패스 12단계를 검증. 상세 결과와 단계별 스크린샷은 `docs/e2e/e2e-test-report.md` 참조.
+
+- **결과**: 12/12 PASS, 콘솔 런타임 에러 0건.
+- **버그 발견 및 수정**: 노드를 3개 이상 연속으로 빠르게 추가하면 `fitView()`가 Vue Flow의 노드 크기
+  측정(ResizeObserver) 완료 전에 호출되어, 최신 노드가 우측 속성/검증/디버그 패널 아래로 가려져 마우스로
+  연결할 수 없는 프론트엔드 버그를 발견. `StrategyBuilderView.vue`에서 `fitView` 호출을
+  `nextTick()` + `requestAnimationFrame` 2회 이후로 지연시키는 `scheduleFitView()`로 수정, 재검증 완료.
+  실사용 흐름 그대로(팔레트 클릭 → 즉시 연결) 조작했기 때문에 발견 가능했던 이슈로, 자동화 스모크
+  테스트만으로는 놓치기 쉬운 유형이었다.
+- 수정 후 백엔드 `pytest` 71개 전부 통과, 프론트 `vue-tsc -b` + `npm run build` 통과 재확인.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

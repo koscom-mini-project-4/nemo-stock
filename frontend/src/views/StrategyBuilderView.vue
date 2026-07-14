@@ -88,6 +88,7 @@ async function load() {
     const { nodes, edges } = graphToFlowElements(wf.graph, nodeTypesByKey.value)
     flowNodes.value = nodes
     flowEdges.value = edges
+    scheduleFitView()
     return
   }
 
@@ -97,6 +98,7 @@ async function load() {
     const { nodes, edges } = graphToFlowElements(draft.graph, nodeTypesByKey.value)
     flowNodes.value = nodes
     flowEdges.value = edges
+    scheduleFitView()
     return
   }
 
@@ -124,7 +126,23 @@ function addNode(schema: NodeTypeSchema) {
       runStatus: null,
     },
   })
-  nextTick(() => fitView({ padding: 0.2, duration: 300 }))
+  scheduleFitView()
+}
+
+/**
+ * fitView()는 Vue Flow가 노드 크기를 실제로 측정(ResizeObserver)한 뒤에 호출해야
+ * 정확하다. nextTick만으로는 측정이 끝나기 전일 수 있어(특히 노드를 연속으로 빠르게
+ * 추가할 때) 새 노드가 우측 패널 아래로 잘려 들어가는 문제가 있었다. 두 번의
+ * requestAnimationFrame으로 측정 패스를 한 번 더 흘려보낸 뒤 fitView를 호출한다.
+ */
+function scheduleFitView() {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        fitView({ padding: 0.2, duration: 200 })
+      })
+    })
+  })
 }
 
 function onConnect(connection: { source: string; target: string }) {
