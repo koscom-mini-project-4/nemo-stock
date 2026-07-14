@@ -29,7 +29,7 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 - [x] **Phase 3 — AI 모듈** (완료, 2026-07-14)
 - [x] **Phase 4 — Toss 어댑터 스켈레톤** (완료, 2026-07-14)
 - [x] **Phase 5 — 프론트엔드** (완료, 2026-07-14)
-- [ ] **Phase 6 — 통합 QA** — 다음 작업
+- [x] **Phase 6 — 통합 QA** (완료, 2026-07-14) — **PoC 1차 구현 완료**
 
 ### Phase 1 상세 (완료)
 
@@ -101,15 +101,33 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 - 타입체크(`vue-tsc -b`) 및 프로덕션 빌드(`npm run build`) 통과. `ref<VFNode<FlowNodeData>[]>` 선언에서 `TS2589`(과도한 타입 재귀) 발생 → `ref([]) as Ref<...>` 캐스트 패턴 + `computed<T>()` 명시적 반환 타입으로 해결(원인: Vue Flow의 복잡한 제네릭과 Vue의 `UnwrapRef` 재귀 계산 충돌, 커뮤니티에 알려진 이슈).
 - **브라우저 실증(Playwright, headless Chromium)**: `backend/.venv/bin/uvicorn`(:8000) + `npm run dev`(:5173) 동시 기동 후 로그인→대시보드→새 전략→팔레트에서 노드 3~4개 추가(fitView로 자동 화면맞춤 확인)→핸들 드래그로 연결→저장→검증(오류/성공 케이스 모두)→**테스트 실행 시 노드가 노란색으로 펄스했다가 초록색으로 바뀌는 애니메이션과 디버그 패널 실시간 채워짐을 스크린샷으로 직접 확인**→AI 생성 화면(키 미설정 시 400 오류 정상 처리)→백테스트 신규 폼까지 전체 골든 패스 구동, 콘솔 런타임 에러 0건.
 
-### 다음 작업 (Phase 6 — 통합 QA)
+### Phase 6 상세 (완료, 2026-07-14)
 
-1. 기획서 `logic_sample.png` 원본 시나리오(스케줄러→시세→[조건]→뉴스/공시→[긍정]→매수)를 Phase 3의 `data.news`/`ai.sentiment_score` 노드까지 포함해 백엔드 통합 테스트로 재검증(Phase 1 통합 테스트는 AI 노드 없이 축소된 버전이었음).
-2. 프론트-백엔드 회귀 점검: 지금까지 Phase별로 늘어난 API 표면 전체(auth/nodes/workflows/backtest/data/ai)를 한 번씩 브라우저로 훑기.
-3. `backend`와 `frontend`의 README/`.env.example` 최신화 확인, 최상위 README(프로젝트 전체 실행 가이드) 작성 여부 검토.
-4. 알려진 단순화/한계(백테스트 동기실행, Toss 어댑터 미검증, 라이브 모니터링 UI 없음, ai.regime 미구현 등) 목록을 한 곳에 정리해 "PoC 완료 보고" 형태로 status.md에 요약.
-5. 전체 백엔드 테스트(`pytest`) + 프론트 타입체크/빌드 마지막 재확인.
+- `backend/tests/integration/test_logic_sample_scenario.py`: 기획서 `logic_sample.png` 원본 시나리오(스케줄러→시세→[트레이딩 전략 조건]→뉴스→[AI 감성 긍정]→매수)를 `data.news`/`ai.sentiment_score`까지 포함한 7노드 그래프로 재구성해 3가지 케이스(상승+긍정뉴스→매수 체결, 상승이지만 부정뉴스→차단, 하락이면 뉴스/AI 단계 도달 전 차단) 검증.
+  - **버그 발견 및 수정**: 최초 작성 시 `app_client.app.dependency_overrides[get_ai_client]`로 AI를 모킹했으나, `/workflows/{id}/run`은 `Depends(get_ai_client)`를 경유하지 않고 `container.node_providers()`가 `container.ai_client`를 직접 읽는 구조라 오버라이드가 적용되지 않았다(반면 `/ai/generate-draft`는 해당 의존성을 직접 쓰므로 정상 동작). 양성 케이스(매수 체결 확인)는 이 문제로 즉시 실패해 발견했으나, 음성 케이스 2건은 "AI 미설정 시 예외 → sentiment_score=None → 조건 실패"라는 별개의 안전 경로를 타면서 우연히 통과해 문제를 가릴 뻔했다. `app_client.app.state.container.ai_client`를 직접 교체하는 방식으로 수정하고, 모든 케이스에 `fake_ai.calls` 호출 횟수 검증을 추가해 "우연한 통과"를 재발 방지했다.
+- README 3종 작성/정리: 루트 `README.md`(전체 실행 가이드+문서 링크), `backend/README.md`, `frontend/README.md`(기존, Phase 5에서 작성).
+- 전체 회귀: 백엔드 `pytest` **71개 전부 통과**(Phase 1: 24 → Phase 2: +14 → Phase 3: +19 → Phase 4: +11 → Phase 6: +3), 프론트 `vue-tsc -b` + `npm run build` 통과.
 
-완료 후 `status.md` 갱신 + 커밋. 여기까지가 DESIGN.md에 정의된 Phase 1~6의 전 범위이며, Phase 6 완료 시 PoC 1차 구현이 마무리된다.
+### PoC 완료 요약 (2026-07-14)
+
+`DESIGN.md`에 정의된 Phase 1~6 전 범위 구현 완료. 노드 기반 워크플로 설계 → 검증 → 테스트 실행(디버그 하이라이트) → 백테스트 → (더미)실계좌 연동 인터페이스까지 기획서의 핵심 흐름을 노코드 캔버스로 구현하고, AI 자연어 전략 초안 생성과 뉴스/공시 감성 점수화(캐싱)를 통합했다.
+
+**알려진 단순화·한계 (실 서비스 전환 시 우선 검토 대상)**
+
+| 항목 | 현재 상태 | 비고 |
+| --- | --- | --- |
+| Toss증권 연동 | 어댑터 스켈레톤만 존재, 엔드포인트/필드명 미검증 | 승인된 API 키 발급 후 공식 명세로 교체 필요(Phase 4) |
+| 백테스트 실행 | 동기(HTTP 응답 즉시 반환) | 데이터 규모 커지면 비동기 전환 필요(Phase 2) |
+| 실시간 라이브 모니터링 UI | 없음(백엔드 WS 엔드포인트는 구현·테스트됨) | 프론트에서 활성 워크플로 실시간 관전 기능 추가 필요(Phase 5) |
+| ai.regime(시장 국면 판단) | 미구현 | `ai.sentiment_score`와 동일 캐시 패턴 재사용 가능(Phase 3) |
+| DART 공시 원문 | 제목(report_nm)만 사용, 원문(XML) 미수집 | document.xml 파싱 추가 시 점수화 품질 향상 가능(Phase 3) |
+| 뉴스 데이터 소스 | 수동 적재만 지원(`/data/ingest/news/manual`) | 실 뉴스 API/크롤러 연동 시 NewsRepository 인터페이스만 구현하면 교체 가능 |
+| 노드 좌표 영속화 | 미지원(자동 레이아웃으로 매번 재배치) | 필요 시 WorkflowGraphIn에 layout 필드 추가 |
+| 인증/사용자 | 단일 계정 | 실 서비스 전환 시 다중 사용자/회원가입 필요(§0 확정 결정, PoC 범위 내 의도된 제한) |
+| 백테스트 데이터 소스 | 공공데이터포털 일봉(일 1회 T+1) + 수동 적재 | 실시간/분봉 데이터는 별도 소스 필요 |
+
+**아키텍처 검증된 확장 포인트** (설계 원칙대로 인터페이스 교체만으로 대체 가능함을 실증):
+- `TriggerQueue`(인메모리 → Redis/Kafka), `MarketDataProvider`/`OrderExecutionProvider`(dummy → Toss/타 증권사), `Repository`(SQLite → 타 RDB, DATABASE_URL만 변경), `AIClient`(OpenAI → 타 LLM), `EventBus`(인메모리 → Redis pub/sub).
 
 ## 커밋 이력 참고
 
