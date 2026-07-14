@@ -16,6 +16,7 @@ from app.ai.openai_client import OpenAIClient
 from app.auth.security import hash_password
 from app.broker.base import OrderExecutionProvider
 from app.broker.dummy import DummyOrderExecutionProvider
+from app.broker.toss_adapter import TossInvestOrderExecutionProvider
 from app.config import Settings
 from app.dao.base import (
     AIScoreCacheRepository,
@@ -43,6 +44,7 @@ from app.dao.sqlite.repositories import (
 )
 from app.market_data.base import MarketDataProvider
 from app.market_data.dummy import DummyMarketDataProvider
+from app.market_data.toss_adapter import TossInvestMarketDataProvider
 from app.nodes import load_all_nodes
 from app.trigger.queue import InMemoryTriggerQueue, TriggerQueue
 from app.trigger.scheduler_service import SchedulerService
@@ -83,6 +85,31 @@ class Container:
         }
 
 
+def _build_market_data_provider(settings: Settings) -> MarketDataProvider:
+    if settings.market_data_provider == "toss":
+        if not settings.toss_client_id or not settings.toss_client_secret:
+            raise RuntimeError(
+                "MARKET_DATA_PROVIDER=toss 이지만 TOSS_CLIENT_ID/TOSS_CLIENT_SECRET이 설정되지 않았습니다."
+            )
+        return TossInvestMarketDataProvider(
+            settings.toss_client_id, settings.toss_client_secret, settings.toss_base_url
+        )
+    # "historical"은 백테스트 전용(BacktestRunner가 자체 생성)이라 라이브 컨테이너에서는 dummy로 폴백한다.
+    return DummyMarketDataProvider()
+
+
+def _build_order_provider(settings: Settings) -> OrderExecutionProvider:
+    if settings.order_provider == "toss":
+        if not settings.toss_client_id or not settings.toss_client_secret or not settings.toss_account_id:
+            raise RuntimeError(
+                "ORDER_PROVIDER=toss 이지만 TOSS_CLIENT_ID/TOSS_CLIENT_SECRET/TOSS_ACCOUNT_ID가 설정되지 않았습니다."
+            )
+        return TossInvestOrderExecutionProvider(
+            settings.toss_client_id, settings.toss_client_secret, settings.toss_base_url, settings.toss_account_id
+        )
+    return DummyOrderExecutionProvider()
+
+
 def build_container(settings: Settings) -> Container:
     load_all_nodes()
 
@@ -113,8 +140,8 @@ def build_container(settings: Settings) -> Container:
         )
 
     event_bus = InMemoryEventBus()
-    market_data = DummyMarketDataProvider()
-    broker = DummyOrderExecutionProvider()
+    market_data = _build_market_data_provider(settings)
+    broker = _build_order_provider(settings)
     workflow_engine = WorkflowEngine(event_bus)
     trigger_queue = InMemoryTriggerQueue()
 

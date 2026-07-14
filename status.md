@@ -27,8 +27,8 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 - [x] **Phase 1 — 코어 실행 엔진** (완료, 2026-07-14)
 - [x] **Phase 2 — 백테스트 + 공공데이터** (완료, 2026-07-14)
 - [x] **Phase 3 — AI 모듈** (완료, 2026-07-14)
-- [ ] **Phase 4 — Toss 어댑터 스켈레톤** (Phase 1에서 인증/이벤트버스/WS는 이미 구현됨 — Toss 스켈레톤만 남음) — 다음 작업
-- [ ] **Phase 5 — 프론트엔드** (Vue3 + Vue Flow)
+- [x] **Phase 4 — Toss 어댑터 스켈레톤** (완료, 2026-07-14)
+- [ ] **Phase 5 — 프론트엔드** (Vue3 + Vue Flow) — 다음 작업
 - [ ] **Phase 6 — 통합 QA**
 
 ### Phase 1 상세 (완료)
@@ -74,13 +74,29 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 - 테스트: 신규 19개(유닛 `test_scoring_cache.py`/`test_workflow_draft.py`/`test_opendart_client.py`/`test_ai_nodes.py` + 통합 `test_api_ai_flow.py`) 포함 **총 57개 전부 통과**. 캐시 히트 시 AI 미호출, 초안생성 1회 재시도 후 성공/2회 실패 시 예외, OpenDART 페이지네이션/오류/데이터없음 처리, 뉴스 긍정→매수·부정→차단 시나리오, 동일 공시 재실행 시 캐시 재사용(AI 재호출 없음) 검증.
 - 범위 축소: `ai.regime`(시장 국면 판단) 노드는 이번 Phase에서 구현하지 않음 — `ai.sentiment_score`와 동일한 `scoring_cache` 패턴을 재사용해 추후 쉽게 추가 가능하도록 설계되어 있어 필요 시점에 추가.
 
-### 다음 작업 (Phase 4 — Toss 어댑터 스켈레톤)
+### Phase 4 상세 (완료, 2026-07-14)
 
-1. `app/market_data/toss_adapter.py`, `app/broker/toss_adapter.py`: Toss증권 Open API(OAuth2 Client Credentials, REST) 문서 구조를 반영한 스켈레톤. `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET` 없으면 초기화 시 비활성 처리(명확한 오류 메시지), 실제 키가 없어 호출 검증은 하지 않음(DESIGN.md §0/§6 결정 사항).
-2. `MARKET_DATA_PROVIDER`/`ORDER_PROVIDER` 설정값(`config.py`에 이미 존재)에 따라 Container가 dummy/toss 구현체를 선택하도록 배선.
-3. 테스트: OAuth2 토큰 발급/요청 흐름을 httpx.MockTransport로 모킹해 어댑터의 요청 구성(헤더, 파라미터)이 문서와 일치하는지만 검증(실제 서비스 호출 검증은 불가 — 명시적으로 문서화).
+- `app/broker/toss_auth.py`: `TossOAuthTokenProvider` — Client Credentials Grant 토큰 발급(`POST {base_url}/oauth2/token`) + 캐싱(만료 30초 전 갱신), `auth_header()`로 `Authorization: Bearer` 헤더 생성. market/broker 어댑터가 공유.
+- `app/market_data/toss_adapter.py`: `TossInvestMarketDataProvider(MarketDataProvider)` — get_price/get_orderbook/get_ohlcv 구현.
+- `app/broker/toss_adapter.py`: `TossInvestOrderExecutionProvider(OrderExecutionProvider)` — place_order/cancel_order/get_balance/get_positions 구현, `X-Tossinvest-Account` 헤더 포함.
+- **명확한 한계(중요)**: 실제 승인된 Toss Open API 키가 없어 `developers.tossinvest.com`의 공식 OpenAPI 명세를 확인하지 못했다. 위 두 어댑터의 엔드포인트 경로(`/api/v1/quotes/{symbol}` 등)와 요청/응답 필드명(`price`, `prevClose`, `orderId` 등)은 **공개 요약 정보 기반 최선 추정 플레이스홀더**이며 각 파일에 `# TODO: 실제 키 발급 후 공식 명세로 교체 필요` 주석으로 명시했다. 실사용 전 반드시 명세 대조/수정이 필요하다. 이는 사전 확정된 결정(§0 "더미 구현 + Toss 어댑터 스켈레톤(미검증)")에 따른 의도된 범위다.
+- 두 클래스 모두 `client_id`/`client_secret` 누락 시 생성자에서 즉시 `ValueError`.
+- `app/config.py`에 `toss_account_id` 필드 추가(`.env.example`도 갱신).
+- `app/dependencies.py`: `_build_market_data_provider()`/`_build_order_provider()` 팩토리 추가. `MARKET_DATA_PROVIDER=toss`/`ORDER_PROVIDER=toss`일 때 필요한 자격증명이 없으면 앱 기동 시점에 `RuntimeError`로 즉시 실패(조용한 폴백 없음). 기본값은 계속 dummy.
+- 테스트: `test_toss_adapter.py`(토큰 캐싱, 인터페이스 준수, Bearer/Account 헤더 검증 — httpx.MockTransport, 실제 서비스 호출 아님) + `test_provider_selection.py`(설정값에 따른 Container 팩토리 선택/실패 검증) 총 11개 추가. **총 68개 전부 통과**.
 
-완료 후 `status.md` 갱신 + 커밋 → Phase 5(프론트엔드, Vue3+Vue Flow)로 진행.
+### 다음 작업 (Phase 5 — 프론트엔드, Vue 3 + Vue Flow)
+
+1. `frontend/` 스캐폴딩: Vite + Vue 3 + TypeScript + Pinia + `@vue-flow/core` + axios + 경량 차트 라이브러리(Chart.js).
+2. 로그인 화면(JWT) + axios interceptor로 토큰 자동 첨부.
+3. 전략 빌더 화면(핵심): 좌측 노드 팔레트(`GET /nodes` 기반 동적 렌더) / 중앙 Vue Flow 캔버스 / 우측 속성 패널(`param_schema` 기반 동적 폼) + 검증 패널(`POST /workflows/{id}/validate`).
+4. 테스트 실행 + 디버그: `POST /workflows/{id}/run`(overrides 입력 모달) 실행 후 `WS /ws/runs/{run_id}` 구독 → 실행 중인 노드 하이라이트(깜빡임) + 입출력 JSON 패널(기획 요구사항 "수행되는 블럭이 깜빡이며 디버그 값을 볼 수 있어야").
+5. 백테스트 결과 화면: `POST /backtest`/`GET /backtest/{id}` 연동, 자산곡선 차트 + 지표 요약 + 거래내역.
+6. AI 전략 생성 화면: 자연어 입력 → `POST /ai/generate-draft` → 미리보기 + 위험고지 문구 표시 → "캔버스에서 편집" 이동.
+7. 대시보드(워크플로 목록/상태/빠른 실행) — 최소 버전.
+8. 개발 서버로 실제 브라우저에서 golden path(로그인→전략 생성/편집→테스트 실행 하이라이트 확인→백테스트) 수동 검증(프로젝트 규칙상 UI 변경은 브라우저 확인 필수).
+
+완료 후 `status.md` 갱신 + 커밋 → Phase 6(통합 QA)로 진행.
 
 ## 커밋 이력 참고
 

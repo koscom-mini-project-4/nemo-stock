@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     toss_client_id: str | None = None
     toss_client_secret: str | None = None
     toss_base_url: str = "https://apis.tossinvest.com"
+    toss_account_id: str | None = None
 
 
 @lru_cache
