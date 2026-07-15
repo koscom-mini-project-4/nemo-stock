@@ -1,0 +1,98 @@
+{"level":"category","category":"뉴스/공시-API"}
+{"level":"group-done","category":"뉴스/공시-API","group":"뉴스","leafCount":4}
+{"level":"group-done","category":"뉴스/공시-API","group":"공시","leafCount":3}
+{"level":"category-done","category":"뉴스/공시-API","groupCount":2}
+{"level":"summary","totalOk":7,"totalFail":0}
+{"level":"category","category":"채권-API"}
+{"level":"group-done","category":"채권-API","group":"채권발행정보","leafCount":13}
+{"level":"group-done","category":"채권-API","group":"장내국채","leafCount":7}
+{"level":"group-done","category":"채권-API","group":"통합채권(체결정보)","leafCount":6}
+{"level":"group-done","category":"채권-API","group":"장외(K-BOND)","leafCount":2}
+{"level":"group-done","category":"채권-API","group":"통합채권 호가","leafCount":6}
+{"level":"group-done","category":"채권-API","group":"시가그룹","leafCount":3}
+{"level":"group-done","category":"채권-API","group":"장외채권최종호가수익률","leafCount":3}
+{"level":"group-done","category":"채권-API","group":"콜","leafCount":4}
+{"level":"group-done","category":"채권-API","group":"RP","leafCount":1}
+{"level":"group-done","category":"채권-API","group":"RFR(무위험지표금리)","leafCount":4}
+{"level":"group-done","category":"채권-API","group":"발행기관별 시가평가","leafCount":2}
+{"level":"group-done","category":"채권-API","group":"외국환중개(원달러)","leafCount":4}
+{"level":"group-done","category":"채권-API","group":"외국환중개(외환스왑)","leafCount":4}
+{"level":"group-done","category":"채권-API","group":"해외금리","leafCount":3}
+{"level":"group-done","category":"채권-API","group":"해외환율","leafCount":3}
+{"level":"group-done","category":"채권-API","group":"금리스왑","leafCount":4}
+{"level":"group-done","category":"채권-API","group":"기타","leafCount":3}
+{"level":"category-done","category":"채권-API","groupCount":17}
+{"level":"category","category":"해외-API (license)"}
+{"level":"group-done","category":"해외-API (license)","group":"미국 지수","leafCount":5}
+{"level":"group-done","category":"해외-API (license)","group":"일본 지수","leafCount":5}
+{"level":"group-done","category":"해외-API (license)","group":"홍콩 지수","leafCount":5}
+{"level":"group-done","category":"해외-API (license)","group":"중국 지수","leafCount":5}
+{"level":"group-done","category":"해외-API (license)","group":"대만 지수","leafCount":5}
+{"level":"group-done","category":"해외-API (license)","group":"세계 지수","leafCount":5}
+{"level":"group-done","category":"해외-API (license)","group":"미국 종목","leafCount":7}
+{"level":"group-done","category":"해외-API (license)","group":"일본 종목","leafCount":7}
+{"level":"group-done","category":"해외-API (license)","group":"홍콩 종목","leafCount":7}
+{"level":"group-done","category":"해외-API (license)","group":"중국 종목","leafCount":7}
+{"level":"group-done","category":"해외-API (license)","group":"대만 종목","leafCount":6}
+{"level":"category-done","category":"해외-API (license)","groupCount":11}
+{"level":"category","category":"기타-API"}
+{"level":"group-done","category":"기타-API","group":"경제지표","leafCount":2}
+{"level":"group-done","category":"기타-API","group":"기업정보","leafCount":7}
+{"level":"group-done","category":"기타-API","group":"IFRS","leafCount":5}
+{"level":"group-done","category":"기타-API","group":"GAAP","leafCount":4}
+{"level":"group-done","category":"기타-API","group":"컨센서스","leafCount":4}
+{"level":"group-done","category":"기타-API","group":"금융기관 수신고","leafCount":4}
+{"level":"group-done","category":"기타-API","group":"가상자산","leafCount":5}
+{"level":"category-done","category":"기타-API","groupCount":7}
+{"level":"category","category":"주식-API"}
+{"level":"group-done","category":"주식-API","group":"거래소 종목","leafCount":35}
+{"level":"group-done","category":"주식-API","group":"거래소 업종","leafCount":11}
+{"level":"group-done","category":"주식-API","group":"코스닥 종목","leafCount":32}
+{"level":"group-done","category":"주식-API","group":"코스닥 업종","leafCount":11}
+{"level":"group-done","category":"주식-API","group":"NXT-KSP 종목","leafCount":21}
+{"level":"group-done","category":"주식-API","group":"NXT-KSP 업종","leafCount":7}
+{"level":"group-done","category":"주식-API","group":"NXT-KSQ 종목","leafCount":21}
+{"level":"group-done","category":"주식-API","group":"NXT-KSQ 업종","leafCount":7}
+{"level":"group-done","category":"주식-API","group":"통합-KSP 종목","leafCount":21}
+{"level":"group-done","category":"주식-API","group":"통합-KSP 업종","leafCount":7}
+{"level":"group-done","category":"주식-API","group":"통합-KSQ 종목","leafCount":21}
+{"level":"group-done","category":"주식-API","group":"통합-KSQ 업종","leafCount":7}
+{"level":"group-done","category":"주식-API","group":"수익증권","leafCount":6}
+{"level":"group-done","category":"주식-API","group":"신주인수권","leafCount":6}
+{"level":"group-done","category":"주식-API","group":"OTCBB","leafCount":5}
+{"level":"group-done","category":"주식-API","group":"KONEX 종목","leafCount":7}
+{"level":"group-done","category":"주식-API","group":"KONEX 업종","leafCount":6}
+{"level":"group-done","category":"주식-API","group":"섹터지수","leafCount":6}
+{"level":"group-done","category":"주식-API","group":"국내기타지수","leafCount":6}
+{"level":"category-done","category":"주식-API","groupCount":19}
+{"level":"category","category":"파생-API"}
+{"level":"group-done","category":"파생-API","group":"KOSPI200 선물","leafCount":15}
+{"level":"group-done","category":"파생-API","group":"KOSPI200 선물(야간)","leafCount":15}
+{"level":"group-done","category":"파생-API","group":"KOSPI200 옵션","leafCount":16}
+{"level":"group-done","category":"파생-API","group":"KOSPI200 옵션(야간)","leafCount":16}
+{"level":"group-done","category":"파생-API","group":"주식 옵션","leafCount":14}
+{"level":"group-done","category":"파생-API","group":"국채3년 선물","leafCount":12}
+{"level":"group-done","category":"파생-API","group":"국채3년 선물(야간)","leafCount":9}
+{"level":"group-done","category":"파생-API","group":"국채5년 선물","leafCount":12}
+{"level":"group-done","category":"파생-API","group":"국채10년 선물","leafCount":12}
+{"level":"group-done","category":"파생-API","group":"국채10년 선물(야간)","leafCount":9}
+{"level":"group-done","category":"파생-API","group":"국채30년 선물","leafCount":12}
+{"level":"group-done","category":"파생-API","group":"USD 선물","leafCount":9}
+{"level":"group-done","category":"파생-API","group":"USD 선물(야간)","leafCount":9}
+{"level":"group-done","category":"파생-API","group":"YEN 선물","leafCount":9}
+{"level":"group-done","category":"파생-API","group":"EURO 선물","leafCount":9}
+{"level":"group-done","category":"파생-API","group":"KOSDAQ150 선물","leafCount":14}
+{"level":"group-done","category":"파생-API","group":"KOSDAQ150 선물(야간)","leafCount":14}
+{"level":"group-done","category":"파생-API","group":"주식 선물","leafCount":11}
+{"level":"group-done","category":"파생-API","group":"주식 선물(통계정보)","leafCount":8}
+{"level":"group-done","category":"파생-API","group":"섹터지수 선물","leafCount":11}
+{"level":"group-done","category":"파생-API","group":"KOSPI200 미니 선물","leafCount":14}
+{"level":"group-done","category":"파생-API","group":"KOSPI200 미니 선물(야간)","leafCount":14}
+{"level":"group-done","category":"파생-API","group":"CNH 선물","leafCount":9}
+{"level":"group-done","category":"파생-API","group":"KRX300 선물","leafCount":9}
+{"level":"group-done","category":"파생-API","group":"KOSPI200 미니옵션","leafCount":15}
+{"level":"group-done","category":"파생-API","group":"KOSPI200 미니옵션(야간)","leafCount":15}
+{"level":"group-done","category":"파생-API","group":"KOSDAQ150 옵션","leafCount":9}
+{"level":"group-done","category":"파생-API","group":"KOSPI200 위클리 옵션","leafCount":13}
+{"level":"category-done","category":"파생-API","groupCount":28}
+{"level":"summary","totalOk":744,"totalFail":0}

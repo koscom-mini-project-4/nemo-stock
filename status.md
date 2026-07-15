@@ -188,6 +188,41 @@ E2E 리포트는 `docs/e2e/2026-07-15-full-verification/`(스크린샷 11장 포
 구조를 `docs/e2e/<날짜>-<제목>/{report.md, screenshots/}`로 표준화(기존 리포트도
 `docs/e2e/2026-07-14-golden-path/`로 이동).
 
+## 2026-07-15 후속 작업 2: KOSCOM 실계정 검증 + 전체 문서 크롤링
+
+사용자가 실제 KOSCOM CHECK-API 자격증명(`KOSCOM_CUST_ID`/`KOSCOM_AUTH_KEY`, `backend/.env`에 보관)을
+`.env`에 추가하고, (1) 어댑터를 실계정으로 검증, (2) 뉴스/공시 등 다른 카테고리 문서도
+"제대로 된 크롤러"로 체계적으로 정리해 달라고 요청.
+
+**KOSCOM 어댑터 실계정 검증 완료**: `get_price`/`get_orderbook`/`get_ohlcv` 3개 메서드 모두
+005930/000660 기준 실제 호출 성공 확인. 더 이상 미검증 스켈레톤이 아님(Toss 어댑터는 여전히
+미검증 — 실 자격증명 없음). `koscom_adapter.py` 모듈 docstring 갱신, 라이브 검증 전용 테스트
+`backend/tests/integration/test_koscom_live.py` 추가(자격증명 없으면 `pytest.mark.skipif`로
+자동 스킵 — CI/다른 개발자 환경에서 항상 안전). `app_client` 픽스처와 별개로 `Settings()`를
+직접 읽어 실키를 사용하므로 다른 테스트의 monkeypatch 오버라이드와 충돌하지 않는다.
+
+**checkapi.koscom.co.kr 전체 문서 크롤링**: 기존에는 뉴스/공시-API 등 일부만 수작업으로 조사했으나,
+재사용 가능한 Playwright 크롤러(`docs/koscom-api/crawler/koscom_crawler.js`)를 새로 작성해
+사이트 전체(6개 카테고리 · 84개 그룹 · **751개 리프 페이지**: 주식-API 243, 파생-API 334,
+채권-API 72, 해외-API(license) 64, 뉴스/공시-API 7, 기타-API 31)를 크롤링, **실패 0건**(재시도
+1회 포함 100% 성공). 결과는 `docs/koscom-api/pages/<category-slug>/<group>/<NN-leaf>.md`로
+저장, 전체 목록/링크 인덱스는 `docs/koscom-api/pages/INDEX.md`. 카테고리별 샘플 페이지를
+스팟체크해 내용 품질(요청 파라미터/응답 필드/예제 코드 모두 포함) 확인, 300바이트 미만의
+비정상적으로 짧은 파일 없음(0건). `docs/koscom-api/README.md`를 전체 크롤 결과와 실계정 검증
+완료 사실을 반영해 갱신.
+
+크롤러 구현 요점: 사이드바가 시각적으로 접혀 있어도 DOM 구조는 항상 존재하므로
+`page.evaluate()`로 카테고리→그룹→리프 트리를 먼저 전부 discover한 뒤, 각 리프를 클릭할 때는
+동일한 이름의 리프가 다른 그룹에도 있을 수 있어 카테고리+그룹으로 스코프를 좁힌 뒤 정확한
+`<span class="txt_detailidx">` 엘리먼트를 찾아 `.click()`(Playwright의 `text=` 셀렉터는
+모호성/가시성 문제로 배제). 본문은 `.contents` CSS 클래스가 사이드바 노이즈 없이 깨끗하게
+분리해줌을 확인. 리프당 최대 2회 재시도, 진행 상황은 `pages/_crawl-log.jsonl`에 JSONL로
+누적 기록해 중단되어도 이어서 확인 가능하게 설계.
+
+**회귀**: 백엔드 `pytest` **83개 전부 통과**(라이브 테스트 3개 포함), 프론트 `vue-tsc -b` 통과.
+`.env`(실제 시크릿)는 항상 gitignore 처리 상태 유지, 커밋 전 `git status`로 스테이징 대상에
+시크릿 파일 없음 확인.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

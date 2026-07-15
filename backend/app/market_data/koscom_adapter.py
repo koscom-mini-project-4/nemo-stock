@@ -1,10 +1,10 @@
-"""KOSCOM CHECK-API 기반 실시세 어댑터 (스켈레톤, 미검증).
+"""KOSCOM CHECK-API 기반 실시세 어댑터.
 
-DESIGN.md의 Toss 어댑터와 같은 성격의 제약: CHECK-API는 코스콤 "CHECK 단말" 구독 고객에게
-발급되는 cust_id/auth_key가 있어야 호출 가능한 유료 서비스이며, 이 PoC에는 실제 자격증명이
-없어 호출 검증을 하지 못했다. 다만 아래 엔드포인트/필드명은 실제로 렌더링해 확인한 공식 문서
-(https://checkapi.koscom.co.kr, 2026-07-15 조사)를 그대로 반영한 것으로, 조사 근거와 원문은
-docs/koscom-api/README.md 및 같은 폴더의 raw-*.txt에 보관되어 있다.
+CHECK-API는 코스콤 "CHECK 단말" 구독 고객에게 발급되는 cust_id/auth_key가 있어야 호출 가능한
+유료 서비스다. 2026-07-15 실제 발급받은 자격증명으로 get_price/get_orderbook/get_ohlcv
+(basic_info/hoga_info/hist_info) 3개 엔드포인트 모두 실제 호출까지 검증 완료했다
+(삼성전자/SK하이닉스 실시세·호가·일별시세 정상 조회 확인). 엔드포인트/필드명 조사 근거와
+원문은 docs/koscom-api/README.md, docs/koscom-api/pages/(전체 사이트 크롤 결과)에 보관되어 있다.
 
 공식 문서 명시 제약:
 - HTTPS + POST만 지원(GET/HTTP 미지원, 보안상 이유)
