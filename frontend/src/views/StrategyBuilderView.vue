@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Position, useVueFlow, VueFlow, type Edge as VFEdge, type Node as VFNode } from '@vue-flow/core'
+import { Handle, Position, useVueFlow, VueFlow, type Edge as VFEdge, type Node as VFNode } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -26,6 +26,7 @@ import PropertyPanel from '@/components/PropertyPanel.vue'
 import ValidationPanel from '@/components/ValidationPanel.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
 import TestRunModal from '@/components/TestRunModal.vue'
+import ParamFields from '@/components/ParamFields.vue'
 
 const props = defineProps<{ id?: string }>()
 
@@ -113,8 +114,8 @@ function addNode(schema: NodeTypeSchema) {
   const index = flowNodes.value.length
   flowNodes.value.push({
     id,
-    type: 'default',
-    position: { x: 40 + (index % 4) * 220, y: 40 + Math.floor(index / 4) * 120 },
+    type: 'workflow',
+    position: { x: 40 + (index % 4) * 300, y: 40 + Math.floor(index / 4) * 200 },
     label: schema.display_name,
     targetPosition: Position.Left,
     sourcePosition: Position.Right,
@@ -161,9 +162,24 @@ function onNodeClick(event: { node: VFNode<FlowNodeData> }) {
   activeTab.value = 'properties'
 }
 
+function updateNodeParamById(nodeId: string, key: string, value: unknown) {
+  const node = flowNodes.value.find((n) => n.id === nodeId)
+  if (!node) return
+  node.data!.params[key] = value
+}
+
 function updateParam(key: string, value: unknown) {
   if (!selectedNode.value) return
-  selectedNode.value.data!.params[key] = value
+  updateNodeParamById(selectedNode.value.id, key, value)
+}
+
+function updateAllParams(params: Record<string, unknown>) {
+  if (!selectedNode.value) return
+  selectedNode.value.data!.params = params
+}
+
+function schemaFor(nodeType: string): NodeTypeSchema | undefined {
+  return nodeTypesByKey.value.get(nodeType)
 }
 
 function deleteSelectedNode() {
@@ -325,6 +341,23 @@ onMounted(load)
           @connect="onConnect"
           @node-click="onNodeClick"
         >
+          <template #node-workflow="nodeProps">
+            <div class="wf-node">
+              <Handle type="target" :position="Position.Left" />
+              <div class="wf-node-header">
+                <span class="wf-node-title">{{ nodeProps.data.displayName }}</span>
+                <span class="wf-node-type mono">{{ nodeProps.data.nodeType }}</span>
+              </div>
+              <ParamFields
+                v-if="schemaFor(nodeProps.data.nodeType)"
+                compact
+                :param-schema="schemaFor(nodeProps.data.nodeType)!.param_schema"
+                :params="nodeProps.data.params"
+                @update-param="(key, value) => updateNodeParamById(nodeProps.id, key, value)"
+              />
+              <Handle type="source" :position="Position.Right" />
+            </div>
+          </template>
           <Background pattern-color="var(--border)" :gap="16" />
           <Controls />
           <MiniMap />
@@ -343,6 +376,7 @@ onMounted(load)
             :node="selectedNode"
             :schema="selectedSchema"
             @update-param="updateParam"
+            @update-all-params="updateAllParams"
             @delete="deleteSelectedNode"
           />
           <ValidationPanel v-else-if="activeTab === 'validation'" :result="validationResult" :loading="validating" />
@@ -447,6 +481,47 @@ onMounted(load)
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* 캔버스 위 커스텀 노드 박스 — 파라미터를 노드 안에서 바로 보고 마우스로 수정할 수 있도록 표시한다. */
+.wf-node {
+  min-width: 190px;
+  max-width: 240px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  cursor: grab;
+}
+
+.wf-node-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 7px 7px 0 0;
+}
+
+.wf-node-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wf-node-type {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.wf-node :deep(.param-fields) {
+  padding: 8px 10px;
+}
+
+.wf-node :deep(.param-fields.compact:empty),
+.wf-node :deep(.no-params) {
+  padding: 6px 10px;
+  margin: 0;
 }
 </style>
 

@@ -64,8 +64,9 @@ export function computeLayeredLayout(nodes: GraphNode[], edges: GraphEdge[]): Re
   })
 
   const positions: Record<string, FlowPosition> = {}
-  const xGap = 260
-  const yGap = 110
+  // 노드 안에 파라미터 필드가 인라인으로 표시되어 기본 노드보다 커졌으므로 간격을 넉넉히 둔다.
+  const xGap = 300
+  const yGap = 220
   for (const [lv, levelIds] of byLevel.entries()) {
     levelIds.forEach((id, i) => {
       positions[id] = { x: lv * xGap + 40, y: i * yGap + 40 }

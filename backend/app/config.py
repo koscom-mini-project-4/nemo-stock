@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     pro_min_interval_sec: int = 1
 
     # Providers
-    market_data_provider: str = "dummy"  # dummy | historical | toss
+    market_data_provider: str = "dummy"  # dummy | historical | toss | koscom
     order_provider: str = "dummy"  # dummy | toss
 
     # AI
@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     toss_client_secret: str | None = None
     toss_base_url: str = "https://apis.tossinvest.com"
     toss_account_id: str | None = None
+
+    # KOSCOM CHECK-API (실험적/미검증 — CHECK 단말 구독 고객 전용, docs/koscom-api/README.md 참조)
+    koscom_cust_id: str | None = None
+    koscom_auth_key: str | None = None
+    koscom_base_url: str = "https://checkapi.koscom.co.kr"
 
 
 @lru_cache

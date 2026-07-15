@@ -20,7 +20,7 @@ export function graphToFlowElements(
     const schema = nodeTypesByKey.get(n.type)
     return {
       id: n.id,
-      type: 'default',
+      type: 'workflow',
       position: positions[n.id] ?? { x: 0, y: 0 },
       label: schema?.display_name ?? n.type,
       targetPosition: Position.Left,

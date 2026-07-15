@@ -44,6 +44,7 @@ from app.dao.sqlite.repositories import (
 )
 from app.market_data.base import MarketDataProvider
 from app.market_data.dummy import DummyMarketDataProvider
+from app.market_data.koscom_adapter import KoscomMarketDataProvider
 from app.market_data.toss_adapter import TossInvestMarketDataProvider
 from app.nodes import load_all_nodes
 from app.trigger.queue import InMemoryTriggerQueue, TriggerQueue
@@ -93,6 +94,14 @@ def _build_market_data_provider(settings: Settings) -> MarketDataProvider:
             )
         return TossInvestMarketDataProvider(
             settings.toss_client_id, settings.toss_client_secret, settings.toss_base_url
+        )
+    if settings.market_data_provider == "koscom":
+        if not settings.koscom_cust_id or not settings.koscom_auth_key:
+            raise RuntimeError(
+                "MARKET_DATA_PROVIDER=koscom 이지만 KOSCOM_CUST_ID/KOSCOM_AUTH_KEY가 설정되지 않았습니다."
+            )
+        return KoscomMarketDataProvider(
+            settings.koscom_cust_id, settings.koscom_auth_key, settings.koscom_base_url
         )
     # "historical"은 백테스트 전용(BacktestRunner가 자체 생성)이라 라이브 컨테이너에서는 dummy로 폴백한다.
     return DummyMarketDataProvider()

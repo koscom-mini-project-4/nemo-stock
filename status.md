@@ -117,14 +117,15 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 | 항목 | 현재 상태 | 비고 |
 | --- | --- | --- |
 | Toss증권 연동 | 어댑터 스켈레톤만 존재, 엔드포인트/필드명 미검증 | 승인된 API 키 발급 후 공식 명세로 교체 필요(Phase 4) |
+| KOSCOM CHECK-API 연동 | 어댑터 스켈레톤만 존재, 실제 호출 미검증(자격증명 없음) | CHECK 단말 구독 후 cust_id/auth_key 발급 필요(2026-07-15 추가, `docs/koscom-api/README.md` 참조) |
 | 백테스트 실행 | 동기(HTTP 응답 즉시 반환) | 데이터 규모 커지면 비동기 전환 필요(Phase 2) |
 | 실시간 라이브 모니터링 UI | 없음(백엔드 WS 엔드포인트는 구현·테스트됨) | 프론트에서 활성 워크플로 실시간 관전 기능 추가 필요(Phase 5) |
 | ai.regime(시장 국면 판단) | 미구현 | `ai.sentiment_score`와 동일 캐시 패턴 재사용 가능(Phase 3) |
-| DART 공시 원문 | 제목(report_nm)만 사용, 원문(XML) 미수집 | document.xml 파싱 추가 시 점수화 품질 향상 가능(Phase 3) |
+| DART 공시 원문 | 제목(report_nm)만 사용, 원문(XML) 미수집. 종목 미지정 조회 시 시장 전체를 스캔하므로 max_pages=20으로 상한(2026-07-15 실사용 중 발견) | document.xml 파싱 및 corp_code 매핑 추가 시 개선 가능(Phase 3) |
 | 뉴스 데이터 소스 | 수동 적재만 지원(`/data/ingest/news/manual`) | 실 뉴스 API/크롤러 연동 시 NewsRepository 인터페이스만 구현하면 교체 가능 |
 | 노드 좌표 영속화 | 미지원(자동 레이아웃으로 매번 재배치) | 필요 시 WorkflowGraphIn에 layout 필드 추가 |
 | 인증/사용자 | 단일 계정 | 실 서비스 전환 시 다중 사용자/회원가입 필요(§0 확정 결정, PoC 범위 내 의도된 제한) |
-| 백테스트 데이터 소스 | 공공데이터포털 일봉(일 1회 T+1) + 수동 적재 | 실시간/분봉 데이터는 별도 소스 필요 |
+| 백테스트 데이터 소스 | 공공데이터포털 일봉(일 1회 T+1) — **실키로 검증 완료**(2026-07-15, 삼성전자/SK하이닉스 3~6월) + 수동 적재 | 실시간/분봉 데이터는 KOSCOM CHECK-API 등 별도 소스 필요 |
 
 **아키텍처 검증된 확장 포인트** (설계 원칙대로 인터페이스 교체만으로 대체 가능함을 실증):
 - `TriggerQueue`(인메모리 → Redis/Kafka), `MarketDataProvider`/`OrderExecutionProvider`(dummy → Toss/타 증권사), `Repository`(SQLite → 타 RDB, DATABASE_URL만 변경), `AIClient`(OpenAI → 타 LLM), `EventBus`(인메모리 → Redis pub/sub).
@@ -132,7 +133,8 @@ Toss증권 Open API는 실존(`developers.tossinvest.com`, OAuth2 Client Credent
 ## E2E 브라우저 QA (2026-07-14, Phase 6 이후 추가 검증)
 
 Playwright(headless Chromium)로 백엔드+프론트엔드를 동시 기동한 실제 애플리케이션을 구동해 로그인부터
-대시보드 반영까지 골든 패스 12단계를 검증. 상세 결과와 단계별 스크린샷은 `docs/e2e/e2e-test-report.md` 참조.
+대시보드 반영까지 골든 패스 12단계를 검증. 상세 결과와 단계별 스크린샷은
+`docs/e2e/2026-07-14-golden-path/report.md` 참조(리포트별 디렉토리로 분리, 아래 2026-07-15 참조).
 
 - **결과**: 12/12 PASS, 콘솔 런타임 에러 0건.
 - **버그 발견 및 수정**: 노드를 3개 이상 연속으로 빠르게 추가하면 `fitView()`가 Vue Flow의 노드 크기
@@ -142,6 +144,49 @@ Playwright(headless Chromium)로 백엔드+프론트엔드를 동시 기동한 �
   실사용 흐름 그대로(팔레트 클릭 → 즉시 연결) 조작했기 때문에 발견 가능했던 이슈로, 자동화 스모크
   테스트만으로는 놓치기 쉬운 유형이었다.
 - 수정 후 백엔드 `pytest` 71개 전부 통과, 프론트 `vue-tsc -b` + `npm run build` 통과 재확인.
+
+## 2026-07-15 후속 작업: 노드 인라인 편집 + 실키 연동 + KOSCOM 어댑터
+
+사용자 요청: (1) 노드 상세 설정을 코드로도 수정 가능하게, 파라미터가 노드 그래픽 안에 보이고
+마우스로 값을 바꿀 수 있게(IF 조건도 그래프에 표시), (2) 실제 발급받은 OpenAI/공공데이터포털/
+OpenDART 키로 재검증 + 리포트를 디렉토리별로 분리, (3) KOSCOM CHECK-API(`checkapi.koscom.co.kr`)
+를 참고해 장중 실시세 연동 가능하도록.
+
+**시크릿 관리**: `backend/.env.example`(git 추적됨)에 실제 OpenAI 키가 평문으로 들어가 있던 것을
+발견해 `backend/.env`(gitignore 처리)로 이동하고 `.env.example`은 템플릿으로 원복. 공공데이터포털
+서비스키는 디코딩된 원본 값을 써야 함(httpx가 자동 인코딩 — 인코딩된 값을 넣으면 이중 인코딩되어
+인증 실패)을 확인해 반영. `tests/conftest.py`가 키 관련 설정을 명시적으로 빈 값으로 오버라이드하도록
+보강(로컬 `.env`의 실제 키가 "키 미설정" 테스트 경로를 오염시키는 것을 방지).
+
+**노드 UI**: `ParamFields.vue`(select/checkbox/number/text/expression 공용 렌더러)를 속성 패널과
+캔버스 커스텀 노드(`#node-workflow` 슬롯)가 함께 사용하도록 구현 — 모든 파라미터가 캔버스 노드
+박스 안에 그대로 보이고 마우스로 직접 수정 가능(`nodrag nopan`으로 Vue Flow 제스처와 분리). IF
+조건(`logic.if_else`의 `expr`)은 모노스페이스+강조 배경으로 그래프에서 바로 눈에 띄게 표시.
+속성 패널에 "폼"/"코드(JSON)" 탭을 추가해 노드 params를 JSON으로 직접 편집·적용 가능.
+
+**실키 연동 중 발견해 수정한 버그 2건** (상세는 `docs/e2e/2026-07-15-full-verification/report.md`):
+1. 공공데이터포털 시세 API의 `srtnCd`(종목코드 정확일치) 파라미터가 서버에서 무시되고 시장
+   전체 데이터가 반환되는 버그 발견 — `likeSrtnCd`로 교체 + 클라이언트 측 방어적 재필터링 +
+   `max_pages` 상한 추가. 다른 종목 데이터가 잘못된 심볼로 저장될 뻔한 데이터 무결성 문제였음.
+2. OpenDART 공시 조회가 종목 미지정 시 시장 전체(수천 페이지)를 스캔해 타임아웃나는 문제 —
+   `max_pages=20` 상한 추가.
+
+**KOSCOM CHECK-API 어댑터 추가**: `checkapi.koscom.co.kr`을 Playwright로 실제 렌더링해(JS SPA)
+공식 문서를 확인(`docs/koscom-api/README.md` + `raw-*.txt`). CHECK 단말 구독 고객 전용 유료
+서비스라 실제 자격증명 없이 스켈레톤만 구현(Toss와 동일 성격의 한계, 다만 문서 근거는 더 구체적).
+`app/market_data/koscom_adapter.py`의 `KoscomMarketDataProvider`가 basic_info/hoga_info/hist_info
+3개 엔드포인트를 구현하고 공식 문서의 "1초당 1회" 레이트리밋을 실제로 강제한다.
+`MARKET_DATA_PROVIDER=koscom`으로 다른 어댑터와 동일하게 선택 가능.
+
+**실데이터 백테스트**: 사용자 요청대로 삼성전자(005930)+SK하이닉스(000660) 2종목, 2026년
+3~6월 3개월 범위로 스코프를 좁혀 실제 공공데이터포털 데이터(각 81거래일)를 적재하고 백테스트
+실행 성공(누적수익률 147.23%, MDD 18.73% — 매도 로직 없는 단순 매수 전략이라 거래횟수/승률은
+0으로 정상 산출).
+
+**회귀**: 백엔드 `pytest` **80개 전부 통과**, 프론트 `vue-tsc -b`+`npm run build` 통과. 두 번째
+E2E 리포트는 `docs/e2e/2026-07-15-full-verification/`(스크린샷 11장 포함)에, 리포트 디렉토리
+구조를 `docs/e2e/<날짜>-<제목>/{report.md, screenshots/}`로 표준화(기존 리포트도
+`docs/e2e/2026-07-14-golden-path/`로 이동).
 
 ## 커밋 이력 참고
 

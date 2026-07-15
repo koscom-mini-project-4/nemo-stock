@@ -38,3 +38,20 @@ def test_toss_order_provider_with_full_credentials_builds():
     )
     provider = _build_order_provider(settings)
     assert provider.__class__.__name__ == "TossInvestOrderExecutionProvider"
+
+
+def test_koscom_market_data_without_credentials_raises():
+    settings = Settings(_env_file=None, market_data_provider="koscom")
+    with pytest.raises(RuntimeError):
+        _build_market_data_provider(settings)
+
+
+def test_koscom_market_data_with_credentials_builds():
+    settings = Settings(
+        _env_file=None,
+        market_data_provider="koscom",
+        koscom_cust_id="NS00000001",
+        koscom_auth_key="authkey123",
+    )
+    provider = _build_market_data_provider(settings)
+    assert provider.__class__.__name__ == "KoscomMarketDataProvider"

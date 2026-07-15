@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import type { Node as VFNode } from '@vue-flow/core'
 import type { NodeTypeSchema } from '@/api/types'
 import type { FlowNodeData } from '@/utils/flowAdapter'
+import ParamFields from '@/components/ParamFields.vue'
 
 const props = defineProps<{
   node: VFNode<FlowNodeData> | null
@@ -10,22 +12,41 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update-param': [key: string, value: unknown]
+  'update-all-params': [params: Record<string, unknown>]
   delete: []
 }>()
 
-function onInput(key: string, event: Event) {
-  const target = event.target as HTMLInputElement
-  emit('update-param', key, target.value)
+const mode = ref<'form' | 'code'>('form')
+const codeText = ref('{}')
+const codeError = ref('')
+
+function syncCodeFromNode() {
+  codeText.value = JSON.stringify(props.node?.data?.params ?? {}, null, 2)
+  codeError.value = ''
 }
 
-function onNumberInput(key: string, event: Event) {
-  const target = event.target as HTMLInputElement
-  emit('update-param', key, target.value === '' ? '' : Number(target.value))
+watch(
+  () => props.node?.id,
+  () => syncCodeFromNode(),
+)
+
+function switchMode(next: 'form' | 'code') {
+  if (next === 'code') syncCodeFromNode()
+  mode.value = next
 }
 
-function onCheckbox(key: string, event: Event) {
-  const target = event.target as HTMLInputElement
-  emit('update-param', key, target.checked)
+function applyCode() {
+  try {
+    const parsed = JSON.parse(codeText.value)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      codeError.value = 'JSON 객체({...}) 형식이어야 합니다.'
+      return
+    }
+    emit('update-all-params', parsed as Record<string, unknown>)
+    codeError.value = ''
+  } catch {
+    codeError.value = '올바른 JSON 형식이 아닙니다.'
+  }
 }
 </script>
 
@@ -40,48 +61,24 @@ function onCheckbox(key: string, event: Event) {
         <button class="btn btn-danger" type="button" @click="emit('delete')">삭제</button>
       </div>
 
+      <div class="mode-tabs">
+        <button type="button" :class="{ active: mode === 'form' }" @click="switchMode('form')">폼</button>
+        <button type="button" :class="{ active: mode === 'code' }" @click="switchMode('code')">코드(JSON)</button>
+      </div>
+
       <div v-if="!schema" class="text-muted">알 수 없는 노드 타입입니다.</div>
-      <div v-else-if="schema.param_schema.length === 0" class="text-muted">파라미터가 없는 노드입니다.</div>
-      <div v-else class="param-form">
-        <label v-for="spec in schema.param_schema" :key="spec.key" class="param-field">
-          <span>{{ spec.label }}<span v-if="spec.required" class="required">*</span></span>
-
-          <select
-            v-if="spec.type === 'select'"
-            :value="(node.data?.params[spec.key] as string) ?? spec.default"
-            @change="onInput(spec.key, $event)"
-          >
-            <option v-for="opt in spec.options ?? []" :key="opt" :value="opt">{{ opt }}</option>
-          </select>
-
-          <input
-            v-else-if="spec.type === 'boolean'"
-            type="checkbox"
-            :checked="Boolean(node.data?.params[spec.key] ?? spec.default)"
-            @change="onCheckbox(spec.key, $event)"
-          />
-
-          <input
-            v-else-if="spec.type === 'number'"
-            type="number"
-            :value="(node.data?.params[spec.key] as number) ?? spec.default"
-            @input="onNumberInput(spec.key, $event)"
-          />
-
-          <textarea
-            v-else-if="spec.type === 'expression'"
-            rows="2"
-            :value="(node.data?.params[spec.key] as string) ?? spec.default"
-            @input="onInput(spec.key, $event)"
-          />
-
-          <input
-            v-else
-            type="text"
-            :value="(node.data?.params[spec.key] as string) ?? spec.default"
-            @input="onInput(spec.key, $event)"
-          />
-        </label>
+      <ParamFields
+        v-else-if="mode === 'form'"
+        :param-schema="schema.param_schema"
+        :params="node.data?.params ?? {}"
+        @update-param="(key, value) => emit('update-param', key, value)"
+      />
+      <div v-else class="code-editor">
+        <textarea v-model="codeText" rows="12" class="mono" spellcheck="false" />
+        <div class="code-actions">
+          <button class="btn btn-primary" type="button" @click="applyCode">적용</button>
+          <span v-if="codeError" class="error">{{ codeError }}</span>
+        </div>
       </div>
     </template>
     <p v-else class="text-muted">캔버스에서 노드를 선택하면 속성을 편집할 수 있습니다.</p>
@@ -101,25 +98,53 @@ function onCheckbox(key: string, event: Event) {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   gap: 8px;
 }
 
-.param-form {
+.mode-tabs {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.param-field {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
-  font-size: 13px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
 }
 
-.required {
+.mode-tabs button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  padding: 5px 0;
+  border-radius: 4px;
+}
+
+.mode-tabs button.active {
+  background: var(--accent);
+  color: white;
+}
+
+.code-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.code-editor textarea {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.code-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.code-actions .error {
   color: var(--danger);
-  margin-left: 2px;
+  font-size: 12px;
 }
 </style>
