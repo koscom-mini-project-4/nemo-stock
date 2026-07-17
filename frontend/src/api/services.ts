@@ -1,10 +1,13 @@
 import { apiClient } from './client'
 import type {
   BacktestResultOut,
+  ChatMessage,
   GenerateDraftResponse,
   NodeTypeSchema,
   RunResultOut,
   ValidationResult,
+  WorkflowChatLastRun,
+  WorkflowChatResponse,
   WorkflowGraph,
   WorkflowOut,
   WorkflowStatus,
@@ -87,6 +90,17 @@ export async function fetchBacktest(id: string): Promise<BacktestResultOut> {
 
 export async function generateDraft(idea: string, universe?: string[]): Promise<GenerateDraftResponse> {
   const { data } = await apiClient.post('/ai/generate-draft', { idea, universe })
+  return data
+}
+
+export async function chatAboutWorkflow(payload: {
+  name: string
+  graph: WorkflowGraph
+  message: string
+  history: ChatMessage[]
+  last_run?: WorkflowChatLastRun | null
+}): Promise<WorkflowChatResponse> {
+  const { data } = await apiClient.post('/ai/workflow-chat', payload)
   return data
 }
 

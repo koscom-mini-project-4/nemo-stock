@@ -103,3 +103,22 @@ export interface GenerateDraftResponse {
   graph: WorkflowGraph
   disclaimer: string
 }
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface WorkflowChatLastRun {
+  status: string
+  events: NodeEventOut[]
+  final_symbols: Record<string, Record<string, unknown>>
+}
+
+export interface WorkflowChatResponse {
+  reply: string
+  changed: boolean
+  name?: string | null
+  graph?: WorkflowGraph | null
+  disclaimer?: string | null
+}

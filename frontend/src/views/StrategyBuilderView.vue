@@ -18,21 +18,22 @@ import {
   updateWorkflow,
   validateWorkflow,
 } from '@/api/services'
-import type { NodeEventOut, NodeTypeSchema, ValidationResult, WorkflowStatus } from '@/api/types'
+import type { NodeEventOut, NodeTypeSchema, ValidationResult, WorkflowGraph, WorkflowStatus } from '@/api/types'
 import { flowElementsToGraph, graphToFlowElements, type FlowNodeData } from '@/utils/flowAdapter'
 import { useDraftStore } from '@/stores/draft'
-import NodePalette from '@/components/NodePalette.vue'
+import NodePalette, { PALETTE_DRAG_MIME } from '@/components/NodePalette.vue'
 import PropertyPanel from '@/components/PropertyPanel.vue'
 import ValidationPanel from '@/components/ValidationPanel.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
 import TestRunModal from '@/components/TestRunModal.vue'
 import ParamFields from '@/components/ParamFields.vue'
+import ChatPanel from '@/components/ChatPanel.vue'
 
 const props = defineProps<{ id?: string }>()
 
 const router = useRouter()
 const draftStore = useDraftStore()
-const { fitView } = useVueFlow()
+const { fitView, screenToFlowCoordinate } = useVueFlow()
 
 const workflowId = ref<string | null>(props.id ?? null)
 const name = ref('이름 없는 전략')
@@ -52,7 +53,7 @@ const selectedSchema = computed(() =>
   selectedNode.value ? nodeTypesByKey.value.get(selectedNode.value.data!.nodeType) : undefined,
 )
 
-const activeTab = ref<'properties' | 'validation' | 'debug'>('properties')
+const activeTab = ref<'properties' | 'validation' | 'debug' | 'chat'>('properties')
 const validationResult = ref<ValidationResult | null>(null)
 const validating = ref(false)
 const saving = ref(false)
@@ -109,13 +110,13 @@ async function load() {
   }
 }
 
-function addNode(schema: NodeTypeSchema) {
+function addNode(schema: NodeTypeSchema, position?: { x: number; y: number }) {
   const id = nextNodeId()
   const index = flowNodes.value.length
   flowNodes.value.push({
     id,
     type: 'workflow',
-    position: { x: 40 + (index % 4) * 300, y: 40 + Math.floor(index / 4) * 200 },
+    position: position ?? { x: 40 + (index % 4) * 300, y: 40 + Math.floor(index / 4) * 200 },
     label: schema.display_name,
     targetPosition: Position.Left,
     sourcePosition: Position.Right,
@@ -128,6 +129,21 @@ function addNode(schema: NodeTypeSchema) {
     },
   })
   scheduleFitView()
+}
+
+function onPaletteDragOver(event: DragEvent) {
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+}
+
+function onPaletteDrop(event: DragEvent) {
+  event.preventDefault()
+  const nodeType = event.dataTransfer?.getData(PALETTE_DRAG_MIME)
+  if (!nodeType) return
+  const schema = nodeTypesByKey.value.get(nodeType)
+  if (!schema) return
+  const position = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+  addNode(schema, position)
 }
 
 /**
@@ -180,6 +196,27 @@ function updateAllParams(params: Record<string, unknown>) {
 
 function schemaFor(nodeType: string): NodeTypeSchema | undefined {
   return nodeTypesByKey.value.get(nodeType)
+}
+
+const currentGraph = computed<WorkflowGraph>(() => flowElementsToGraph(flowNodes.value, flowEdges.value))
+
+const chatLastRun = computed(() =>
+  lastRunStatus.value
+    ? {
+        status: lastRunStatus.value,
+        events: debugEvents.value,
+        final_symbols: lastRunFinalSymbols.value ?? {},
+      }
+    : null,
+)
+
+function applyChatGraph(payload: { name: string; graph: WorkflowGraph }) {
+  if (payload.name) name.value = payload.name
+  const { nodes, edges } = graphToFlowElements(payload.graph, nodeTypesByKey.value)
+  flowNodes.value = nodes
+  flowEdges.value = edges
+  selectedNodeId.value = null
+  scheduleFitView()
 }
 
 function deleteSelectedNode() {
@@ -332,7 +369,7 @@ onMounted(load)
     <div class="builder-body">
       <NodePalette :node-types="nodeTypes" @add="addNode" />
 
-      <div class="canvas">
+      <div class="canvas" @dragover="onPaletteDragOver" @drop="onPaletteDrop">
         <VueFlow
           v-model:nodes="flowNodes"
           v-model:edges="flowEdges"
@@ -369,8 +406,9 @@ onMounted(load)
           <button :class="{ active: activeTab === 'properties' }" @click="activeTab = 'properties'">속성</button>
           <button :class="{ active: activeTab === 'validation' }" @click="activeTab = 'validation'">검증</button>
           <button :class="{ active: activeTab === 'debug' }" @click="activeTab = 'debug'">디버그</button>
+          <button :class="{ active: activeTab === 'chat' }" @click="activeTab = 'chat'">AI 챗봇</button>
         </div>
-        <div class="tab-content">
+        <div class="tab-content" :class="{ 'tab-content-chat': activeTab === 'chat' }">
           <PropertyPanel
             v-if="activeTab === 'properties'"
             :node="selectedNode"
@@ -380,7 +418,8 @@ onMounted(load)
             @delete="deleteSelectedNode"
           />
           <ValidationPanel v-else-if="activeTab === 'validation'" :result="validationResult" :loading="validating" />
-          <DebugPanel v-else :events="debugEvents" :playing="playingAnimation" />
+          <DebugPanel v-else-if="activeTab === 'debug'" :events="debugEvents" :playing="playingAnimation" />
+          <ChatPanel v-else :name="name" :graph="currentGraph" :last-run="chatLastRun" @apply-graph="applyChatGraph" />
         </div>
       </div>
     </div>
@@ -481,6 +520,11 @@ onMounted(load)
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+.tab-content.tab-content-chat {
+  overflow-y: hidden;
+  display: flex;
 }
 
 /* 캔버스 위 커스텀 노드 박스 — 파라미터를 노드 안에서 바로 보고 마우스로 수정할 수 있도록 표시한다. */

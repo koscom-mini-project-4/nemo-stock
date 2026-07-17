@@ -223,6 +223,45 @@ E2E 리포트는 `docs/e2e/2026-07-15-full-verification/`(스크린샷 11장 포
 `.env`(실제 시크릿)는 항상 gitignore 처리 상태 유지, 커밋 전 `git status`로 스테이징 대상에
 시크릿 파일 없음 확인.
 
+## 2026-07-17 후속 작업: 캔버스 AI 챗봇 + 드래그앤드롭 노드 추가 + 예시 템플릿 + 모델 업그레이드
+
+사용자 요청 4가지: (1) 노드 수정을 챗봇으로도 할 수 있게, (2) 노드의 진행 과정(그래프 구조+실행 결과)을
+요약 설명해주는 챗봇, (3) 팔레트 클릭 외에 드래그해서 노드 추가, (4) AI 전략 생성 시작 시 예시 프롬프트
+템플릿 버튼 + 더 나은 OpenAI 모델. 세부 결정 사항은 `DESIGN.md` §0-1 참조(통합 채팅창, 미리보기 후
+적용, 그래프+실행결과 요약 범위, `gpt-5.6-luna` 모델).
+
+**통합 챗봇**: (1)과 (2)를 하나의 채팅 UI로 통합하기로 확정 — 별도 엔드포인트 2개 대신
+`app/ai/workflow_chat.py` + `POST /ai/workflow-chat` 하나로 처리. AI가 사용자 메시지를
+"수정 지시" vs "설명 질문"으로 스스로 분류해 응답 JSON의 `changed` 불리언으로 구분(`changed=false`면
+검증 없이 텍스트만, `changed=true`면 `WorkflowGraph.validate()` 통과 시에만 미리보기용 그래프 반환).
+프론트 `ChatPanel.vue`가 캔버스 우측 새 "AI 챗봇" 탭으로 통합(`StrategyBuilderView.vue`). 수정 제안은
+채팅 말풍선에 "노드 N개·엣지 N개로 변경" 요약 + 적용/취소 버튼으로 표시되며, "적용"을 눌러야
+`flowNodes`/`flowEdges`에 반영됨(자동 반영 안 함 — 기존 AI 초안 생성과 동일한 검토 원칙 유지).
+
+**드래그 앤 드롭**: `NodePalette.vue` 아이템에 `draggable` 부여, `StrategyBuilderView.vue` 캔버스에
+`dragover`/`drop` 핸들러 추가. Vue Flow `screenToFlowCoordinate`로 드롭 지점을 노드 좌표로 변환해
+기존 클릭 추가(그리드 배치)와 별개로 원하는 위치에 바로 배치 가능.
+
+**예시 템플릿**: `AIGenerateView.vue`에 예시 투자 아이디어 4개(뉴스 긍정 매수, 이평선 돌파+손절, RSI
+과매도+목표수익, 공시 호재)를 버튼으로 추가, 클릭 시 텍스트영역에 자동 채움(제출은 사용자가 직접).
+
+**모델 업그레이드 중 발견한 회귀 버그**: 사용자가 지정한 `gpt-5.6-luna`(2026-07 출시, GPT-5.6
+3단계 모델군 중 최저가 티어 — WebSearch로 실존 확인)로 `OPENAI_MODEL`을 바꾸자, 기존 코드가
+모든 AI 호출에 하드코딩해 보내던 `temperature=0.2`가 400 에러(`Unsupported value: 'temperature'
+... Only the default (1) value is supported`)를 유발해 챗봇이 500으로 죽는 문제 발견. gpt-5 계열
+reasoning 모델의 공통 제약. `app/ai/openai_client.py`의 `complete_json`이 `BadRequestError`의
+`body["param"] == "temperature"`를 감지하면 `temperature` 파라미터 없이 1회 재시도하도록 수정
+(모델명을 하드코딩해 분기하지 않아 향후 모델 교체에도 견고함). 유닛 테스트(`test_openai_client.py`)로
+회귀 방지.
+
+**검증**: 실제 OpenAI API 키로 `/ai/workflow-chat`을 직접 curl 및 브라우저(Playwright)로 검증 —
+"지금 이 전략 뭐하는거야?" 질문에 그래프 기반 정확한 자연어 설명 응답, "스케줄러 주기를 30초로
+바꿔줘" 지시에 대해 그래프 수정 제안(미리보기)이 뜨고 "적용" 클릭 시 캔버스에 정확히 반영됨(부수적으로
+드래그로 추가해 중복됐던 스케줄러 노드까지 AI가 알아서 정리). 드래그앤드롭 노드 추가, AI 전략 생성
+템플릿 버튼 클릭도 브라우저에서 실제 동작 확인, 콘솔 에러 0건. 백엔드 `pytest` **93개 전부 통과**
+(신규 13개: workflow_chat 유닛 5 + 통합 3 + openai_client 재시도 회귀 2 + 기존 유지), 프론트
+`vue-tsc -b` 통과.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

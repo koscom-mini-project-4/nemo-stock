@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 from app.ai.base import AIClient, AIUnavailableError
 
@@ -30,14 +30,27 @@ class OpenAIClient(AIClient):
         if self._client is None:
             raise AIUnavailableError("OPENAI_API_KEY가 설정되지 않아 AI 기능을 사용할 수 없습니다.")
 
-        response = self._client.chat.completions.create(
-            model=self._model,
-            temperature=temperature,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                temperature=temperature,
+                response_format={"type": "json_object"},
+                messages=messages,
+            )
+        except BadRequestError as exc:
+            # gpt-5 계열 reasoning 모델(gpt-5*, gpt-5.6-sol/terra/luna 등)은 기본값(1)
+            # 외의 temperature를 지원하지 않는다. 해당 오류일 때만 temperature 없이 재시도한다.
+            body = exc.body if isinstance(exc.body, dict) else {}
+            if body.get("param") != "temperature":
+                raise
+            response = self._client.chat.completions.create(
+                model=self._model,
+                response_format={"type": "json_object"},
+                messages=messages,
+            )
         content = response.choices[0].message.content or "{}"
         return json.loads(content)

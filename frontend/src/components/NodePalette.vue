@@ -30,9 +30,14 @@ const grouped = computed(() => {
 })
 </script>
 
+<script lang="ts">
+export const PALETTE_DRAG_MIME = 'application/x-nemo-node-type'
+</script>
+
 <template>
   <div class="palette">
     <h3>노드 팔레트</h3>
+    <p class="palette-hint">클릭하거나 캔버스로 드래그해서 추가하세요.</p>
     <div v-for="[category, items] in grouped" :key="category" class="palette-group">
       <div class="palette-group-title">{{ CATEGORY_LABELS[category] ?? category }}</div>
       <button
@@ -40,7 +45,14 @@ const grouped = computed(() => {
         :key="schema.type"
         class="palette-item"
         type="button"
+        draggable="true"
         @click="emit('add', schema)"
+        @dragstart="
+          (event: DragEvent) => {
+            event.dataTransfer?.setData(PALETTE_DRAG_MIME, schema.type)
+            if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'
+          }
+        "
       >
         {{ schema.display_name }}
       </button>
@@ -65,6 +77,12 @@ const grouped = computed(() => {
   letter-spacing: 0.03em;
 }
 
+.palette-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: -6px 0 10px;
+}
+
 .palette-group {
   margin-bottom: 14px;
 }
@@ -87,6 +105,7 @@ const grouped = computed(() => {
   background: var(--surface);
   color: var(--text);
   font-size: 13px;
+  cursor: grab;
 }
 
 .palette-item:hover {

@@ -11,6 +11,17 @@
 | 인증 범위 | **단일 계정 JWT 로그인**. 회원가입/다중 사용자 불필요. 계정은 서버 `.env`/부트스트랩으로 1개 생성. |
 | Toss증권 실거래 연동 | **더미 구현 + Toss 어댑터 스켈레톤(미검증)**. `MarketDataProvider`/`OrderExecutionProvider` 인터페이스를 정의하고 더미 구현을 기본으로 사용. Toss Open API(OAuth2 Client Credentials, REST: 시세/호가/캔들/잔고/주문) 문서 구조를 반영한 어댑터 클래스는 작성하되, 실제 승인된 키가 없으므로 호출 검증은 하지 않는다. |
 
+## 0-1. 추가 확정 사항 (2026-07-17 사용자 확인)
+
+| 항목 | 결정 |
+| --- | --- |
+| 캔버스 AI 챗봇 | **통합 채팅창**. 노드 수정 지시("손절 5%로 바꿔줘")와 진행 상황 설명 질문("지금 뭐하는거야?")을 하나의 채팅 UI(`ChatPanel.vue`, 캔버스 우측 "AI 챗봇" 탭)로 처리. 백엔드 `/ai/workflow-chat` 한 엔드포인트가 AI 응답의 `changed` 플래그로 두 경우를 구분(§7.5). |
+| 수정 제안 적용 방식 | **미리보기 후 적용**. AI가 그래프 수정을 제안하면 채팅 말풍선 아래 "노드 N개·엣지 N개로 변경" 요약과 적용/취소 버튼만 표시하고, 사용자가 "적용"을 눌러야 캔버스(`flowNodes`/`flowEdges`)에 반영됨. 초안 생성 플로우(§7.2)와 동일하게 자동 저장/활성화하지 않음. |
+| 진행 상황 설명 범위 | **그래프 구조 + 최근 실행 결과**. 채팅 요청 시 현재 그래프와 함께 마지막 "테스트 실행" 결과(`status`/`events`/`final_symbols`, 있는 경우)를 프롬프트에 포함. |
+| 노드 추가 방식 확장 | 기존 팔레트 클릭 추가에 더해 **드래그 앤 드롭**으로도 추가 가능(`NodePalette.vue` 아이템 `draggable` + 캔버스 `dragover`/`drop`, Vue Flow `screenToFlowCoordinate`로 드롭 좌표를 노드 위치로 사용). |
+| AI 전략 생성 진입 장벽 완화 | `AIGenerateView.vue`에 예시 투자 아이디어 템플릿 버튼(4개)을 추가해 클릭 시 텍스트영역에 자동 채움(제출은 사용자가 직접). |
+| OpenAI 모델 | `gpt-4o-mini` → **`gpt-5.6-luna`**로 상향(2026-07 출시된 GPT-5.6 3단계 모델군 중 최저가/최속 티어, Sol/Terra보다 한 단계 아래지만 기존 대비 품질 우수). reasoning 계열 특성상 기본값(1) 외의 `temperature`를 거부하므로, `OpenAIClient.complete_json`이 `BadRequestError(param="temperature")`를 감지하면 `temperature` 파라미터 없이 1회 재시도하도록 방어 로직 추가(§7.1). |
+
 추가로 조사를 통해 확인한 사실:
 - **Toss증권 Open API**: `developers.tossinvest.com`에 실존. OAuth2 Client Credentials Grant, 계좌 API는 `X-Tossinvest-Account` 헤더 필요. 시세/호가/체결/캔들/가격제한/종목정보/환율/시장캘린더 + 계좌/자산/주문(생성·수정·취소·조회) 제공. 현재 사전신청 기반 단계적 오픈 중이라 즉시 발급이 어려움.
 - **공공데이터포털 금융위원회_주식시세정보 API** (`data.go.kr`, 서비스키 필요, 무료): 종목코드+일자 기준 시가/종가/고가/저가/거래량 등 제공. **일 1회, 영업일 T+1 오후 갱신** (실시간 아님) → 백테스트용 일봉 데이터 소스로 적합. 1초/1분 단위 "실시간성"은 이 데이터로 재현 불가능하므로, 라이브/테스트 모드에서는 이 일봉을 시드로 한 더미 실시간 시세 생성기를 별도로 둔다 (§5.2).
@@ -277,6 +288,13 @@ Provider 선택은 `app/config.py`의 `MARKET_DATA_PROVIDER=dummy|historical|tos
 ### 7.1 공통
 - `app/ai/openai_client.py`: `OPENAI_API_KEY`는 백엔드 `.env`에서만 읽음. 프론트는 AI 관련 API를 백엔드 라우터(`/ai/*`)로만 호출하며 키를 전달/노출하지 않음.
 - 모든 AI 응답은 `model`, `prompt_version`을 함께 기록해 캐시 키에 포함(프롬프트 개선 시 캐시 무효화 자동 처리).
+- 기본 모델은 `OPENAI_MODEL=gpt-5.6-luna`(§0-1). `chat.completions.create` 호출이 `temperature` 관련 `BadRequestError(param="temperature")`를 받으면 `temperature` 없이 1회 재시도 — gpt-5 계열 reasoning 모델은 기본값(1) 외의 temperature를 지원하지 않기 때문(모델 자체를 하드코딩해 분기하지 않고 오류 기반으로 대응해 향후 모델 교체에도 견고함).
+
+### 7.5 캔버스 통합 챗봇 (`app/ai/workflow_chat.py`, `POST /ai/workflow-chat`)
+1. 요청에 현재 워크플로 이름/그래프, 사용자 메시지, 최근 대화 이력(최대 12개), (있으면) 마지막 테스트 실행 결과(`status`/`events`/`final_symbols`)를 포함.
+2. 시스템 프롬프트가 AI에게 요청을 "그래프 수정 지시" vs "구조/실행 결과 설명 질문" 중 하나로 분류하도록 지시하고, 응답 JSON의 `changed` 불리언으로 결과를 구분.
+3. `changed=false`: `reply` 텍스트만 그대로 반환(그래프 검증 생략, 순수 Q&A).
+4. `changed=true`: 응답의 `nodes`/`edges`를 `WorkflowGraph.validate()`로 검증(§4.2). 실패 시 오류를 포함해 1회 재시도, 그래도 실패하면 422로 원문+오류 반환(§7.2 초안 생성과 동일 패턴). 성공 시 `graph`+`disclaimer`를 함께 반환하되 **저장/캔버스 반영은 하지 않음** — 프론트가 미리보기로 보여주고 사용자가 "적용"해야 `flowNodes`/`flowEdges`에 반영(§0-1).
 
 ### 7.2 자연어 → 워크플로 초안 생성 (`app/ai/workflow_draft.py`)
 1. 시스템 프롬프트에 `NODE_REGISTRY`의 사용 가능한 노드 타입/파라미터 스키마를 주입.
