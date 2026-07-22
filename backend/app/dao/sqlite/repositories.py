@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -14,6 +14,8 @@ from app.dao.base import (
     BacktestResultRepository,
     DisclosureRecord,
     DisclosureRepository,
+    IntradayPriceBarRecord,
+    IntradayPriceBarRepository,
     NewsRecord,
     NewsRepository,
     NodeEventRecord,
@@ -33,6 +35,7 @@ from app.dao.sqlite.models import (
     DisclosureORM,
     NewsORM,
     NodeEventORM,
+    PriceBarIntradayORM,
     PriceBarORM,
     RunORM,
     UserORM,
@@ -203,6 +206,65 @@ class SqliteNodeEventRepository(NodeEventRepository):
                     output_json=r.output_json,
                     error=r.error,
                     duration_ms=r.duration_ms,
+                )
+                for r in rows
+            ]
+
+
+class SqliteIntradayPriceBarRepository(IntradayPriceBarRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def save_many(self, bars: list[IntradayPriceBarRecord]) -> None:
+        if not bars:
+            return
+        with self._sf() as session:
+            for b in bars:
+                existing = session.get(PriceBarIntradayORM, (b.symbol, b.bar_datetime, b.interval))
+                if existing is None:
+                    session.add(
+                        PriceBarIntradayORM(
+                            symbol=b.symbol,
+                            bar_datetime=b.bar_datetime,
+                            interval=b.interval,
+                            open=b.open,
+                            high=b.high,
+                            low=b.low,
+                            close=b.close,
+                            volume=b.volume,
+                            source=b.source,
+                        )
+                    )
+                else:
+                    existing.open, existing.high, existing.low = b.open, b.high, b.low
+                    existing.close, existing.volume, existing.source = b.close, b.volume, b.source
+            session.commit()
+
+    def list_range(
+        self, symbol: str, start: datetime, end: datetime, interval: str = "minute60"
+    ) -> list[IntradayPriceBarRecord]:
+        with self._sf() as session:
+            rows = session.scalars(
+                select(PriceBarIntradayORM)
+                .where(
+                    PriceBarIntradayORM.symbol == symbol,
+                    PriceBarIntradayORM.interval == interval,
+                    PriceBarIntradayORM.bar_datetime >= start,
+                    PriceBarIntradayORM.bar_datetime <= end,
+                )
+                .order_by(PriceBarIntradayORM.bar_datetime)
+            ).all()
+            return [
+                IntradayPriceBarRecord(
+                    symbol=r.symbol,
+                    bar_datetime=r.bar_datetime,
+                    interval=r.interval,
+                    open=r.open,
+                    high=r.high,
+                    low=r.low,
+                    close=r.close,
+                    volume=r.volume,
+                    source=r.source,
                 )
                 for r in rows
             ]

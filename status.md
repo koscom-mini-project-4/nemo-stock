@@ -262,6 +262,78 @@ reasoning 모델의 공통 제약. `app/ai/openai_client.py`의 `complete_json`�
 (신규 13개: workflow_chat 유닛 5 + 통합 3 + openai_client 재시도 회귀 2 + 기존 유지), 프론트
 `vue-tsc -b` 통과.
 
+## 2026-07-22 후속 작업: 백테스트 자동 시세 수집 + back-news-analysis 뉴스 AI 분석 파이프라인
+
+사용자 요청 2가지: (1) 포크 레포(`koscom_nemonemo`) 대비 기능 확장 + 백테스트 시 종목별
+일봉/시간봉 자동 수집(종목코드 입력 포함), (2) 루트에 `back-news-analysis/` 디렉터리를 만들어
+`naver_economy_news.json`에서 AI로 종목별 뉴스 영향도 변수를 추출하는 실행 가능한 파이프라인
+(이벤트 클러스터링 + strength/decay/count_factor + 1000건 AI 풀 캐시, JSON/SQLite 이중 지원,
+Batch API로 비용 절감, 기사 단위 고정 스키마 라벨링).
+
+**포크 레포 조사 결과**: `koscom-mini-project-4/koscom_nemonemo`는 git 이력이 이어지지 않은 별도
+커밋(2026-07-19, "Initial commit" 1개로 스쿼시)으로, 실제로는 현재 레포의 **더 이전 스냅샷**
+(2026-07-17 캔버스 챗봇/드래그앤드롭 작업 이전 상태)이었다. `git diff --stat`으로 전체 비교한
+결과 fork 쪽에만 있는 새 파일은 0개, 오히려 현재 레포 대비 뒤처진 파일 775개만 발견 — 병합할
+신규 기능이 없어 조사만 하고 종료.
+
+**백테스트 자동 시세 수집**(`app/data_ingestion/naver_price_client.py` +
+`app/data_ingestion/auto_ingest.py`, DESIGN.md §8-1): 공공데이터포털/KOSCOM CHECK-API가 모두
+일봉만 제공하는 한계 때문에, 네이버 증권의 비공식 차트 API(`api.stock.naver.com/chart/domestic/
+item/{symbol}/{day|minute60}`, 별도 인증 불필요, 2026-07-22 실측 확인)로 일봉+시간봉(60분)을 모두
+수집하는 `NaverStockChartClient`를 추가. **실측으로 확인한 중요한 한계**: `minute60`(시간봉)은
+요청 시작일과 무관하게 서버가 최근 영업일 기준 제한된 lookback만 반환(실측 약 8거래일치 56봉) —
+오래된 시간봉은 이 소스로 확보 불가. `day`(일봉)는 기간 제한 없이 정상 동작.
+
+- 신규 테이블 `price_bars_intraday`(symbol, bar_datetime, interval, OHLCV, source) +
+  `IntradayPriceBarRepository`(ABC/SQLite/인메모리 3종 구현) — 기존 `price_bars`는 PK가
+  (symbol, date)라 시간 단위 다건 저장이 불가능해 별도 테이블로 분리.
+- `ensure_price_data()`: `POST /backtest` 진입 시 요청 구간에 해당 종목 일봉이 하나도 없을 때만
+  자동 수집(부분 공백은 건드리지 않는 의도된 단순화). 일봉 수집 실패는 결과에 기록, 시간봉 수집
+  실패는 조용히 무시(백테스트 엔진 자체는 일봉만 사용하므로 시간봉 실패가 실행을 막지 않음).
+  `Settings.auto_ingest_prices`(기본 true)로 on/off, 테스트는 결정론/오프라인 유지를 위해
+  `tests/conftest.py`에서 명시적으로 false로 오버라이드.
+- 터미널 실행용 CLI 신규: `app/cli/ingest_prices.py`(`python -m app.cli.ingest_prices --symbol ... --start ... --end ...`).
+- **종목코드 자유 입력은 프론트(`BacktestResultView.vue`)에 이미 있던 콤마 구분 텍스트필드로
+  이미 충족되어 있었음**(신규 UI 추가 없이 안내 문구만 갱신).
+- 테스트: 신규 유닛 12개(`test_naver_price_client.py` 6, `test_auto_ingest.py` 4,
+  `test_dao_sqlite.py` intraday repo 1) + 통합 1개(가짜 네이버 클라이언트를
+  `dependency_overrides`로 주입해 자동수집→캐시로 재수집 안 함까지 검증) — **백엔드 pytest 105개
+  전부 통과**, 프론트 `vue-tsc -b` 통과.
+- **실검증**: 실제 uvicorn 서버 기동 후 사전 적재 없이 SK하이닉스(000660)로 curl 백테스트 실행 →
+  자동으로 일봉 25건+시간봉 56건 수집되어 sqlite에 저장되고 백테스트 성공(201) 확인. 이어서
+  Playwright로 브라우저에서 실제 UI(로그인 → `/backtests/new`에 종목 035420(NAVER, 사전 적재
+  전무) 입력 → "백테스트 실행" 클릭)까지 구동해 자동 수집 후 결과 화면이 정상 렌더링되는 것을
+  확인(콘솔 에러 0건).
+
+**back-news-analysis 파이프라인**(DESIGN.md §16): `naver_economy_news.json` 구조(92,229건,
+`url_hash`/`title`/`content`/`summary`/`published_at`, 종목 태깅 없음, 2026-06-29~07-18 범위)
+확인 후 착수. 기사 단위로 AI가 고정 스키마 필드(상위분류/긍부정/세부이벤트유형/영향범위/관련종목
+/관련업종/영향도/영향기간/신뢰도/근거)를 추출하고, `sentiment`/`magnitude`는 그 필드들로부터
+파생 계산(추가 AI 호출 없음). 이벤트 클러스터링은 "새 뉴스마다 기존 대표뉴스들과 함께 AI 판단"
+이라는 요구를 임베딩(`text-embedding-3-small`) 코사인 유사도로 구현 — 순수 LLM 순차 판단
+방식은 뉴스 건수만큼 서로 의존하는 호출이 필요해 사용자가 요청한 비용 절감용 Batch API와
+근본적으로 맞지 않기 때문(설계 트레이드오프를 사용자에게 설명 후 진행). 최종 점수는
+`strength × decay(d) × count_factor`를 종목별 이벤트 전체에 대해 합산→평균→tanh 정규화. 캐시는
+JSON/SQLite 양쪽 지원(`cache_store.py`), 대량 처리(임베딩+라벨링)는 서로 독립적인 요청이라
+OpenAI Batch API(50% 할인)로 제출, 캐시미스 온디맨드 1건은 동기 호출로 즉시 채움. 1000건 AI
+풀을 실제로 구축(배치 제출→완료까지 폴링→캐시 반영): 변수 1077건(배치 1000 + 검증 중 처리한
+77건), 이벤트 클러스터 608개, JSON/SQLite 양쪽 저장 완료. `score_stock.py` 데모로 "한화오션"
+2026-07-14 기준 최종 점수 0.2985 산출까지 실제 데이터로 검증(공급계약 호재·조선업 실적 호조
+등 관련 이벤트 23건 반영).
+
+**뉴스 영향도 등급 체계 개선(2026-07-22, 사용자 추가 요청)**: 3단계(High/Medium/Low) 대신
+1~9등급(9등급=전쟁·내전 발발 등 국가적 충격)으로 세분화하고, 등급별 예시를 시스템 프롬프트에
+명시해 AI가 등급 기준을 자체 판단하지 않도록 프롬프트 엔지니어링 진행(`scoring.py`). 스키마 변경이라
+`PROMPT_VERSION`을 올려 캐시 자동 무효화(App §7.3 `ai_score_cache`와 동일한 캐시 무효화 패턴).
+원시 AI 변수(`NewsVariables`)만 캐시에 저장하고 decay/count_factor/정규화 등 "점수 계산식"은
+조회 시점마다 캐시된 원시 변수로 재계산하는 구조(`aggregate.py`)라, 계산식이 바뀌어도 AI를
+재호출할 필요가 없다 — 다만 이번처럼 원시 변수 스키마 자체(등급 체계)가 바뀌면 기존 캐시는
+새 스키마로 재추출이 필요.
+
+**회귀**: 백엔드 `pytest` 105개 전부 통과, 프론트 `vue-tsc -b` 통과. `back-news-analysis/data/`
+(캐시 산출물)는 `.gitignore`에 추가해 커밋 대상에서 제외. `naver_economy_news.json`(304MB)도
+`.gitignore`에 추가(GitHub 파일 크기 제한 초과, 원본 데이터 재배포 불필요).
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

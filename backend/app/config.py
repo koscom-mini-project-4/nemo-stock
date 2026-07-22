@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     data_go_kr_service_key: str | None = None
     dart_api_key: str | None = None
 
+    # 백테스트 시도 시 종목 데이터가 없으면 네이버 차트 API로 자동 수집(§0-2).
+    # 테스트에서는 결정론/오프라인 실행을 위해 명시적으로 false로 오버라이드한다.
+    auto_ingest_prices: bool = True
+
     # Toss (experimental, unverified)
     toss_client_id: str | None = None
     toss_client_secret: str | None = None

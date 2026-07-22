@@ -5,13 +5,15 @@ SQLite 구현체와 동일한 ABC를 구현하므로 서비스 계층 코드는 
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from app.dao.base import (
     AIScoreCacheRecord,
     AIScoreCacheRepository,
     DisclosureRecord,
     DisclosureRepository,
+    IntradayPriceBarRecord,
+    IntradayPriceBarRepository,
     NewsRecord,
     NewsRepository,
     NodeEventRecord,
@@ -96,6 +98,27 @@ class InMemoryPriceBarRepository(PriceBarRepository):
         return sorted(
             (b for (s, d), b in self._store.items() if s == symbol and start <= d <= end),
             key=lambda b: b.trade_date,
+        )
+
+
+class InMemoryIntradayPriceBarRepository(IntradayPriceBarRepository):
+    def __init__(self) -> None:
+        self._store: dict[tuple[str, datetime, str], IntradayPriceBarRecord] = {}
+
+    def save_many(self, bars: list[IntradayPriceBarRecord]) -> None:
+        for b in bars:
+            self._store[(b.symbol, b.bar_datetime, b.interval)] = b
+
+    def list_range(
+        self, symbol: str, start: datetime, end: datetime, interval: str = "minute60"
+    ) -> list[IntradayPriceBarRecord]:
+        return sorted(
+            (
+                b
+                for (s, dt, itv), b in self._store.items()
+                if s == symbol and itv == interval and start <= dt <= end
+            ),
+            key=lambda b: b.bar_datetime,
         )
 
 

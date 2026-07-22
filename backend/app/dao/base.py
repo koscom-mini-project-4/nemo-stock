@@ -125,6 +125,31 @@ class PriceBarRepository(ABC):
 
 
 @dataclass
+class IntradayPriceBarRecord:
+    """시간봉(장중) 시세 1건. 하루에 여러 건 존재할 수 있어 PriceBarRecord와 분리한다."""
+
+    symbol: str
+    bar_datetime: datetime
+    interval: str  # 예: "minute60"
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    source: str = "naver"
+
+
+class IntradayPriceBarRepository(ABC):
+    @abstractmethod
+    def save_many(self, bars: list[IntradayPriceBarRecord]) -> None: ...
+
+    @abstractmethod
+    def list_range(
+        self, symbol: str, start: datetime, end: datetime, interval: str = "minute60"
+    ) -> list[IntradayPriceBarRecord]: ...
+
+
+@dataclass
 class BacktestResultRecord:
     id: str
     workflow_id: str

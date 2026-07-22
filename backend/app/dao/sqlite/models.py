@@ -74,6 +74,20 @@ class PriceBarORM(Base):
     source: Mapped[str] = mapped_column(String(32), default="public_data")
 
 
+class PriceBarIntradayORM(Base):
+    __tablename__ = "price_bars_intraday"
+
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    bar_datetime: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
+    interval: Mapped[str] = mapped_column(String(16), primary_key=True)
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    volume: Mapped[int] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(32), default="naver")
+
+
 class BacktestResultORM(Base):
     __tablename__ = "backtest_results"
 

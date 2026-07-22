@@ -4,10 +4,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import get_container
+from app.api.deps import get_container, get_intraday_price_bar_repo, get_price_ingest_client
 from app.auth.security import get_current_username
 from app.backtest.runner import BacktestRunner
-from app.dao.base import BacktestResultRecord
+from app.dao.base import BacktestResultRecord, IntradayPriceBarRepository
+from app.data_ingestion.auto_ingest import ensure_price_data
+from app.data_ingestion.naver_price_client import NaverStockChartClient
 from app.dependencies import Container
 from app.schemas.backtest import BacktestRequest, BacktestResultOut, EquityPoint
 from app.workflow.graph import WorkflowGraph
@@ -36,7 +38,12 @@ def _to_out(r: BacktestResultRecord) -> BacktestResultOut:
 
 
 @router.post("", response_model=BacktestResultOut, status_code=201)
-def run_backtest(payload: BacktestRequest, container: Container = Depends(get_container)) -> BacktestResultOut:
+def run_backtest(
+    payload: BacktestRequest,
+    container: Container = Depends(get_container),
+    intraday_repo: IntradayPriceBarRepository = Depends(get_intraday_price_bar_repo),
+    price_client: NaverStockChartClient = Depends(get_price_ingest_client),
+) -> BacktestResultOut:
     workflow = container.workflow_repo.get(payload.workflow_id)
     if workflow is None:
         raise HTTPException(status_code=404, detail="워크플로를 찾을 수 없습니다.")
@@ -45,6 +52,12 @@ def run_backtest(payload: BacktestRequest, container: Container = Depends(get_co
     errors = graph.validate()
     if errors:
         raise HTTPException(status_code=422, detail={"message": "워크플로 검증 실패", "errors": errors})
+
+    if container.settings.auto_ingest_prices:
+        for symbol in payload.universe:
+            ensure_price_data(
+                container.price_bar_repo, intraday_repo, price_client, symbol, payload.start_date, payload.end_date
+            )
 
     runner = BacktestRunner(container.engine, container.price_bar_repo)
     try:

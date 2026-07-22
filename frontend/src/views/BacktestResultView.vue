@@ -104,8 +104,9 @@ onMounted(() => {
         </label>
       </div>
       <p class="text-muted">
-        대상 기간에 해당하는 일봉 데이터가 sqlite에 없으면 실행이 실패합니다. 먼저
-        <code>POST /data/ingest/prices/manual</code> 또는 <code>/public</code>으로 데이터를 적재하세요.
+        대상 기간에 해당하는 일봉 데이터가 sqlite에 없으면 실행 시 자동으로 수집합니다(네이버 증권
+        시세, 종목당 최초 1회). 종목코드가 존재하지 않거나 데이터가 전혀 없는 기간이면 여전히
+        실패할 수 있습니다.
       </p>
       <p v-if="runError" class="error">{{ runError }}</p>
       <button class="btn btn-primary" :disabled="running" @click="submitRun">

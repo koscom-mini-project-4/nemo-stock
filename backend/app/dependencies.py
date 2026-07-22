@@ -22,6 +22,7 @@ from app.dao.base import (
     AIScoreCacheRepository,
     BacktestResultRepository,
     DisclosureRepository,
+    IntradayPriceBarRepository,
     NewsRepository,
     NodeEventRepository,
     PriceBarRepository,
@@ -35,6 +36,7 @@ from app.dao.sqlite.repositories import (
     SqliteAIScoreCacheRepository,
     SqliteBacktestResultRepository,
     SqliteDisclosureRepository,
+    SqliteIntradayPriceBarRepository,
     SqliteNewsRepository,
     SqliteNodeEventRepository,
     SqlitePriceBarRepository,
@@ -63,6 +65,7 @@ class Container:
     run_repo: RunRepository
     node_event_repo: NodeEventRepository
     price_bar_repo: PriceBarRepository
+    intraday_price_bar_repo: IntradayPriceBarRepository
     backtest_result_repo: BacktestResultRepository
     disclosure_repo: DisclosureRepository
     news_repo: NewsRepository
@@ -131,6 +134,7 @@ def build_container(settings: Settings) -> Container:
     run_repo = SqliteRunRepository(session_factory)
     node_event_repo = SqliteNodeEventRepository(session_factory)
     price_bar_repo = SqlitePriceBarRepository(session_factory)
+    intraday_price_bar_repo = SqliteIntradayPriceBarRepository(session_factory)
     backtest_result_repo = SqliteBacktestResultRepository(session_factory)
     disclosure_repo = SqliteDisclosureRepository(session_factory)
     news_repo = SqliteNewsRepository(session_factory)
@@ -185,6 +189,7 @@ def build_container(settings: Settings) -> Container:
         run_repo=run_repo,
         node_event_repo=node_event_repo,
         price_bar_repo=price_bar_repo,
+        intraday_price_bar_repo=intraday_price_bar_repo,
         backtest_result_repo=backtest_result_repo,
         disclosure_repo=disclosure_repo,
         news_repo=news_repo,

@@ -8,6 +8,12 @@ backend/.pytest_cache/
 backend/.coverage
 *.egg-info/
 
+# back-news-analysis (AI 캐시 산출물)
+back-news-analysis/data/
+
+# 원본 뉴스 데이터셋(304MB, GitHub 파일 크기 제한 초과 — 참조용 로컬 파일, 재배포 불필요)
+/naver_economy_news.json
+
 # Frontend (Node/Vue)
 frontend/node_modules/
 frontend/dist/

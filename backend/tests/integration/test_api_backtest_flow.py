@@ -6,6 +6,9 @@ from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
+from app.api.deps import get_price_ingest_client
+from app.dao.base import PriceBarRecord
+
 
 def _bars_payload(symbol: str, start: date, days: int, start_price: float) -> dict:
     bars = []
@@ -107,3 +110,88 @@ def test_public_ingest_without_service_key_returns_400(app_client: TestClient, a
         headers=auth_headers,
     )
     assert resp.status_code == 400
+
+
+class _FakeNaverClient:
+    def __init__(self, bars: list[PriceBarRecord]):
+        self.bars = bars
+        self.calls = 0
+
+    def fetch_daily_bars(self, symbol: str, start: date, end: date) -> list[PriceBarRecord]:
+        self.calls += 1
+        return self.bars
+
+    def fetch_hourly_bars(self, symbol: str, start: date, end: date) -> list:
+        return []
+
+
+def test_backtest_auto_ingests_missing_prices_when_enabled(app_client: TestClient, auth_headers: dict):
+    """auto_ingest_prices=true면 데이터가 없어도 자동 수집 후 백테스트가 성공해야 한다."""
+    start = date(2025, 2, 1)
+    fake_bars = []
+    price = 100.0
+    for i in range(10):
+        d = start + timedelta(days=i)
+        close = price * 1.01
+        fake_bars.append(
+            PriceBarRecord(symbol="AUTOSYM", trade_date=d, open=price, high=close, low=price, close=close, volume=1000)
+        )
+        price = close
+    fake_client = _FakeNaverClient(fake_bars)
+
+    app_client.app.state.container.settings.auto_ingest_prices = True
+    app_client.app.dependency_overrides[get_price_ingest_client] = lambda: fake_client
+    try:
+        wf_resp = app_client.post(
+            "/workflows",
+            json={
+                "name": "자동수집 백테스트",
+                "schedule_interval_sec": 60,
+                "graph": {
+                    "nodes": [
+                        {"id": "n1", "type": "scheduler.interval", "params": {"interval_sec": 60, "universe": "AUTOSYM"}},
+                        {"id": "n2", "type": "data.price", "params": {}},
+                        {"id": "n3", "type": "logic.if_else", "params": {"expr": "price > prev_close"}},
+                        {"id": "n4", "type": "execution.market_order", "params": {"side": "buy", "qty": 1}},
+                    ],
+                    "edges": [
+                        {"from": "n1", "to": "n2"},
+                        {"from": "n2", "to": "n3"},
+                        {"from": "n3", "to": "n4"},
+                    ],
+                },
+            },
+            headers=auth_headers,
+        )
+        workflow_id = wf_resp.json()["id"]
+
+        bt_resp = app_client.post(
+            "/backtest",
+            json={
+                "workflow_id": workflow_id,
+                "universe": ["AUTOSYM"],
+                "start_date": start.isoformat(),
+                "end_date": (start + timedelta(days=9)).isoformat(),
+                "initial_capital": 1_000_000,
+            },
+            headers=auth_headers,
+        )
+        assert bt_resp.status_code == 201, bt_resp.text
+        assert fake_client.calls == 1
+
+        # 자동 수집된 데이터가 실제로 저장됐는지 확인 — 두 번째 시도에서는 이미 데이터가 있으므로 재수집하지 않는다.
+        bt_resp_2 = app_client.post(
+            "/backtest",
+            json={
+                "workflow_id": workflow_id,
+                "universe": ["AUTOSYM"],
+                "start_date": start.isoformat(),
+                "end_date": (start + timedelta(days=9)).isoformat(),
+                "initial_capital": 1_000_000,
+            },
+            headers=auth_headers,
+        )
+        assert bt_resp_2.status_code == 201
+        assert fake_client.calls == 1
+    finally:
+        app_client.app.dependency_overrides.pop(get_price_ingest_client, None)

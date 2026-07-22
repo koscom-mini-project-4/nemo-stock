@@ -3,9 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from app.dao.base import NodeEventRecord, RunRecord, UserRecord, WorkflowRecord
+from app.dao.base import IntradayPriceBarRecord, NodeEventRecord, RunRecord, UserRecord, WorkflowRecord
 from app.dao.sqlite.database import init_db, make_engine, make_session_factory
 from app.dao.sqlite.repositories import (
+    SqliteIntradayPriceBarRepository,
     SqliteNodeEventRepository,
     SqliteRunRepository,
     SqliteUserRepository,
@@ -69,3 +70,44 @@ def test_run_and_node_event_repository(tmp_path):
     events = event_repo.list_by_run("r1")
     assert len(events) == 1
     assert events[0].node_id == "n1"
+
+
+def test_intraday_price_bar_repository_roundtrip_and_upsert(tmp_path):
+    sf = _session_factory(tmp_path)
+    repo = SqliteIntradayPriceBarRepository(sf)
+
+    bar = IntradayPriceBarRecord(
+        symbol="005930",
+        bar_datetime=datetime(2026, 7, 8, 9, 0, 0),
+        interval="minute60",
+        open=1.0,
+        high=2.0,
+        low=0.5,
+        close=1.5,
+        volume=1000,
+        source="naver",
+    )
+    repo.save_many([bar])
+
+    rows = repo.list_range("005930", datetime(2026, 7, 8, 0, 0), datetime(2026, 7, 8, 23, 59))
+    assert len(rows) == 1
+    assert rows[0].close == 1.5
+
+    updated = IntradayPriceBarRecord(
+        symbol="005930",
+        bar_datetime=datetime(2026, 7, 8, 9, 0, 0),
+        interval="minute60",
+        open=1.0,
+        high=2.0,
+        low=0.5,
+        close=9.9,
+        volume=2000,
+        source="naver",
+    )
+    repo.save_many([updated])
+    rows = repo.list_range("005930", datetime(2026, 7, 8, 0, 0), datetime(2026, 7, 8, 23, 59))
+    assert len(rows) == 1
+    assert rows[0].close == 9.9
+
+    other_interval = repo.list_range("005930", datetime(2026, 7, 8, 0, 0), datetime(2026, 7, 8, 23, 59), interval="day")
+    assert other_interval == []

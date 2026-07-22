@@ -25,6 +25,9 @@ def app_client(tmp_path, monkeypatch):
     monkeypatch.setenv("toss_client_secret", "")
     monkeypatch.setenv("koscom_cust_id", "")
     monkeypatch.setenv("koscom_auth_key", "")
+    # 백테스트 자동 시세 수집(네이버 API 실호출)은 기본적으로 꺼서 테스트를 오프라인/결정적으로 유지한다.
+    # 관련 유닛/통합 테스트는 이 값을 개별적으로 true로 오버라이드하고 클라이언트도 함께 모킹한다.
+    monkeypatch.setenv("auto_ingest_prices", "false")
 
     from app.config import get_settings
 

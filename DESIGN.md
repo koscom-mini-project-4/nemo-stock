@@ -22,6 +22,18 @@
 | AI 전략 생성 진입 장벽 완화 | `AIGenerateView.vue`에 예시 투자 아이디어 템플릿 버튼(4개)을 추가해 클릭 시 텍스트영역에 자동 채움(제출은 사용자가 직접). |
 | OpenAI 모델 | `gpt-4o-mini` → **`gpt-5.6-luna`**로 상향(2026-07 출시된 GPT-5.6 3단계 모델군 중 최저가/최속 티어, Sol/Terra보다 한 단계 아래지만 기존 대비 품질 우수). reasoning 계열 특성상 기본값(1) 외의 `temperature`를 거부하므로, `OpenAIClient.complete_json`이 `BadRequestError(param="temperature")`를 감지하면 `temperature` 파라미터 없이 1회 재시도하도록 방어 로직 추가(§7.1). |
 
+## 0-2. 추가 확정 사항 (2026-07-22 사용자 확인)
+
+| 항목 | 결정 |
+| --- | --- |
+| 백테스트 시세 자동 수집 | `POST /backtest` 실행 시 요청된 종목에 해당 기간 데이터가 하나도 없으면 자동으로 수집·저장(`ensure_price_data`, §8-1). 일부라도 있으면 건드리지 않음(부분 공백을 정교하게 채우지 않는 의도된 단순화). `Settings.auto_ingest_prices`(기본 true, 테스트는 false)로 on/off. |
+| 시간봉(장중) 데이터 | 공공데이터포털/KOSCOM CHECK-API는 모두 일봉만 제공하므로, 네이버 증권의 비공식 차트 API(`api.stock.naver.com`, 별도 인증 불필요, 실측 확인)로 일봉+시간봉(60분)을 모두 수집(§8-1). 시간봉은 서버 자체가 최근 약 8거래일치(56봉)만 제공하는 실측 한계가 있어 "가능한 범위까지 저장"하는 부가 데이터로 취급하고, 백테스트 엔진 자체는 계속 일봉 기준으로 동작. |
+| 종목코드 입력 | 프론트 백테스트 폼(`BacktestResultView.vue`)에 이미 콤마 구분 자유입력 텍스트필드(`대상 종목코드`)가 있어 별도 UI 추가 없이 임의 종목코드 입력이 가능했음 — 이번 작업은 백엔드 자동 수집만 추가. |
+| 뉴스 AI 분석 파이프라인 | 별도 독립 프로젝트 `back-news-analysis/`(루트)로 구현. `naver_economy_news.json`(92,229건)에서 AI로 기사 단위 고정 스키마 필드를 추출하고, 임베딩 유사도 기반 이벤트 클러스터링 + decay/count_factor로 종목별 뉴스 영향도 점수를 계산(§16). OpenAI 키는 `backend/.env`를 그대로 재사용. |
+| 대량 AI 호출 비용 절감 | 뉴스 스코어링/임베딩처럼 서로 독립적인 대량 요청은 OpenAI Batch API(50% 할인)로 처리. 단, "새 뉴스마다 기존 대표뉴스 전체와 비교해 판단"하는 이벤트 클러스터링은 순차 의존성이 있어 Batch API와 근본적으로 맞지 않아, 임베딩 유사도 기반 클러스터링으로 대체(§16.2). |
+| 뉴스 영향도(impact) 등급 체계 | High/Medium/Low 3단계 대신 **1~9등급**(9등급=전쟁·내전 발발 등 국가적 충격) + 등급별 예시를 시스템 프롬프트에 명시해, AI가 등급 기준을 자체적으로 임의 판단하지 않고 고정 앵커에 맞춰 분류하도록 함(§16.1). |
+| 원시 AI 변수와 점수 계산식 분리 | decay/count_factor/정규화 등 "점수 계산식"은 나중에 바뀔 수 있으므로, AI가 추출한 원시 변수(`NewsVariables`)만 캐시에 저장하고 최종 점수는 조회 시점에 캐시된 원시 변수로부터 매번 계산(`aggregate.py`). 계산식이 바뀌어도 캐시된 AI 호출 결과는 재사용 가능 — 단, 원시 변수 자체의 스키마(예: impact 등급 체계)가 바뀌면 해당 필드는 재추출 필요(§16.5). |
+
 추가로 조사를 통해 확인한 사실:
 - **Toss증권 Open API**: `developers.tossinvest.com`에 실존. OAuth2 Client Credentials Grant, 계좌 API는 `X-Tossinvest-Account` 헤더 필요. 시세/호가/체결/캔들/가격제한/종목정보/환율/시장캘린더 + 계좌/자산/주문(생성·수정·취소·조회) 제공. 현재 사전신청 기반 단계적 오픈 중이라 즉시 발급이 어려움.
 - **공공데이터포털 금융위원회_주식시세정보 API** (`data.go.kr`, 서비스키 필요, 무료): 종목코드+일자 기준 시가/종가/고가/저가/거래량 등 제공. **일 1회, 영업일 T+1 오후 갱신** (실시간 아님) → 백테스트용 일봉 데이터 소스로 적합. 1초/1분 단위 "실시간성"은 이 데이터로 재현 불가능하므로, 라이브/테스트 모드에서는 이 일봉을 시드로 한 더미 실시간 시세 생성기를 별도로 둔다 (§5.2).
@@ -281,6 +293,8 @@ class OrderExecutionProvider(ABC):
 
 Provider 선택은 `app/config.py`의 `MARKET_DATA_PROVIDER=dummy|historical|toss`, `ORDER_PROVIDER=dummy|toss` 환경변수로 결정하며, 실행 모드(live/test/backtest)에 따라 엔진이 자동으로 적절한 Provider를 주입한다(backtest는 항상 historical+dummy 강제).
 
+백테스트 시세 자동 수집(네이버 차트 API로 일봉+시간봉 확보)은 §8-1 참조.
+
 ---
 
 ## 7. AI 모듈
@@ -325,6 +339,25 @@ Provider 선택은 `app/config.py`의 `MARKET_DATA_PROVIDER=dummy|historical|tos
   - 자산곡선(equity curve, 시계열)
 - 결과는 `backtest_results` 테이블에 저장, 노드 실행 이벤트도 `node_events`에 남아 프론트에서 "특정 시점 재생" 가능.
 
+### 8-1. 백테스트 자동 시세 수집 (`app/data_ingestion/naver_price_client.py`, `auto_ingest.py`)
+
+`POST /backtest` 라우터가 `BacktestRunner` 실행 전, `universe`의 각 종목에 대해 요청 구간의
+일봉이 하나도 없으면(§0-2) `NaverStockChartClient`로 일봉+시간봉을 수집해 각각
+`price_bars`/`price_bars_intraday`에 저장한다(`ensure_price_data`). 일봉 수집이 실패하면
+오류를 기록하고 계속 진행(이후 `BacktestRunner`가 데이터 없음으로 400 처리), 시간봉 수집
+실패는 조용히 무시(백테스트 자체는 일봉만 필요).
+
+`NaverStockChartClient`는 `stock.naver.com`이 프론트엔드에서 쓰는 비공식 공개 엔드포인트를
+호출한다(별도 키/인증 불필요, 2026-07-22 실측 확인). `day`(일봉)는 기간 제한 없이 응답하지만,
+`minute60`(시간봉)은 요청한 시작일과 무관하게 서버가 최근 영업일 기준 제한된 lookback만
+반환한다(실측 약 8거래일치 56봉) — 오래된 시간봉은 이 소스로 확보할 수 없다는 한계를 인지하고
+사용해야 한다.
+
+터미널에서 수동으로 미리 적재하고 싶으면 `backend/app/cli/ingest_prices.py`를 직접 실행한다:
+```bash
+cd backend && ./.venv/bin/python -m app.cli.ingest_prices --symbol 005930,000660 --start 2026-06-01 --end 2026-07-20
+```
+
 ---
 
 ## 9. DAO / 데이터베이스
@@ -353,6 +386,8 @@ positions_ledger(id, run_id, symbol, qty, avg_price, updated_at)
 backtest_results(id, run_id, workflow_id, start_date, end_date, initial_capital, final_equity,
                   cagr, mdd, win_rate, profit_loss_ratio, trade_count, equity_curve_json)
 price_bars(symbol, date, open, high, low, close, volume, source, PRIMARY KEY(symbol, date))
+price_bars_intraday(symbol, bar_datetime, interval, open, high, low, close, volume, source,
+                     PRIMARY KEY(symbol, bar_datetime, interval))  -- §8-1, 네이버 시간봉(minute60)
 disclosures(id, corp_code, symbol, rcept_no, title, disclosed_at, raw_text, source)
 news(id, symbol, title, body, published_at, source)
 ai_score_cache(id, subject_type, subject_id, prompt_version, model, score_json, created_at,
@@ -461,3 +496,55 @@ nemo-stock/
 6. **Phase 6 – 통합 QA**: 기획서 예시 시나리오 E2E(백엔드+프론트), 회귀 점검, README 정리.
 
 각 Phase 종료 시점마다 해당 범위의 테스트를 실행/통과시키고 다음 단계로 진행한다.
+
+---
+
+## 16. back-news-analysis — 뉴스 이벤트 분석 파이프라인 (독립 프로젝트, `back-news-analysis/`)
+
+`backend/`·`frontend/`와 별도로 루트에 위치한 독립 Python 프로젝트. `naver_economy_news.json`(네이버
+경제 뉴스 92,229건)을 AI로 분석해 종목별 백테스트에 쓸 수 있는 뉴스 영향도 변수를 산출한다.
+`backend/.venv`(openai/dotenv 이미 설치됨)를 그대로 재사용하고, `OPENAI_API_KEY`도 `backend/.env`의
+값을 그대로 읽는다(별도 키 보관 없음). 상세 사용법은 `back-news-analysis/README.md` 참조.
+
+### 16.1 기사 단위 AI 라벨링 (고정 스키마 10개 필드)
+
+뉴스 1건이 들어오면 AI(채팅 모델, 백엔드와 동일한 `gpt-5.6-luna`)가 다음 10개 필드를 JSON으로
+추출한다(`scoring.py`): `depth1`(상위분류), `depth2`(긍정/중립/부정), `depth3`(세부 이벤트 유형),
+`scope_type`(종목직접/업종전반/시장전체), `related_tickers`(관련 종목), `related_industries`(관련
+업종), `impact_strength`(High/Medium/Low), `time_horizon`(단기/중기/장기), `confidence`(확실/보통/
+불확실), `reasoning`(분류 근거). `sentiment`(+1/0/-1)와 `magnitude`(1.5/1.0/0.5)는 각각
+`depth2`/`impact_strength`로부터 파생되는 계산값으로 별도 AI 호출 없이 도출한다(`schemas.py`).
+
+### 16.2 이벤트 클러스터링
+
+"뉴스가 들어올 때마다 기존 대표뉴스들과 함께 AI에 넣어서 판단, 새로 생기는지 판단"이라는 요구를
+임베딩(`text-embedding-3-small`) 유사도로 구현했다(`clustering.py`). 순수 LLM 순차 판단 방식은
+뉴스 건수만큼 서로 의존하는 호출이 필요해 아래 §16.3 Batch API(비용 절감)와 근본적으로 맞지 않기
+때문이다. 시간순으로 뉴스를 훑으며, 임베딩이 기존 클러스터 대표(centroid)와 코사인 유사도
+임계값(`CLUSTER_SIMILARITY_THRESHOLD`, 기본 0.62) 이상이면 편입하고 아니면 새 클러스터를 만든다.
+
+### 16.3 대량 처리 비용 절감 — OpenAI Batch API
+
+임베딩과 채팅(라벨링) 호출은 뉴스 1건당 완전히 독립적인 요청이라 Batch API(50% 할인,
+`embeddings.py`/`scoring.py`의 `submit_*_batch`/`poll_*_batch`)로 대량 제출·완료 후 캐시에 반영한다
+(`build_pool.py --submit` / `--poll`). 백테스트 등에서 캐시에 없는 뉴스가 필요할 때만
+(`extract_variables.py`) 그 자리에서 동기 호출로 즉시 채워 넣는다(온디맨드 경로는 배치가 아닌
+실시간 API 사용 — 속도가 우선이므로).
+
+### 16.4 최종 점수 계산 (`aggregate.py`)
+
+```
+strength = sentiment(+1/0/-1) * magnitude(1.5/1.0/0.5)
+decay(d) = 1 / (d + 1)                              # d = 이벤트 최초 보도일로부터 경과일
+count_factor = 1 + 0.3 * log(source_count)          # source_count = 같은 이벤트를 다룬 뉴스 수
+event_score = strength * decay(d) * count_factor
+종목 점수 = 그 종목에 관련된 모든 이벤트의 event_score 합산 -> 평균 -> tanh로 [-1, 1] 정규화
+```
+
+### 16.5 캐시 — JSON / SQLite 이중 지원
+
+`cache_store.py`가 `JSONCacheStore`/`SQLiteCacheStore` 두 구현을 동일 인터페이스(`CacheStore`)로
+제공하며 `--store json sqlite`로 선택. `build_pool.py`가 약 1000건(기본값)을 미리 처리해 캐시를
+채우는 "AI 풀" 빌더 역할을 한다(2026-07-22 최초 구축: 뉴스 1000건 처리 → 이벤트 클러스터 608개,
+JSON/SQLite 양쪽에 저장 완료). `score_stock.py`는 특정 종목·기준일의 점수를 조회하는 데모 CLI로,
+캐시에 없는 뉴스는 `extract_variables.ensure_variables()`가 즉시 채워 넣는다.
