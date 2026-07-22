@@ -11,6 +11,10 @@ class PriceDataNode(Node):
     type = "data.price"
     category = "data"
     display_name = "시세 데이터 조회"
+    description = (
+        "market_data provider에서 종목별 현재가를 조회한다. 입력: symbols의 종목코드 키. "
+        "출력: symbols[code]에 price/prev_close/volume/change_pct를 채운다. 파라미터 없음."
+    )
     param_schema: list[NodeParam] = []
 
     def execute(self, context: NodeContext, **providers: object) -> NodeContext:

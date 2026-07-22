@@ -17,6 +17,12 @@ class IfElseNode(Node):
     type = "logic.if_else"
     category = "logic"
     display_name = "IF 조건"
+    description = (
+        "조건 분기(필터). params.expr는 symbols[code]의 키를 변수로 쓰는 표현식이다(예: "
+        "'volume_ratio > 2.0', 'price > ma_5'). expr가 False이거나 필요한 키가 symbols[code]에 "
+        "없어 평가 오류가 나면 해당 종목을 symbols에서 제거하고(이후 노드로 전달 안 함) "
+        "meta.filtered_out에 기록한다. 새 데이터를 추가하지 않고 종목 집합만 걸러낸다."
+    )
     param_schema: list[NodeParam] = [
         {"key": "expr", "type": "expression", "label": "조건식", "default": "True", "required": True},
     ]

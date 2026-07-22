@@ -11,6 +11,7 @@ export interface NodeTypeSchema {
   type: string
   category: string
   display_name: string
+  description: string
   param_schema: NodeParamSchema[]
 }
 

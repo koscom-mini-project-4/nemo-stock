@@ -14,6 +14,12 @@ class NewsDataNode(Node):
     type = "data.news"
     category = "data"
     display_name = "뉴스 데이터 조회"
+    description = (
+        "종목별 최근 뉴스 params.limit건을 조회해 텍스트를 합친다. 출력: symbols[code]에 "
+        "news_text(합쳐진 제목+본문)/news_id(최신 뉴스 id)/news_count를 채운다. "
+        "ai.sentiment_score 노드(params.source=news)가 news_text/news_id를 입력으로 사용하므로, "
+        "감성 점수화를 하려면 이 노드를 ai.sentiment_score보다 앞에 연결해야 한다."
+    )
     param_schema: list[NodeParam] = [
         {"key": "limit", "type": "number", "label": "조회 개수", "default": 3, "required": False},
     ]

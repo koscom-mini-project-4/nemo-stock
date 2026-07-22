@@ -67,6 +67,7 @@ function applyCode() {
       </div>
 
       <div v-if="!schema" class="text-muted">알 수 없는 노드 타입입니다.</div>
+      <p v-else-if="schema.description" class="text-muted node-description">{{ schema.description }}</p>
       <ParamFields
         v-else-if="mode === 'form'"
         :param-schema="schema.param_schema"
@@ -146,5 +147,11 @@ function applyCode() {
 .code-actions .error {
   color: var(--danger);
   font-size: 12px;
+}
+
+.node-description {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 12px;
 }
 </style>

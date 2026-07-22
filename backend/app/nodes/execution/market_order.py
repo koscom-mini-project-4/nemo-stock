@@ -11,6 +11,12 @@ class MarketOrderNode(Node):
     type = "execution.market_order"
     category = "execution"
     display_name = "시장가 주문"
+    description = (
+        "각 종목에 대해 broker provider로 시장가 주문을 넣는다. 입력: symbols[code].price를 "
+        "기준가로 사용(없으면 해당 종목 주문 스킵 후 meta.errors에 기록). params.side(buy|sell), "
+        "params.qty(종목당 수량). 출력: symbols[code]에 order_status/order_price, "
+        "meta.orders에 주문 상세(order_id/symbol/side/qty/price/status/reason) 누적."
+    )
     param_schema: list[NodeParam] = [
         {
             "key": "side",

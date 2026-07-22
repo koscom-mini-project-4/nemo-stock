@@ -11,6 +11,13 @@ class DisclosureDataNode(Node):
     type = "data.disclosure"
     category = "data"
     display_name = "공시 데이터 조회"
+    description = (
+        "종목별 최근 공시(DART) 제목 params.limit건을 조회한다. 출력: symbols[code]에 "
+        "disclosure_text(회사명+공시제목 합침)/disclosure_id(최신 공시 id)/disclosure_count를 "
+        "채운다. ai.sentiment_score 노드(params.source=disclosure)가 disclosure_text/"
+        "disclosure_id를 입력으로 사용하므로, 감성 점수화를 하려면 이 노드를 "
+        "ai.sentiment_score보다 앞에 연결해야 한다."
+    )
     param_schema: list[NodeParam] = [
         {"key": "limit", "type": "number", "label": "조회 개수", "default": 3, "required": False},
     ]

@@ -3,6 +3,11 @@
 모든 전략 노드는 Node를 상속하고 @register_node로 등록한다.
 등록된 노드는 NODE_REGISTRY를 통해 조회되며, GET /nodes API가 이를 그대로
 프론트엔드 노드 팔레트/속성 패널 스키마로 노출한다.
+
+description은 노드 팔레트 툴팁뿐 아니라 app/ai/workflow_draft.py, app/ai/workflow_chat.py가
+node_registry_schema()를 그대로 프롬프트에 주입할 때 AI가 노드의 역할과 입력/출력
+심볼 키를 파악하는 유일한 근거이므로, 각 노드가 symbols에서 무엇을 읽고 무엇을 쓰는지
+구체적으로 적는다(예: "symbols[code]에 ma_{window}를 채운다").
 """
 
 from __future__ import annotations
@@ -73,6 +78,7 @@ class Node(ABC):
     type: ClassVar[str]
     category: ClassVar[str]
     display_name: ClassVar[str]
+    description: ClassVar[str] = ""
     param_schema: ClassVar[list[NodeParam]] = []
 
     def __init__(self, node_id: str, params: dict[str, Any] | None = None):
@@ -126,6 +132,7 @@ def node_registry_schema() -> list[dict[str, Any]]:
             "type": cls.type,
             "category": cls.category,
             "display_name": cls.display_name,
+            "description": cls.description,
             "param_schema": cls.param_schema,
         }
         for cls in NODE_REGISTRY.values()

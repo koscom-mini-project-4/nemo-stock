@@ -17,6 +17,13 @@ class SentimentScoreNode(Node):
     type = "ai.sentiment_score"
     category = "ai"
     display_name = "감성 점수화 (AI)"
+    description = (
+        "data.news 또는 data.disclosure 노드 뒤에 연결해 사용한다(단독으로는 동작 불가). "
+        "params.source(news|disclosure)에 따라 symbols[code]의 {source}_text/{source}_id를 "
+        "읽어 AI로 감성을 점수화하고(subject별로 캐시되어 동일 텍스트 재호출 안 함), "
+        "symbols[code]에 sentiment_score(float, 부정<0<긍정)/sentiment_summary(요약 문자열)를 "
+        "채운다. 텍스트가 비어 있으면 둘 다 None."
+    )
     param_schema: list[NodeParam] = [
         {
             "key": "source",

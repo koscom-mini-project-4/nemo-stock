@@ -46,6 +46,7 @@ export const PALETTE_DRAG_MIME = 'application/x-nemo-node-type'
         class="palette-item"
         type="button"
         draggable="true"
+        :title="schema.description"
         @click="emit('add', schema)"
         @dragstart="
           (event: DragEvent) => {

@@ -119,6 +119,7 @@ class Node(ABC):
     type: ClassVar[str]          # 예: "data.price", "logic.if_else"
     category: ClassVar[str]      # scheduler|data|indicator|ai|logic|risk|execution
     display_name: ClassVar[str]
+    description: ClassVar[str] = ""  # 역할 + symbols 입출력 키 설명(아래 참조)
     param_schema: ClassVar[list[NodeParam]]
 
     def __init__(self, node_id: str, params: dict[str, Any]): ...
@@ -138,7 +139,7 @@ def register_node(cls: type[Node]) -> type[Node]:
     NODE_REGISTRY[cls.type] = cls
     return cls
 ```
-`GET /nodes` 엔드포인트가 `NODE_REGISTRY`를 순회해 `type/category/display_name/param_schema`를 JSON으로 반환 → 프론트 노드 팔레트/속성 패널이 이를 렌더링.
+`GET /nodes` 엔드포인트가 `NODE_REGISTRY`를 순회해 `type/category/display_name/description/param_schema`를 JSON으로 반환 → 프론트 노드 팔레트(툴팁)/속성 패널이 이를 렌더링. `description`은 각 노드가 `NodeContext.symbols`에서 무엇을 읽고 무엇을 쓰는지(입력/출력 키)까지 구체적으로 적어야 한다 — `app/ai/workflow_draft.py`/`app/ai/workflow_chat.py`가 `node_registry_schema()`를 그대로 AI 프롬프트에 주입하므로, 여기 적힌 문장이 AI가 노드 역할을 이해하는 유일한 근거다. 필수값은 아니며(빈 문자열 허용) 노드 추가 시 채워 넣는 것을 원칙으로 한다.
 
 ### 3.2 PoC 기본 제공 노드 목록
 

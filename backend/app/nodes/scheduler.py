@@ -14,6 +14,11 @@ class SchedulerIntervalNode(Node):
     type = "scheduler.interval"
     category = "scheduler"
     display_name = "주기 스케줄러"
+    description = (
+        "워크플로의 진입(루트) 노드. params.universe(콤마 구분 종목코드)를 symbols의 키로 "
+        "초기화한다(각 값은 빈 dict). 입력 없음. 출력: symbols에 종목코드별 빈 dict, "
+        "meta.universe(리스트), meta.interval_sec."
+    )
     param_schema: list[NodeParam] = [
         {"key": "interval_sec", "type": "number", "label": "실행 주기(초)", "default": 60, "required": True},
         {
