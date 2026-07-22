@@ -1,15 +1,15 @@
 """더미(모의) 주문 실행 제공자.
 
-현재가에 즉시 체결되는 것으로 가정하는 페이퍼 트레이딩 원장.
-테스트/백테스트 공용으로 사용한다.
+현재가에 즉시 체결되는 것으로 가정하는 순수 인메모리 페이퍼 트레이딩 원장. 백테스트 전용으로
+쓰인다(백테스트마다 새로 생성되어 initial_cash에서 독립적으로 시작 — DESIGN.md §0-2).
+라이브/테스트 실행은 DB에 영속화되는 app/broker/persistent_dummy.py::PersistentOrderExecutionProvider
+를 사용한다. 체결 계산 자체는 두 구현이 app/broker/fill_logic.py::apply_fill()을 공유한다.
 """
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime
-
 from app.broker.base import Balance, OrderExecutionProvider, OrderRequest, OrderResult, Position
+from app.broker.fill_logic import apply_fill
 
 
 class DummyOrderExecutionProvider(OrderExecutionProvider):
@@ -20,86 +20,10 @@ class DummyOrderExecutionProvider(OrderExecutionProvider):
 
     def place_order(self, order: OrderRequest) -> OrderResult:
         fill_price = order.limit_price or order.ref_price
-        if fill_price is None:
-            result = OrderResult(
-                order_id=str(uuid.uuid4()),
-                symbol=order.symbol,
-                side=order.side,
-                order_type=order.order_type,
-                qty=order.qty,
-                price=0.0,
-                status="rejected",
-                filled_at=None,
-                reason="체결 기준가(ref_price/limit_price)가 없습니다.",
-            )
-            self._orders.append(result)
-            return result
-
-        cost = fill_price * order.qty
-        if order.side == "buy":
-            if cost > self._cash:
-                result = OrderResult(
-                    order_id=str(uuid.uuid4()),
-                    symbol=order.symbol,
-                    side=order.side,
-                    order_type=order.order_type,
-                    qty=order.qty,
-                    price=fill_price,
-                    status="rejected",
-                    filled_at=None,
-                    reason="잔고 부족",
-                )
-                self._orders.append(result)
-                return result
-            self._cash -= cost
-            pos = self._positions.get(order.symbol, Position(order.symbol, 0, 0.0))
-            new_qty = pos.qty + order.qty
-            new_avg = (pos.avg_price * pos.qty + cost) / new_qty if new_qty else 0.0
-            self._positions[order.symbol] = Position(order.symbol, new_qty, new_avg)
-        else:  # sell
-            pos = self._positions.get(order.symbol, Position(order.symbol, 0, 0.0))
-            if pos.qty < order.qty:
-                result = OrderResult(
-                    order_id=str(uuid.uuid4()),
-                    symbol=order.symbol,
-                    side=order.side,
-                    order_type=order.order_type,
-                    qty=order.qty,
-                    price=fill_price,
-                    status="rejected",
-                    filled_at=None,
-                    reason="보유 수량 부족",
-                )
-                self._orders.append(result)
-                return result
-            realized_pnl = (fill_price - pos.avg_price) * order.qty
-            self._cash += cost
-            remaining = pos.qty - order.qty
-            self._positions[order.symbol] = Position(order.symbol, remaining, pos.avg_price if remaining else 0.0)
-            result = OrderResult(
-                order_id=str(uuid.uuid4()),
-                symbol=order.symbol,
-                side=order.side,
-                order_type=order.order_type,
-                qty=order.qty,
-                price=fill_price,
-                status="filled",
-                filled_at=datetime.now(),
-                realized_pnl=realized_pnl,
-            )
-            self._orders.append(result)
-            return result
-
-        result = OrderResult(
-            order_id=str(uuid.uuid4()),
-            symbol=order.symbol,
-            side=order.side,
-            order_type=order.order_type,
-            qty=order.qty,
-            price=fill_price,
-            status="filled",
-            filled_at=datetime.now(),
-        )
+        position = self._positions.get(order.symbol, Position(order.symbol, 0, 0.0))
+        self._cash, new_position, result = apply_fill(self._cash, position, order, fill_price)
+        if result.status == "filled":
+            self._positions[order.symbol] = new_position
         self._orders.append(result)
         return result
 

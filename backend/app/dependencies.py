@@ -16,6 +16,7 @@ from app.ai.openai_client import OpenAIClient
 from app.auth.security import hash_password
 from app.broker.base import OrderExecutionProvider
 from app.broker.dummy import DummyOrderExecutionProvider
+from app.broker.persistent_dummy import PersistentOrderExecutionProvider
 from app.broker.toss_adapter import TossInvestOrderExecutionProvider
 from app.config import Settings
 from app.dao.base import (
@@ -25,6 +26,7 @@ from app.dao.base import (
     IntradayPriceBarRepository,
     NewsRepository,
     NodeEventRepository,
+    PortfolioRepository,
     PriceBarRepository,
     RunRepository,
     UserRecord,
@@ -39,6 +41,7 @@ from app.dao.sqlite.repositories import (
     SqliteIntradayPriceBarRepository,
     SqliteNewsRepository,
     SqliteNodeEventRepository,
+    SqlitePortfolioRepository,
     SqlitePriceBarRepository,
     SqliteRunRepository,
     SqliteUserRepository,
@@ -70,6 +73,7 @@ class Container:
     disclosure_repo: DisclosureRepository
     news_repo: NewsRepository
     ai_score_cache_repo: AIScoreCacheRepository
+    portfolio_repo: PortfolioRepository
     ai_client: AIClient
     event_bus: EventBus
     market_data: MarketDataProvider
@@ -110,7 +114,9 @@ def _build_market_data_provider(settings: Settings) -> MarketDataProvider:
     return DummyMarketDataProvider()
 
 
-def _build_order_provider(settings: Settings) -> OrderExecutionProvider:
+def _build_order_provider(
+    settings: Settings, portfolio_repo: PortfolioRepository | None = None, user_id: str | None = None
+) -> OrderExecutionProvider:
     if settings.order_provider == "toss":
         if not settings.toss_client_id or not settings.toss_client_secret or not settings.toss_account_id:
             raise RuntimeError(
@@ -119,7 +125,11 @@ def _build_order_provider(settings: Settings) -> OrderExecutionProvider:
         return TossInvestOrderExecutionProvider(
             settings.toss_client_id, settings.toss_client_secret, settings.toss_base_url, settings.toss_account_id
         )
-    return DummyOrderExecutionProvider()
+    if portfolio_repo is not None and user_id is not None:
+        return PersistentOrderExecutionProvider(
+            portfolio_repo, user_id, default_initial_cash=settings.initial_portfolio_cash
+        )
+    return DummyOrderExecutionProvider(initial_cash=settings.initial_portfolio_cash)
 
 
 def build_container(settings: Settings) -> Container:
@@ -139,22 +149,27 @@ def build_container(settings: Settings) -> Container:
     disclosure_repo = SqliteDisclosureRepository(session_factory)
     news_repo = SqliteNewsRepository(session_factory)
     ai_score_cache_repo = SqliteAIScoreCacheRepository(session_factory)
+    portfolio_repo = SqlitePortfolioRepository(session_factory)
     ai_client: AIClient = OpenAIClient(settings.openai_api_key, settings.openai_model)
 
     # 최초 기동 시 단일 관리자 계정 부트스트랩
+    admin_id = "admin"
     existing = user_repo.get_by_username(settings.admin_username)
     if existing is None:
         user_repo.upsert(
             UserRecord(
-                id="admin",
+                id=admin_id,
                 username=settings.admin_username,
                 password_hash=hash_password(settings.admin_password),
             )
         )
+    # 포트폴리오(현금) 최초 시드 — 이미 체결 이력이 있으면(cash 레코드 존재) 건드리지 않는다.
+    if portfolio_repo.get_cash(admin_id) is None:
+        portfolio_repo.set_cash(admin_id, settings.initial_portfolio_cash)
 
     event_bus = InMemoryEventBus()
     market_data = _build_market_data_provider(settings)
-    broker = _build_order_provider(settings)
+    broker = _build_order_provider(settings, portfolio_repo, admin_id)
     workflow_engine = WorkflowEngine(event_bus)
     trigger_queue = InMemoryTriggerQueue()
 
@@ -194,6 +209,7 @@ def build_container(settings: Settings) -> Container:
         disclosure_repo=disclosure_repo,
         news_repo=news_repo,
         ai_score_cache_repo=ai_score_cache_repo,
+        portfolio_repo=portfolio_repo,
         ai_client=ai_client,
         event_bus=event_bus,
         market_data=market_data,

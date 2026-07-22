@@ -8,18 +8,18 @@ PoC는 ThreadPoolExecutor를 사용하며, 노드 실행이 순수 함수/직렬
 from __future__ import annotations
 
 import threading
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
 from app.broker.base import OrderExecutionProvider
-from app.dao.base import NodeEventRecord, NodeEventRepository, RunRecord, RunRepository, WorkflowRepository
+from app.dao.base import NodeEventRepository, RunRecord, RunRepository, WorkflowRepository
 from app.market_data.base import MarketDataProvider
 from app.trigger.queue import Trigger, TriggerQueue
 from app.workflow.engine import WorkflowEngine
 from app.workflow.events import EventBus
 from app.workflow.graph import WorkflowGraph, WorkflowValidationError
+from app.workflow.run_persistence import events_to_records
 
 
 class WorkerPool:
@@ -102,21 +102,4 @@ class WorkerPool:
         finally:
             run_record.finished_at = datetime.now()
             self._run_repo.save(run_record)
-            events = self._event_bus.get_history(trigger.run_id)
-            self._node_event_repo.save_many(
-                [
-                    NodeEventRecord(
-                        id=str(uuid.uuid4()),
-                        run_id=e.run_id,
-                        node_id=e.node_id,
-                        node_type=e.node_type,
-                        status=e.status,
-                        timestamp=e.timestamp,
-                        input_json=e.input_snapshot,
-                        output_json=e.output_snapshot,
-                        error=e.error,
-                        duration_ms=e.duration_ms,
-                    )
-                    for e in events
-                ]
-            )
+            self._node_event_repo.save_many(events_to_records(self._event_bus, trigger.run_id))

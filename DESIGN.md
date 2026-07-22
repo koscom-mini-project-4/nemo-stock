@@ -34,6 +34,16 @@
 | 뉴스 영향도(impact) 등급 체계 | High/Medium/Low 3단계 대신 **1~9등급**(9등급=전쟁·내전 발발 등 국가적 충격) + 등급별 예시를 시스템 프롬프트에 명시해, AI가 등급 기준을 자체적으로 임의 판단하지 않고 고정 앵커에 맞춰 분류하도록 함(§16.1). |
 | 원시 AI 변수와 점수 계산식 분리 | decay/count_factor/정규화 등 "점수 계산식"은 나중에 바뀔 수 있으므로, AI가 추출한 원시 변수(`NewsVariables`)만 캐시에 저장하고 최종 점수는 조회 시점에 캐시된 원시 변수로부터 매번 계산(`aggregate.py`). 계산식이 바뀌어도 캐시된 AI 호출 결과는 재사용 가능 — 단, 원시 변수 자체의 스키마(예: impact 등급 체계)가 바뀌면 해당 필드는 재추출 필요(§16.5). |
 
+## 0-3. 추가 확정 사항 (2026-07-22 사용자 확인 — 포트폴리오 영속화)
+
+| 항목 | 결정 |
+| --- | --- |
+| 포트폴리오(현금/보유종목) 영속성 | **실시간 반영형**. 매수/매도 체결마다 DB(`portfolio_cash`/`portfolio_positions`)의 현금/보유수량이 실제로 갱신되고 서버 재시작에도 유지된다(§6, §9.2). 기존 `DummyOrderExecutionProvider`는 컨테이너 생명주기 동안만 메모리에 잔고를 들고 있어(재시작 시 리셋) "보유 종목/자금 관리"가 사실상 불가능했던 문제를 해결. |
+| 노드에서의 노출 방식 | **자동 주입**(새 노드 타입 아님). `scheduler.interval`이 종목 유니버스를 초기화하는 것처럼, `WorkflowEngine.execute()`가 런 시작 시점에 `held_qty`/`held_avg_price`/`cash`/`equity`를 모든 종목 데이터에 자동으로 채워 넣어 `logic.if_else`의 `expr` 등에서 배선 없이 바로 참조 가능(§3.1). |
+| 백테스트와의 관계 | **독립 유지**. 백테스트는 지금처럼 사용자가 지정한 `initial_capital`·빈 포지션에서 시작하는 가상 실행을 유지(재현 가능한 실험이 목적)하되, 동일한 자동 주입 메커니즘으로 자신의 임시 `broker` 상태를 그대로 반영받는다 — 별도 백테스트 전용 코드 불필요(§8). |
+| 백테스트 그래프 가시성 | 거래일마다 별도 `run_id`로 `RunRecord`/`NodeEventRecord`를 저장(§8-2)해, 결과 화면에서 특정 날짜를 골라 그날의 노드 그래프 실행을 "테스트 실행"과 동일한 디버그 패널로 재생 가능. |
+| ABC 기반 다형성 | 나중에 실제 증권사 API로 교체 가능하도록, 신규 구현도 기존 `OrderExecutionProvider`/Repository 패턴을 그대로 따름 — `PersistentOrderExecutionProvider`는 `DummyOrderExecutionProvider`/`TossInvestOrderExecutionProvider`와 나란한 세 번째 구현체일 뿐이며, `PortfolioRepository`도 기존 Repository 인터페이스 패턴(SQLite/인메모리 구현체 분리)을 그대로 따른다(§9.1). |
+
 추가로 조사를 통해 확인한 사실:
 - **Toss증권 Open API**: `developers.tossinvest.com`에 실존. OAuth2 Client Credentials Grant, 계좌 API는 `X-Tossinvest-Account` 헤더 필요. 시세/호가/체결/캔들/가격제한/종목정보/환율/시장캘린더 + 계좌/자산/주문(생성·수정·취소·조회) 제공. 현재 사전신청 기반 단계적 오픈 중이라 즉시 발급이 어려움.
 - **공공데이터포털 금융위원회_주식시세정보 API** (`data.go.kr`, 서비스키 필요, 무료): 종목코드+일자 기준 시가/종가/고가/저가/거래량 등 제공. **일 1회, 영업일 T+1 오후 갱신** (실시간 아님) → 백테스트용 일봉 데이터 소스로 적합. 1초/1분 단위 "실시간성"은 이 데이터로 재현 불가능하므로, 라이브/테스트 모드에서는 이 일봉을 시드로 한 더미 실시간 시세 생성기를 별도로 둔다 (§5.2).
@@ -140,6 +150,8 @@ def register_node(cls: type[Node]) -> type[Node]:
     return cls
 ```
 `GET /nodes` 엔드포인트가 `NODE_REGISTRY`를 순회해 `type/category/display_name/description/param_schema`를 JSON으로 반환 → 프론트 노드 팔레트(툴팁)/속성 패널이 이를 렌더링. `description`은 각 노드가 `NodeContext.symbols`에서 무엇을 읽고 무엇을 쓰는지(입력/출력 키)까지 구체적으로 적어야 한다 — `app/ai/workflow_draft.py`/`app/ai/workflow_chat.py`가 `node_registry_schema()`를 그대로 AI 프롬프트에 주입하므로, 여기 적힌 문장이 AI가 노드 역할을 이해하는 유일한 근거다. 필수값은 아니며(빈 문자열 허용) 노드 추가 시 채워 넣는 것을 원칙으로 한다.
+
+**포트폴리오 자동 주입 변수** (§0-3): `WorkflowEngine.execute()`가 런 시작 시점에 `broker.get_balance()`/`get_positions()`를 1회 조회해, 각 노드의 출력 컨텍스트가 만들어질 때마다 `symbols[code]`에 아직 없는 경우에 한해 `held_qty`(보유수량)/`held_avg_price`(평단가)/`cash`(현금)/`equity`(평가자산)를 채워 넣는다(`meta.cash`/`meta.equity`에도 동일 값 기록). 어떤 노드도 이 값을 배선하지 않으며, `logic.if_else`의 `expr`(`simpleeval`, `names=dict(symbols[code])`)에서 바로 참조 가능하다(예: `held_qty == 0 and cash > price * 10`). 값은 런 시작 시점 스냅샷이므로 해당 런 자신이 실행 도중 발생시킨 주문으로는 바뀌지 않는다 — `node_registry_schema()`에는 나타나지 않는 암묵적 변수이므로 AI 프롬프트(§7.2, §7.5)에 별도 문구로 고지한다.
 
 ### 3.2 PoC 기본 제공 노드 목록
 
@@ -289,10 +301,11 @@ class OrderExecutionProvider(ABC):
 | `DummyMarketDataProvider` | 라이브/테스트 모드. sqlite 일봉 시드 + 랜덤워크로 초단위 시세 생성 |
 | `HistoricalMarketDataProvider` | 백테스트 모드. sqlite `price_bars`를 날짜순으로 리플레이 |
 | `TossInvestMarketDataProvider` | **스켈레톤(미검증)**. OAuth2 Client Credentials 토큰 발급 + 시세/호가/캔들 REST 호출부만 구현, `.env`에 키 없으면 초기화 시 명시적으로 비활성 처리 |
-| `DummyOrderExecutionProvider` | 모의 체결(현재가 즉시 체결), 가상 현금/포지션을 sqlite `orders`/`positions_ledger`에 기록 (테스트·백테스트 공용) |
+| `DummyOrderExecutionProvider` | 모의 체결(현재가 즉시 체결), 현금/포지션은 **순수 인메모리**(인스턴스 생명주기 동안만 유지) — 백테스트 전용, 매 백테스트마다 `initial_capital`로 새로 생성되어 독립적으로 시작(§0-3, §8) |
+| `PersistentOrderExecutionProvider` | 모의 체결 계산은 `DummyOrderExecutionProvider`와 동일(`app/broker/fill_logic.py::apply_fill` 공유)하되, 현금/포지션을 매 체결마다 `PortfolioRepository`(sqlite `portfolio_cash`/`portfolio_positions`)에서 읽고 다시 써서 서버 재시작에도 유지 — 라이브/테스트(컨테이너 싱글턴 broker) 전용(§0-3) |
 | `TossInvestOrderExecutionProvider` | **스켈레톤(미검증)**. 주문 생성/취소/조회 REST 호출부만 구현 |
 
-Provider 선택은 `app/config.py`의 `MARKET_DATA_PROVIDER=dummy|historical|toss`, `ORDER_PROVIDER=dummy|toss` 환경변수로 결정하며, 실행 모드(live/test/backtest)에 따라 엔진이 자동으로 적절한 Provider를 주입한다(backtest는 항상 historical+dummy 강제).
+Provider 선택은 `app/config.py`의 `MARKET_DATA_PROVIDER=dummy|historical|toss`, `ORDER_PROVIDER=dummy|toss` 환경변수로 결정하며, 실행 모드(live/test/backtest)에 따라 엔진이 자동으로 적절한 Provider를 주입한다(backtest는 항상 historical+dummy 강제, 라이브/테스트는 `ORDER_PROVIDER=dummy`면 `PersistentOrderExecutionProvider`).
 
 백테스트 시세 자동 수집(네이버 차트 API로 일봉+시간봉 확보)은 §8-1 참조.
 
@@ -338,7 +351,7 @@ Provider 선택은 `app/config.py`의 `MARKET_DATA_PROVIDER=dummy|historical|tos
   - 최대낙폭(MDD)
   - 승률, 손익비, 거래횟수, 변동성(일간 수익률 표준편차)
   - 자산곡선(equity curve, 시계열)
-- 결과는 `backtest_results` 테이블에 저장, 노드 실행 이벤트도 `node_events`에 남아 프론트에서 "특정 시점 재생" 가능.
+- 결과는 `backtest_results` 테이블에 저장, 노드 실행 이벤트도 `node_events`에 남아 프론트에서 "특정 시점 재생" 가능(§8-2).
 
 ### 8-1. 백테스트 자동 시세 수집 (`app/data_ingestion/naver_price_client.py`, `auto_ingest.py`)
 
@@ -359,6 +372,17 @@ Provider 선택은 `app/config.py`의 `MARKET_DATA_PROVIDER=dummy|historical|tos
 cd backend && ./.venv/bin/python -m app.cli.ingest_prices --symbol 005930,000660 --start 2026-06-01 --end 2026-07-20
 ```
 
+### 8-2. 일자별 노드 그래프 재생 (§0-3)
+
+`BacktestRunner`는 거래일마다 별도의 `run_id`를 생성해 `WorkflowEngine.execute(mode="backtest",
+run_id=...)`에 넘기고, 실행 직후 `WorkerPool`(§5.3)과 동일한 방식으로 `RunRecord`(`mode="backtest"`)
++ 해당 run의 `NodeEventRecord`들을 저장한다(공용 헬퍼: `app/workflow/run_persistence.py::events_to_records`).
+`BacktestResult.daily_runs`(날짜→run_id 목록)가 `backtest_results.daily_runs_json`에 함께 저장된다.
+
+`GET /workflows/{workflow_id}/runs/{run_id}`(라이브/테스트/백테스트 run 공용 조회 엔드포인트)로
+특정 날짜의 노드 실행 이벤트를 가져와, 프론트 `BacktestResultView.vue`가 "테스트 실행"과 동일한
+`VueFlow` 캔버스 + `DebugPanel.vue` 조합으로 재생한다(날짜 `<select>`로 전환).
+
 ---
 
 ## 9. DAO / 데이터베이스
@@ -369,7 +393,7 @@ class WorkflowRepository(ABC):
     def get(self, id: str) -> WorkflowDef | None: ...
     def save(self, wf: WorkflowDef) -> None: ...
     def list_by_user(self, user_id: str) -> list[WorkflowDef]: ...
-# 동일 패턴: RunRepository, NodeEventRepository, OrderRepository, BacktestResultRepository,
+# 동일 패턴: RunRepository, NodeEventRepository, PortfolioRepository, BacktestResultRepository,
 #            PriceBarRepository, DisclosureRepository, NewsRepository, AIScoreCacheRepository, UserRepository
 ```
 - SQLite 구현체: `app/dao/sqlite/*` (SQLAlchemy 2.0 ORM, 파일 `nemo_stock.db`). 다른 RDB(Postgres 등) 전환 시 `DATABASE_URL`만 변경 + 방언 차이가 있는 부분만 조정.
@@ -382,10 +406,11 @@ users(id, username, password_hash, created_at)
 workflows(id, user_id, name, graph_json, status, schedule_interval_sec, created_at, updated_at)
 runs(id, workflow_id, mode, status, started_at, finished_at)
 node_events(id, run_id, node_id, node_type, status, input_json, output_json, error, started_at, finished_at)
-orders(id, run_id, symbol, side, order_type, qty, price, status, filled_at)
-positions_ledger(id, run_id, symbol, qty, avg_price, updated_at)
+portfolio_cash(user_id PK, cash, updated_at)  -- §0-3, PersistentOrderExecutionProvider 전용
+portfolio_positions(id, user_id, symbol, qty, avg_price, updated_at, UNIQUE(user_id, symbol))  -- §0-3
 backtest_results(id, run_id, workflow_id, start_date, end_date, initial_capital, final_equity,
-                  cagr, mdd, win_rate, profit_loss_ratio, trade_count, equity_curve_json)
+                  cagr, mdd, win_rate, profit_loss_ratio, trade_count, equity_curve_json,
+                  daily_runs_json)  -- daily_runs_json: [{"date":..., "run_id":...}, ...] (§8-2)
 price_bars(symbol, date, open, high, low, close, volume, source, PRIMARY KEY(symbol, date))
 price_bars_intraday(symbol, bar_datetime, interval, open, high, low, close, volume, source,
                      PRIMARY KEY(symbol, bar_datetime, interval))  -- §8-1, 네이버 시간봉(minute60)

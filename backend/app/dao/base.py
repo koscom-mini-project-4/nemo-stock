@@ -80,6 +80,36 @@ class UserRepository(ABC):
     def upsert(self, user: UserRecord) -> None: ...
 
 
+@dataclass
+class PositionRecord:
+    symbol: str
+    qty: int
+    avg_price: float
+
+
+class PortfolioRepository(ABC):
+    """계정별 현금/보유종목(포트폴리오) 영속 저장소.
+
+    OrderExecutionProvider(app/broker/base.py)의 SQLite 기반 구현체가 이 ABC를 통해 매 체결마다
+    현금/포지션을 읽고 쓴다 — 나중에 실제 증권사 API로 교체할 때도 이 ABC 자체는 바뀌지 않고
+    OrderExecutionProvider의 새 구현체만 추가하면 된다.
+    """
+
+    @abstractmethod
+    def get_cash(self, user_id: str) -> float | None: ...
+
+    @abstractmethod
+    def set_cash(self, user_id: str, cash: float) -> None: ...
+
+    @abstractmethod
+    def list_positions(self, user_id: str) -> list[PositionRecord]: ...
+
+    @abstractmethod
+    def upsert_position(self, user_id: str, symbol: str, qty: int, avg_price: float) -> None:
+        """qty <= 0이면 해당 종목 포지션을 삭제한다."""
+        ...
+
+
 class WorkflowRepository(ABC):
     @abstractmethod
     def get(self, workflow_id: str) -> WorkflowRecord | None: ...
@@ -165,6 +195,7 @@ class BacktestResultRecord:
     profit_loss_ratio: float | None
     trade_count: int
     equity_curve: list[dict[str, Any]]  # [{"date": "YYYY-MM-DD", "equity": float}, ...]
+    daily_runs: list[dict[str, Any]] = field(default_factory=list)  # [{"date": "...", "run_id": "..."}, ...]
     created_at: datetime = field(default_factory=datetime.now)
 
 

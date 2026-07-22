@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "admin1234"
 
+    # 포트폴리오(현금) 최초 시드값. 계정에 아직 portfolio_cash 레코드가 없을 때만 사용된다.
+    initial_portfolio_cash: float = 10_000_000.0
+
     # Database
     database_url: str = f"sqlite:///{BACKEND_DIR / 'nemo_stock.db'}"
 

@@ -85,6 +85,16 @@ def test_manual_ingest_then_backtest_end_to_end(app_client: TestClient, auth_hea
     assert get_resp.status_code == 200
     assert get_resp.json()["id"] == result["id"]
 
+    # 거래일마다 별도 run_id가 저장되어 일자별 노드 그래프를 재생할 수 있어야 한다.
+    assert len(result["daily_runs"]) == 15
+    first_run = result["daily_runs"][0]
+    run_resp = app_client.get(f"/workflows/{workflow_id}/runs/{first_run['run_id']}", headers=auth_headers)
+    assert run_resp.status_code == 200, run_resp.text
+    run_out = run_resp.json()
+    assert run_out["mode"] == "backtest"
+    assert len(run_out["events"]) > 0
+    assert any(e["node_id"] == "n1" for e in run_out["events"])
+
 
 def test_backtest_without_price_data_returns_400(app_client: TestClient, auth_headers: dict):
     wf_resp = app_client.post("/workflows", json=_workflow_payload(), headers=auth_headers)

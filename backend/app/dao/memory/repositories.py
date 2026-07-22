@@ -18,6 +18,8 @@ from app.dao.base import (
     NewsRepository,
     NodeEventRecord,
     NodeEventRepository,
+    PortfolioRepository,
+    PositionRecord,
     PriceBarRecord,
     PriceBarRepository,
     RunRecord,
@@ -58,6 +60,27 @@ class InMemoryWorkflowRepository(WorkflowRepository):
 
     def list_active(self) -> list[WorkflowRecord]:
         return [w for w in self._store.values() if w.status == "active"]
+
+
+class InMemoryPortfolioRepository(PortfolioRepository):
+    def __init__(self) -> None:
+        self._cash: dict[str, float] = {}
+        self._positions: dict[tuple[str, str], PositionRecord] = {}
+
+    def get_cash(self, user_id: str) -> float | None:
+        return self._cash.get(user_id)
+
+    def set_cash(self, user_id: str, cash: float) -> None:
+        self._cash[user_id] = cash
+
+    def list_positions(self, user_id: str) -> list[PositionRecord]:
+        return [p for (uid, _), p in self._positions.items() if uid == user_id]
+
+    def upsert_position(self, user_id: str, symbol: str, qty: int, avg_price: float) -> None:
+        if qty <= 0:
+            self._positions.pop((user_id, symbol), None)
+            return
+        self._positions[(user_id, symbol)] = PositionRecord(symbol=symbol, qty=qty, avg_price=avg_price)
 
 
 class InMemoryRunRepository(RunRepository):

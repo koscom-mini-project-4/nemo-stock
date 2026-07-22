@@ -334,6 +334,70 @@ OpenAI Batch API(50% 할인)로 제출, 캐시미스 온디맨드 1건은 동기
 (캐시 산출물)는 `.gitignore`에 추가해 커밋 대상에서 제외. `naver_economy_news.json`(304MB)도
 `.gitignore`에 추가(GitHub 파일 크기 제한 초과, 원본 데이터 재배포 불필요).
 
+## 2026-07-22 후속 작업: 노드 description 필드 추가
+
+사용자 질문("AI가 노드를 만들 때 노드 설명을 어떻게 참고하는가?")에 답하는 과정에서, `node_registry_schema()`
+가 AI 프롬프트(`workflow_draft.py`/`workflow_chat.py`)에 `type/category/display_name/param_schema`만
+주입하고 노드의 역할·입출력 설명은 전혀 넘기지 않는다는 걸 발견 — 노드 클래스 docstring은 AI가 못 봄.
+`Node.description: ClassVar[str]`을 추가하고 8개 노드 전부에 `symbols`에서 무엇을 읽고 쓰는지까지
+명시한 설명을 채워 넣어 `node_registry_schema()`가 노출하도록 함(자동으로 AI 프롬프트/팔레트 툴팁/
+속성 패널에 반영). DESIGN.md §3.1 갱신. 백엔드 105개 전부 통과, 프론트 `vue-tsc -b` 통과.
+커밋 `bd8e057`.
+
+## 2026-07-22~23 후속 작업: 영속 포트폴리오(현금+보유종목) + 노드 자동 변수 주입 + 백테스트 일자별 그래프 재생
+
+사용자 요청: DB로 보유종목/현금을 관리하고, 백테스트에도 이 정보(자금·보유수량)가 필요하며, 노드
+조건식에서 변수로 바로 쓸 수 있어야 한다. 조사 결과 `DESIGN.md` §9.2가 문서화한 `orders`/
+`positions_ledger` 테이블은 실제로는 구현된 적이 없었고, 매매 체결은 `DummyOrderExecutionProvider`가
+컨테이너(서버 프로세스) 생명주기 동안만 메모리에 현금/포지션을 들고 있어 서버 재시작 시 리셋되는
+구조였음(설계 드리프트). `AskUserQuestion`으로 확정: (1) 실시간 반영형(체결마다 DB 갱신, 재시작에도
+유지) (2) 노드 배선 없이 스케줄러처럼 엔진이 자동 주입 (3) 백테스트는 독립 유지(`initial_capital` 기반
+가상 실행) + (4) 백테스트 결과 화면에서 일자별 노드 그래프 재생 + (5) ABC 기반 다형성(실제 브로커
+API로 나중에 교체 가능). 규모가 커서 `EnterPlanMode`로 계획을 세우고 승인받은 뒤 구현(계획 파일:
+`lazy-stirring-crown.md`).
+
+**Part 1 — 영속 포트폴리오**: 신규 테이블 `portfolio_cash`/`portfolio_positions` + `PortfolioRepository`
+ABC(sqlite/인메모리 구현체, 기존 Repository 패턴 그대로). 매수/매도 체결 계산(`apply_fill`)을
+`app/broker/fill_logic.py`로 뽑아 `DummyOrderExecutionProvider`(백테스트 전용, 순수 인메모리)와
+`PersistentOrderExecutionProvider`(라이브/테스트 전용, 매 체결마다 `PortfolioRepository`에서
+읽고 씀)가 공유하도록 리팩터링 — 로직 드리프트 방지. `_build_order_provider()`가 컨테이너에는
+`PersistentOrderExecutionProvider`, 백테스트에는 여전히 `DummyOrderExecutionProvider`를 준다.
+
+**Part 2 — 엔진 자동 주입**: `WorkflowEngine.execute()`가 런 시작 시 `broker.get_balance()`/
+`get_positions()`를 1회 조회해, 각 노드 출력의 `symbols[code]`에 `held_qty`/`held_avg_price`/
+`cash`/`equity`를 자동으로 채운다(새 노드 타입 없음, `scheduler.interval`처럼 암묵적). 값은 런
+시작 시점 스냅샷이라 해당 런 자신의 주문으로는 바뀌지 않음. `logic.if_else`의 `expr`에서 바로
+참조 가능(`held_qty == 0 and cash > price * 10` 같은 식).
+
+**Part 3**: 이 변수들은 `node_registry_schema()`에 안 나타나므로(엔진이 주입, 노드가 아님) AI가
+모를 수 있어 `workflow_draft.py`/`workflow_chat.py` 시스템 프롬프트와 `if_else` `description`에
+고지 문구 추가.
+
+**Part 4 — 백테스트 일자별 그래프 재생**: `BacktestRunner`가 거래일마다 별도 `run_id`로
+`WorkerPool`(`app/workflow/run_persistence.py::events_to_records` 공유)과 동일하게 `RunRecord`/
+`NodeEventRecord`를 저장, `BacktestResult.daily_runs`(날짜→run_id)를 `backtest_results.daily_runs_json`
+에 저장. 신규 `GET /workflows/{id}/runs/{run_id}`(라이브/테스트/백테스트 run 공용 조회)를
+프론트 `BacktestResultView.vue`의 날짜 `<select>` + `VueFlow`/`DebugPanel`(빌더의 "테스트 실행"
+재생과 동일 컴포넌트 조합)이 소비.
+
+**실기 중 발견한 버그(계획에 없던 수정)**: `daily_runs_json`처럼 기존 테이블에 새 컬럼을 추가하는
+변경은 `Base.metadata.create_all()`이 반영해주지 못해(신규 테이블만 생성, 기존 테이블은 그대로) 이미
+써오던 로컬 `nemo_stock.db`에서 백테스트가 500 에러로 즉시 실패함을 실브라우저 검증 중 발견. Alembic
+없이 가볍게 해결 — `init_db()`에 ORM 모델엔 있지만 실제 테이블엔 없는 컬럼을 `ALTER TABLE ADD COLUMN`
+으로 보정하는 단계를 추가(`app/dao/sqlite/database.py::_add_missing_columns`), 회귀 테스트 추가
+(구버전 스키마를 raw SQL로 흉내낸 뒤 `init_db()`가 컬럼을 보정하고 정상 저장/조회되는지 확인).
+
+**검증**: 백엔드 pytest 105→**112개**(신규: PortfolioRepository CRUD, `apply_fill` 순수함수,
+`PersistentOrderExecutionProvider` 재시작 시뮬레이션, 엔진 주입, 백테스트 daily_runs 저장/조회,
+컬럼 보정 마이그레이션) 전부 통과(기존 스크린 하나는 실계좌 KOSCOM 호가 API가 장외시간이라 0원을
+반환해 실패 — 무관한 사전 존재 flaky 테스트, `git stash`로 확인). 프론트 `vue-tsc -b` 통과. 실제
+uvicorn+vite 기동 후 curl/Playwright로 골든 패스 검증: (1) 신규 종목으로 조건식
+`held_qty == 0 and cash > 1000000` 워크플로 실행 → 매수 체결 확인 (2) **실제 `pkill` + 프로세스
+재기동**으로 서버 재시작 후 재실행 → 보유수량/현금이 이전 체결을 반영해 유지됨(영속화 확인,
+in-memory 대비 실질적 개선) (3) 합성 시세로 15거래일 백테스트 실행 → 결과 화면에서 날짜별
+`<select>`(15개 옵션)로 전환 시마다 해당 날짜의 노드 그래프가 색상 하이라이트되며 재생되고
+디버그 패널이 채워짐을 스크린샷으로 확인, 콘솔 에러 0건.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

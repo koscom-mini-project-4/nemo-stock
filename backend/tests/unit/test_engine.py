@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.broker.base import OrderRequest
 from app.broker.dummy import DummyOrderExecutionProvider
 from app.market_data.dummy import DummyMarketDataProvider
 from app.nodes import load_all_nodes
@@ -94,3 +95,32 @@ def test_engine_filters_out_symbols_failing_condition():
     assert result.status == "success"
     assert result.final_context.symbols == {}
     assert len(broker.orders) == 0
+
+
+def test_engine_injects_portfolio_fields_into_symbols():
+    graph = WorkflowGraph.from_dict(_scenario_graph())
+    bus = InMemoryEventBus()
+    engine = WorkflowEngine(bus)
+    market_data = DummyMarketDataProvider(seed_prices={"005930": 70000, "000660": 120000}, seed=4)
+    broker = DummyOrderExecutionProvider(initial_cash=1_000_000)
+    # 사전에 005930을 보유중인 상태로 세팅.
+    broker.place_order(
+        OrderRequest(run_id="setup", symbol="005930", side="buy", order_type="market", qty=3, ref_price=70000)
+    )
+
+    result = engine.execute(
+        workflow_id="wf1", graph=graph, mode="test", market_data=market_data, broker=broker
+    )
+
+    assert result.status == "success"
+    final = result.final_context
+    # 이미 매수 노드(n4)까지 실행되어 두 종목 모두 추가 매수됐으므로 held_qty는 종목별로 다르다.
+    assert final.symbols["005930"]["held_qty"] == 3
+    assert final.symbols["005930"]["held_avg_price"] == 70000
+    assert final.symbols["000660"]["held_qty"] == 0
+    assert final.symbols["000660"]["held_avg_price"] == 0.0
+    # cash/equity는 런 시작 시점 스냅샷(이 런 자신의 매수 체결로 바뀌지 않음)이어야 한다.
+    starting_cash = 1_000_000 - 3 * 70000
+    assert final.symbols["005930"]["cash"] == starting_cash
+    assert final.symbols["000660"]["cash"] == starting_cash
+    assert final.meta["cash"] == starting_cash

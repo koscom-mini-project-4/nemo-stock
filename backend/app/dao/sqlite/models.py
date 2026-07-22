@@ -34,6 +34,28 @@ class WorkflowORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
+class PortfolioCashORM(Base):
+    __tablename__ = "portfolio_cash"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    cash: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class PortfolioPositionORM(Base):
+    __tablename__ = "portfolio_positions"
+    __table_args__ = (
+        Index("ix_portfolio_positions_user_symbol", "user_id", "symbol", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    qty: Mapped[int] = mapped_column(Integer)
+    avg_price: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class RunORM(Base):
     __tablename__ = "runs"
 
@@ -105,6 +127,7 @@ class BacktestResultORM(Base):
     profit_loss_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     trade_count: Mapped[int] = mapped_column(Integer)
     equity_curve_json: Mapped[list] = mapped_column(JSON)
+    daily_runs_json: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 

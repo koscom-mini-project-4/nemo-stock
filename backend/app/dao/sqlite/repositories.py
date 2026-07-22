@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 
 from sqlalchemy import select
@@ -20,6 +21,8 @@ from app.dao.base import (
     NewsRepository,
     NodeEventRecord,
     NodeEventRepository,
+    PortfolioRepository,
+    PositionRecord,
     PriceBarRecord,
     PriceBarRepository,
     RunRecord,
@@ -35,6 +38,8 @@ from app.dao.sqlite.models import (
     DisclosureORM,
     NewsORM,
     NodeEventORM,
+    PortfolioCashORM,
+    PortfolioPositionORM,
     PriceBarIntradayORM,
     PriceBarORM,
     RunORM,
@@ -121,6 +126,54 @@ class SqliteWorkflowRepository(WorkflowRepository):
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+
+class SqlitePortfolioRepository(PortfolioRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def get_cash(self, user_id: str) -> float | None:
+        with self._sf() as session:
+            row = session.get(PortfolioCashORM, user_id)
+            return row.cash if row else None
+
+    def set_cash(self, user_id: str, cash: float) -> None:
+        with self._sf() as session:
+            row = session.get(PortfolioCashORM, user_id)
+            if row is None:
+                row = PortfolioCashORM(user_id=user_id, cash=cash, updated_at=datetime.now())
+                session.add(row)
+            else:
+                row.cash = cash
+                row.updated_at = datetime.now()
+            session.commit()
+
+    def list_positions(self, user_id: str) -> list[PositionRecord]:
+        with self._sf() as session:
+            rows = session.scalars(
+                select(PortfolioPositionORM).where(PortfolioPositionORM.user_id == user_id)
+            ).all()
+            return [PositionRecord(symbol=r.symbol, qty=r.qty, avg_price=r.avg_price) for r in rows]
+
+    def upsert_position(self, user_id: str, symbol: str, qty: int, avg_price: float) -> None:
+        with self._sf() as session:
+            row = session.scalar(
+                select(PortfolioPositionORM).where(
+                    PortfolioPositionORM.user_id == user_id, PortfolioPositionORM.symbol == symbol
+                )
+            )
+            if qty <= 0:
+                if row is not None:
+                    session.delete(row)
+                    session.commit()
+                return
+            if row is None:
+                row = PortfolioPositionORM(id=str(uuid.uuid4()), user_id=user_id, symbol=symbol)
+                session.add(row)
+            row.qty = qty
+            row.avg_price = avg_price
+            row.updated_at = datetime.now()
+            session.commit()
 
 
 class SqliteRunRepository(RunRepository):
@@ -343,6 +396,7 @@ class SqliteBacktestResultRepository(BacktestResultRepository):
             row.profit_loss_ratio = result.profit_loss_ratio
             row.trade_count = result.trade_count
             row.equity_curve_json = result.equity_curve
+            row.daily_runs_json = result.daily_runs
             row.created_at = result.created_at
             session.commit()
 
@@ -377,6 +431,7 @@ class SqliteBacktestResultRepository(BacktestResultRepository):
             profit_loss_ratio=row.profit_loss_ratio,
             trade_count=row.trade_count,
             equity_curve=row.equity_curve_json,
+            daily_runs=row.daily_runs_json or [],
             created_at=row.created_at,
         )
 

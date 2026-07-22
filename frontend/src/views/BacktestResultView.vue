@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { fetchBacktest, runBacktest } from '@/api/services'
-import type { BacktestResultOut } from '@/api/types'
+import { Handle, Position, VueFlow, type Edge as VFEdge, type Node as VFNode } from '@vue-flow/core'
+import { Background } from '@vue-flow/background'
+import { Controls } from '@vue-flow/controls'
+import '@vue-flow/core/dist/style.css'
+import '@vue-flow/core/dist/theme-default.css'
+import '@vue-flow/controls/dist/style.css'
+import { fetchBacktest, fetchNodeTypes, fetchRun, fetchWorkflow, runBacktest } from '@/api/services'
+import type { BacktestResultOut, NodeEventOut, NodeTypeSchema } from '@/api/types'
+import { graphToFlowElements, type FlowNodeData } from '@/utils/flowAdapter'
 import EquityCurveChart from '@/components/EquityCurveChart.vue'
+import DebugPanel from '@/components/DebugPanel.vue'
 
 const props = defineProps<{ id: string }>()
 
@@ -23,6 +31,17 @@ const runError = ref('')
 const result = ref<BacktestResultOut | null>(null)
 const loading = ref(false)
 
+// 일자별 노드 그래프 재생(§8 백테스트 결과 화면) — "테스트 실행"과 동일한 VueFlow 캔버스 +
+// DebugPanel 조합을 재사용해 백테스트가 특정 거래일에 워크플로를 어떻게 실행했는지 보여준다.
+const nodeTypes = ref<NodeTypeSchema[]>([])
+const nodeTypesByKey = computed(() => new Map(nodeTypes.value.map((t) => [t.type, t])))
+const flowNodes = ref([]) as Ref<VFNode<FlowNodeData>[]>
+const flowEdges = ref([]) as Ref<VFEdge[]>
+const selectedRunDate = ref('')
+const debugEvents = ref<NodeEventOut[]>([])
+const replaying = ref(false)
+const replayError = ref('')
+
 function defaultEnd() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -32,10 +51,61 @@ function defaultStart() {
   return d.toISOString().slice(0, 10)
 }
 
+async function loadGraphAndFirstDay(r: BacktestResultOut) {
+  if (nodeTypes.value.length === 0) {
+    nodeTypes.value = await fetchNodeTypes()
+  }
+  const wf = await fetchWorkflow(r.workflow_id)
+  const { nodes, edges } = graphToFlowElements(wf.graph, nodeTypesByKey.value)
+  flowNodes.value = nodes
+  flowEdges.value = edges
+  if (r.daily_runs.length > 0) {
+    selectedRunDate.value = r.daily_runs[0].date
+    await selectDay(selectedRunDate.value)
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function animateReplay(events: NodeEventOut[]) {
+  flowNodes.value.forEach((n) => {
+    n.class = undefined
+  })
+  debugEvents.value = []
+  for (const evt of events) {
+    const node = flowNodes.value.find((n) => n.id === evt.node_id)
+    if (node) {
+      node.class = `flow-status status-${evt.status}`
+    }
+    debugEvents.value = [...debugEvents.value, evt]
+    // eslint-disable-next-line no-await-in-loop
+    await sleep(evt.status === 'running' ? 160 : 90)
+  }
+}
+
+async function selectDay(date: string) {
+  if (!result.value) return
+  const dr = result.value.daily_runs.find((d) => d.date === date)
+  if (!dr) return
+  replayError.value = ''
+  replaying.value = true
+  try {
+    const run = await fetchRun(result.value.workflow_id, dr.run_id)
+    await animateReplay(run.events)
+  } catch {
+    replayError.value = '해당 날짜의 실행 기록을 불러오지 못했습니다.'
+  } finally {
+    replaying.value = false
+  }
+}
+
 async function loadExisting(id: string) {
   loading.value = true
   try {
     result.value = await fetchBacktest(id)
+    if (result.value) await loadGraphAndFirstDay(result.value)
   } finally {
     loading.value = false
   }
@@ -61,6 +131,7 @@ async function submitRun() {
       initial_capital: initialCapital.value,
     })
     result.value = r
+    await loadGraphAndFirstDay(r)
     router.replace(`/backtests/${r.id}`)
   } catch (err) {
     const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -159,6 +230,44 @@ onMounted(() => {
         <h2>자산 곡선</h2>
         <EquityCurveChart :points="result.equity_curve" />
       </div>
+
+      <div v-if="result.daily_runs.length > 0" class="card">
+        <div class="replay-header">
+          <h2>일자별 노드 그래프</h2>
+          <select v-model="selectedRunDate" @change="selectDay(selectedRunDate)">
+            <option v-for="dr in result.daily_runs" :key="dr.run_id" :value="dr.date">{{ dr.date }}</option>
+          </select>
+        </div>
+        <p v-if="replayError" class="error">{{ replayError }}</p>
+        <div class="replay-body">
+          <div class="replay-canvas">
+            <VueFlow
+              v-model:nodes="flowNodes"
+              v-model:edges="flowEdges"
+              fit-view-on-init
+              :nodes-draggable="false"
+              :nodes-connectable="false"
+              :default-viewport="{ zoom: 0.85 }"
+            >
+              <template #node-workflow="nodeProps">
+                <div class="wf-node">
+                  <Handle type="target" :position="Position.Left" />
+                  <div class="wf-node-header">
+                    <span class="wf-node-title">{{ nodeProps.data.displayName }}</span>
+                    <span class="wf-node-type mono">{{ nodeProps.data.nodeType }}</span>
+                  </div>
+                  <Handle type="source" :position="Position.Right" />
+                </div>
+              </template>
+              <Background pattern-color="var(--border)" :gap="16" />
+              <Controls />
+            </VueFlow>
+          </div>
+          <div class="replay-debug">
+            <DebugPanel :events="debugEvents" :playing="replaying" />
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -230,5 +339,106 @@ h2 {
 
 .metric-value.negative {
   color: var(--danger);
+}
+
+.replay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.replay-header select {
+  font-size: 13px;
+}
+
+.replay-body {
+  display: flex;
+  gap: 12px;
+  height: 380px;
+}
+
+.replay-canvas {
+  flex: 1.4;
+  min-width: 0;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.replay-canvas :deep(.vue-flow) {
+  background: var(--bg);
+}
+
+.replay-debug {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.wf-node {
+  min-width: 160px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.wf-node-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
+}
+
+.wf-node-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wf-node-type {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+</style>
+
+<style>
+/* Vue Flow가 내부적으로 렌더링하는 노드 DOM에는 scoped 속성이 적용되지 않으므로 전역 스타일로 정의한다.
+   StrategyBuilderView.vue와 동일한 클래스명이지만, 이 뷰가 단독으로 로드될 수도 있어(빌더를 거치지
+   않고 바로 백테스트 결과 페이지로 진입) 여기서도 동일하게 정의해둔다. */
+.flow-status {
+  border-radius: 8px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.flow-status.status-running {
+  border-color: var(--running) !important;
+  box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.35);
+  animation: nemo-pulse-backtest 0.7s ease-in-out infinite alternate;
+}
+
+.flow-status.status-success {
+  border-color: var(--success) !important;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.25);
+}
+
+.flow-status.status-error {
+  border-color: var(--danger) !important;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.3);
+}
+
+.flow-status.status-skipped {
+  opacity: 0.5;
+}
+
+@keyframes nemo-pulse-backtest {
+  from {
+    box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.25);
+  }
+  to {
+    box-shadow: 0 0 0 6px rgba(234, 179, 8, 0.45);
+  }
 }
 </style>

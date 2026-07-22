@@ -18,6 +18,11 @@ class EquityPoint(BaseModel):
     equity: float
 
 
+class DailyRunOut(BaseModel):
+    date: str
+    run_id: str
+
+
 class BacktestResultOut(BaseModel):
     id: str
     workflow_id: str
@@ -33,4 +38,5 @@ class BacktestResultOut(BaseModel):
     profit_loss_ratio: float | None
     trade_count: int
     equity_curve: list[EquityPoint] = Field(default_factory=list)
+    daily_runs: list[DailyRunOut] = Field(default_factory=list)
     created_at: datetime

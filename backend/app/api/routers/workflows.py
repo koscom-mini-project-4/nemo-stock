@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -184,4 +185,46 @@ def run_workflow(
             for e in events
         ],
         final_symbols=final_ctx.symbols if final_ctx else {},
+    )
+
+
+@router.get("/{workflow_id}/runs/{run_id}", response_model=RunResultOut)
+def get_run(workflow_id: str, run_id: str, container: Container = Depends(get_container)) -> RunResultOut:
+    """저장된 run(라이브/테스트/백테스트 공용) 1건의 실행 결과를 조회한다.
+
+    백테스트 결과 화면에서 특정 날짜를 골라 그날의 노드 그래프 실행을 "테스트 실행"과 동일한
+    디버그 패널로 재생할 때 사용한다(DESIGN.md §8, 백테스트는 거래일마다 별도 run_id로 저장됨).
+    """
+    run = container.run_repo.get(run_id)
+    if run is None or run.workflow_id != workflow_id:
+        raise HTTPException(status_code=404, detail="run을 찾을 수 없습니다.")
+
+    events = container.node_event_repo.list_by_run(run_id)
+    final_symbols: dict[str, Any] = {}
+    for e in events:
+        if e.output_json is not None:
+            final_symbols = e.output_json.get("symbols", {})
+
+    return RunResultOut(
+        run_id=run.id,
+        workflow_id=run.workflow_id,
+        mode=run.mode,
+        status=run.status,
+        started_at=run.started_at,
+        finished_at=run.finished_at or run.started_at,
+        error=run.error,
+        events=[
+            NodeEventOut(
+                node_id=e.node_id,
+                node_type=e.node_type,
+                status=e.status,
+                timestamp=e.timestamp,
+                input_snapshot=e.input_json,
+                output_snapshot=e.output_json,
+                error=e.error,
+                duration_ms=e.duration_ms,
+            )
+            for e in events
+        ],
+        final_symbols=final_symbols,
     )

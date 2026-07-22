@@ -81,6 +81,11 @@ export interface EquityPoint {
   equity: number
 }
 
+export interface DailyRunOut {
+  date: string
+  run_id: string
+}
+
 export interface BacktestResultOut {
   id: string
   workflow_id: string
@@ -96,6 +101,7 @@ export interface BacktestResultOut {
   profit_loss_ratio: number | null
   trade_count: number
   equity_curve: EquityPoint[]
+  daily_runs: DailyRunOut[]
   created_at: string
 }
 

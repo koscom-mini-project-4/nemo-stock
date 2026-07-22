@@ -46,6 +46,8 @@ def _build_system_prompt() -> str:
         "reply에 자연어로 설명합니다. 이 경우 nodes/edges는 빈 배열로 둡니다.\n\n"
         "사용 가능한 노드 타입 (type, category, param_schema):\n"
         f"{json.dumps(registry, ensure_ascii=False, indent=2)}\n\n"
+        "모든 종목 데이터에는 held_qty(보유수량)/held_avg_price(평단가)/cash(현금)/equity(평가자산)가 "
+        "노드 배선 없이 자동으로 포함되어 있어 조건식(expr)에서 바로 참조 가능합니다.\n\n"
         "그래프 편집 규칙(changed=true일 때만 적용):\n"
         "1. scheduler.* 타입 노드는 정확히 1개만 포함하고, 진입 간선이 없는 시작 노드로 둡니다.\n"
         "2. 모든 노드는 scheduler 노드로부터 도달 가능해야 합니다(고아 노드 금지).\n"

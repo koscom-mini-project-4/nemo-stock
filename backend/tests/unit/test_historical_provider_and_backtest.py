@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from app.backtest.runner import BacktestRunner
 from app.dao.base import PriceBarRecord
-from app.dao.memory.repositories import InMemoryPriceBarRepository
+from app.dao.memory.repositories import InMemoryNodeEventRepository, InMemoryPriceBarRepository, InMemoryRunRepository
 from app.market_data.historical import HistoricalMarketDataProvider
 from app.nodes import load_all_nodes
 from app.workflow.engine import WorkflowEngine
@@ -67,8 +67,11 @@ def test_backtest_runner_on_synthetic_uptrend_produces_positive_return():
     _seed_uptrend(repo, "TESTSYM", start, days=20, start_price=100.0)
 
     graph = WorkflowGraph.from_dict(_buy_on_uptrend_graph())
-    engine = WorkflowEngine(InMemoryEventBus())
-    runner = BacktestRunner(engine, repo)
+    bus = InMemoryEventBus()
+    engine = WorkflowEngine(bus)
+    run_repo = InMemoryRunRepository()
+    node_event_repo = InMemoryNodeEventRepository()
+    runner = BacktestRunner(engine, repo, run_repo, node_event_repo, bus)
 
     result = runner.run(
         workflow_id="wf1",
@@ -86,12 +89,20 @@ def test_backtest_runner_on_synthetic_uptrend_produces_positive_return():
     assert result.metrics.total_return_pct > 0
     assert result.metrics.mdd_pct == 0.0  # 우상향만 하므로 낙폭이 없어야 한다
 
+    # 거래일마다 별도 run_id로 RunRecord/NodeEventRecord가 저장되어야 한다(일자별 그래프 재생용).
+    assert len(result.daily_runs) == 20
+    for day, run_id in result.daily_runs:
+        assert run_repo.get(run_id) is not None
+        assert run_repo.get(run_id).mode == "backtest"
+        assert len(node_event_repo.list_by_run(run_id)) > 0
+
 
 def test_backtest_runner_raises_when_no_price_data():
     repo = InMemoryPriceBarRepository()
     graph = WorkflowGraph.from_dict(_buy_on_uptrend_graph())
-    engine = WorkflowEngine(InMemoryEventBus())
-    runner = BacktestRunner(engine, repo)
+    bus = InMemoryEventBus()
+    engine = WorkflowEngine(bus)
+    runner = BacktestRunner(engine, repo, InMemoryRunRepository(), InMemoryNodeEventRepository(), bus)
 
     import pytest
 

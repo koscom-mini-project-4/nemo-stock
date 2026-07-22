@@ -72,6 +72,24 @@ class WorkflowEngine:
         ctx_by_node: dict[str, NodeContext] = {}
         root_context = NodeContext(run_id=run_id, mode=mode, timestamp=timestamp)
 
+        # 런 시작 시점의 계좌 스냅샷(1회 조회) — 이 런 자신의 주문이 실행 도중 이 값을
+        # 바꾸지 않도록 고정한다. scheduler 노드가 아니라 여기서 채우므로 새 노드 타입 없이
+        # 모든 워크플로에 held_qty/held_avg_price/cash/equity가 자동으로 제공된다.
+        balance = broker.get_balance()
+        positions_by_symbol = {p.symbol: p for p in broker.get_positions()}
+
+        def _apply_portfolio_fields(ctx: NodeContext) -> None:
+            for symbol, data in ctx.symbols.items():
+                if "held_qty" in data:
+                    continue
+                position = positions_by_symbol.get(symbol)
+                data["held_qty"] = position.qty if position else 0
+                data["held_avg_price"] = position.avg_price if position else 0.0
+                data["cash"] = balance.cash
+                data["equity"] = balance.equity
+            ctx.meta.setdefault("cash", balance.cash)
+            ctx.meta.setdefault("equity", balance.equity)
+
         try:
             for node_id in order:
                 node_def = graph.get_node(node_id)
@@ -107,6 +125,7 @@ class WorkflowEngine:
                         output_ctx = node.execute(
                             input_ctx, market_data=market_data, broker=broker, **extra_providers
                         )
+                    _apply_portfolio_fields(output_ctx)
                     duration_ms = (time.perf_counter() - start) * 1000
                     ctx_by_node[node_id] = output_ctx
                     self._event_bus.publish(

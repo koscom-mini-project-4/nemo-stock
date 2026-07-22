@@ -88,6 +88,11 @@ export async function fetchBacktest(id: string): Promise<BacktestResultOut> {
   return data
 }
 
+export async function fetchRun(workflowId: string, runId: string): Promise<RunResultOut> {
+  const { data } = await apiClient.get(`/workflows/${workflowId}/runs/${runId}`)
+  return data
+}
+
 export async function generateDraft(idea: string, universe?: string[]): Promise<GenerateDraftResponse> {
   const { data } = await apiClient.post('/ai/generate-draft', { idea, universe })
   return data

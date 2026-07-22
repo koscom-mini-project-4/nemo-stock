@@ -21,7 +21,10 @@ class IfElseNode(Node):
         "조건 분기(필터). params.expr는 symbols[code]의 키를 변수로 쓰는 표현식이다(예: "
         "'volume_ratio > 2.0', 'price > ma_5'). expr가 False이거나 필요한 키가 symbols[code]에 "
         "없어 평가 오류가 나면 해당 종목을 symbols에서 제거하고(이후 노드로 전달 안 함) "
-        "meta.filtered_out에 기록한다. 새 데이터를 추가하지 않고 종목 집합만 걸러낸다."
+        "meta.filtered_out에 기록한다. 새 데이터를 추가하지 않고 종목 집합만 걸러낸다. "
+        "held_qty(보유수량)/held_avg_price(평단가)/cash(현금)/equity(평가자산)는 어느 노드도 "
+        "배선하지 않아도 엔진이 런 시작 시점에 자동으로 채워주므로 expr에서 바로 참조 가능하다 "
+        "(예: 'held_qty == 0 and cash > price * 10')."
     )
     param_schema: list[NodeParam] = [
         {"key": "expr", "type": "expression", "label": "조건식", "default": "True", "required": True},
