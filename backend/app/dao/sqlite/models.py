@@ -128,6 +128,8 @@ class BacktestResultORM(Base):
     trade_count: Mapped[int] = mapped_column(Integer)
     equity_curve_json: Mapped[list] = mapped_column(JSON)
     daily_runs_json: Mapped[list] = mapped_column(JSON, default=list)
+    universe_json: Mapped[list] = mapped_column(JSON, default=list)
+    trades_json: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 

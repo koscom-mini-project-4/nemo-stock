@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, time
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -11,7 +12,15 @@ from app.dao.base import BacktestResultRecord, IntradayPriceBarRepository
 from app.data_ingestion.auto_ingest import ensure_price_data
 from app.data_ingestion.naver_price_client import NaverStockChartClient
 from app.dependencies import Container
-from app.schemas.backtest import BacktestRequest, BacktestResultOut, DailyRunOut, EquityPoint
+from app.schemas.backtest import (
+    BacktestRequest,
+    BacktestResultOut,
+    DailyRunOut,
+    EquityPoint,
+    NewsMarkerOut,
+    PricePointOut,
+    TradeOut,
+)
 from app.workflow.graph import WorkflowGraph
 
 router = APIRouter(prefix="/backtest", tags=["backtest"], dependencies=[Depends(get_current_username)])
@@ -34,8 +43,17 @@ def _to_out(r: BacktestResultRecord) -> BacktestResultOut:
         trade_count=r.trade_count,
         equity_curve=[EquityPoint(date=e["date"], equity=e["equity"]) for e in r.equity_curve],
         daily_runs=[DailyRunOut(date=d["date"], run_id=d["run_id"]) for d in r.daily_runs],
+        universe=r.universe,
+        trades=[TradeOut(**t) for t in r.trades],
         created_at=r.created_at,
     )
+
+
+def _get_result_or_404(result_id: str, container: Container) -> BacktestResultRecord:
+    record = container.backtest_result_repo.get(result_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="백테스트 결과를 찾을 수 없습니다.")
+    return record
 
 
 @router.post("", response_model=BacktestResultOut, status_code=201)
@@ -92,6 +110,22 @@ def run_backtest(
         trade_count=result.metrics.trade_count,
         equity_curve=[{"date": d.isoformat(), "equity": e} for d, e in result.equity_curve],
         daily_runs=[{"date": d.isoformat(), "run_id": run_id} for d, run_id in result.daily_runs],
+        universe=result.universe,
+        trades=[
+            {
+                "date": d.isoformat(),
+                "run_id": run_id,
+                "order_id": order.order_id,
+                "symbol": order.symbol,
+                "side": order.side,
+                "qty": order.qty,
+                "price": order.price,
+                "status": order.status,
+                "reason": order.reason,
+                "realized_pnl": order.realized_pnl,
+            }
+            for d, run_id, order in result.trades
+        ],
     )
     container.backtest_result_repo.save(record)
     return _to_out(record)
@@ -99,7 +133,73 @@ def run_backtest(
 
 @router.get("/{result_id}", response_model=BacktestResultOut)
 def get_backtest(result_id: str, container: Container = Depends(get_container)) -> BacktestResultOut:
-    record = container.backtest_result_repo.get(result_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="백테스트 결과를 찾을 수 없습니다.")
-    return _to_out(record)
+    return _to_out(_get_result_or_404(result_id, container))
+
+
+@router.get("/{result_id}/prices", response_model=list[PricePointOut])
+def get_backtest_prices(
+    result_id: str, symbol: str, container: Container = Depends(get_container)
+) -> list[PricePointOut]:
+    record = _get_result_or_404(result_id, container)
+    if symbol not in record.universe:
+        raise HTTPException(status_code=400, detail="해당 백테스트의 대상 종목이 아닙니다.")
+    bars = container.price_bar_repo.list_range(symbol, record.start_date, record.end_date)
+    return [
+        PricePointOut(
+            date=b.trade_date.isoformat(), open=b.open, high=b.high, low=b.low, close=b.close, volume=b.volume
+        )
+        for b in bars
+    ]
+
+
+@router.get("/{result_id}/news/used", response_model=list[NewsMarkerOut])
+def get_backtest_news_used(
+    result_id: str, symbol: str, container: Container = Depends(get_container)
+) -> list[NewsMarkerOut]:
+    """그 백테스트 실행 중 워크플로가 실제로(data.news 노드로) 조회한 뉴스만 반환한다."""
+    record = _get_result_or_404(result_id, container)
+    markers: list[NewsMarkerOut] = []
+    for d in record.daily_runs:
+        events = container.node_event_repo.list_by_run(d["run_id"])
+        for event in events:
+            if event.node_type != "data.news" or event.status != "success" or not event.output_json:
+                continue
+            symbol_data = event.output_json.get("symbols", {}).get(symbol)
+            if not symbol_data or not symbol_data.get("news_id"):
+                continue
+            news = container.news_repo.get(symbol_data["news_id"])
+            if news is None:
+                continue
+            markers.append(
+                NewsMarkerOut(
+                    date=d["date"],
+                    news_id=news.id,
+                    title=news.title,
+                    published_at=news.published_at.isoformat(),
+                    source=news.source,
+                    used=True,
+                )
+            )
+    return markers
+
+
+@router.get("/{result_id}/news/all", response_model=list[NewsMarkerOut])
+def get_backtest_news_all(
+    result_id: str, symbol: str, container: Container = Depends(get_container)
+) -> list[NewsMarkerOut]:
+    """워크플로 사용 여부와 무관하게 news 테이블에 적재된 해당 기간 전체 뉴스(체크박스 토글 전용, 가벼운 부가 조회)."""
+    record = _get_result_or_404(result_id, container)
+    start = datetime.combine(record.start_date, time.min)
+    end = datetime.combine(record.end_date, time.max)
+    items = container.news_repo.list_range(symbol, start, end)
+    return [
+        NewsMarkerOut(
+            date=n.published_at.date().isoformat(),
+            news_id=n.id,
+            title=n.title,
+            published_at=n.published_at.isoformat(),
+            source=n.source,
+            used=False,
+        )
+        for n in items
+    ]

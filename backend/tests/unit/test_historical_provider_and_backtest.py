@@ -96,6 +96,18 @@ def test_backtest_runner_on_synthetic_uptrend_produces_positive_return():
         assert run_repo.get(run_id).mode == "backtest"
         assert len(node_event_repo.list_by_run(run_id)) > 0
 
+    # 매일 상승하는 합성 시세라 조건이 매일 통과 -> 매수도 매일 체결되며, OrderResult.filled_at은
+    # 실제 벽시계 시각이므로 러너가 시뮬레이션 날짜를 직접 태깅해야 한다.
+    assert result.universe == ["TESTSYM"]
+    assert len(result.trades) == 20
+    daily_run_ids = {run_id for _, run_id in result.daily_runs}
+    for day, run_id, order in result.trades:
+        assert order.symbol == "TESTSYM"
+        assert order.side == "buy"
+        assert order.status == "filled"
+        assert run_id in daily_run_ids
+    assert {d for d, _, _ in result.trades} == {d for d, _ in result.daily_runs}
+
 
 def test_backtest_runner_raises_when_no_price_data():
     repo = InMemoryPriceBarRepository()

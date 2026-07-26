@@ -5,11 +5,20 @@ from datetime import datetime
 
 from sqlalchemy import text
 
-from app.dao.base import BacktestResultRecord, IntradayPriceBarRecord, NodeEventRecord, RunRecord, UserRecord, WorkflowRecord
+from app.dao.base import (
+    BacktestResultRecord,
+    IntradayPriceBarRecord,
+    NewsRecord,
+    NodeEventRecord,
+    RunRecord,
+    UserRecord,
+    WorkflowRecord,
+)
 from app.dao.sqlite.database import init_db, make_engine, make_session_factory
 from app.dao.sqlite.repositories import (
     SqliteBacktestResultRepository,
     SqliteIntradayPriceBarRepository,
+    SqliteNewsRepository,
     SqliteNodeEventRepository,
     SqlitePortfolioRepository,
     SqliteRunRepository,
@@ -192,8 +201,35 @@ def test_init_db_adds_missing_column_to_preexisting_table(tmp_path):
         volatility_pct=1.0, win_rate_pct=100.0, profit_loss_ratio=None, trade_count=1,
         equity_curve=[{"date": "2026-06-01", "equity": 1_000_000.0}],
         daily_runs=[{"date": "2026-06-01", "run_id": "r1"}],
+        universe=["005930"],
+        trades=[{"date": "2026-06-01", "run_id": "r1", "order_id": "o1", "symbol": "005930", "side": "buy",
+                 "qty": 1, "price": 70000.0, "status": "filled", "reason": None, "realized_pnl": None}],
     )
     repo.save(record)
     fetched = repo.get("bt1")
     assert fetched is not None
     assert fetched.daily_runs == [{"date": "2026-06-01", "run_id": "r1"}]
+    assert fetched.universe == ["005930"]
+    assert fetched.trades[0]["order_id"] == "o1"
+
+
+def test_news_repository_get_and_list_range(tmp_path):
+    sf = _session_factory(tmp_path)
+    repo = SqliteNewsRepository(sf)
+
+    repo.save_many(
+        [
+            NewsRecord(id="n1", symbol="005930", title="제목1", body="본문1", published_at=datetime(2026, 6, 1, 9, 0)),
+            NewsRecord(id="n2", symbol="005930", title="제목2", body="본문2", published_at=datetime(2026, 6, 3, 9, 0)),
+            NewsRecord(id="n3", symbol="000660", title="제목3", body="본문3", published_at=datetime(2026, 6, 2, 9, 0)),
+        ]
+    )
+
+    assert repo.get("n1").title == "제목1"
+    assert repo.get("nope") is None
+
+    ranged = repo.list_range("005930", datetime(2026, 6, 1), datetime(2026, 6, 2))
+    assert [n.id for n in ranged] == ["n1"]
+
+    ranged_full = repo.list_range("005930", datetime(2026, 6, 1), datetime(2026, 6, 30))
+    assert [n.id for n in ranged_full] == ["n1", "n2"]

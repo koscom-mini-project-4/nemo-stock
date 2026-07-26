@@ -172,6 +172,14 @@ class InMemoryNewsRepository(NewsRepository):
         items.sort(key=lambda n: n.published_at, reverse=True)
         return items[:limit]
 
+    def get(self, news_id: str) -> NewsRecord | None:
+        return self._store.get(news_id)
+
+    def list_range(self, symbol: str, start: datetime, end: datetime) -> list[NewsRecord]:
+        items = [n for n in self._store.values() if n.symbol == symbol and start <= n.published_at <= end]
+        items.sort(key=lambda n: n.published_at)
+        return items
+
 
 class InMemoryAIScoreCacheRepository(AIScoreCacheRepository):
     def __init__(self) -> None:

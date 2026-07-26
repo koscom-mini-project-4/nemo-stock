@@ -87,7 +87,19 @@ async function load() {
     name.value = wf.name
     scheduleIntervalSec.value = wf.schedule_interval_sec
     status.value = wf.status
-    const { nodes, edges } = graphToFlowElements(wf.graph, nodeTypesByKey.value)
+    let graph = wf.graph
+
+    // 백테스트 결과 화면의 AI 진단/수정 제안("전략 빌더에서 열기")에서 넘어온 draft가 이
+    // 워크플로를 대상으로 하면, 저장된 그래프 대신 그 draft로 캔버스를 채운다(저장은 사용자가
+    // 직접 검토 후 눌러야 함 — 미리보기 후 적용 원칙 유지).
+    const draft = draftStore.pending
+    if (draft && draft.targetWorkflowId === workflowId.value) {
+      name.value = draft.name
+      graph = draft.graph
+      draftStore.consumeDraft()
+    }
+
+    const { nodes, edges } = graphToFlowElements(graph, nodeTypesByKey.value)
     flowNodes.value = nodes
     flowEdges.value = edges
     scheduleFitView()

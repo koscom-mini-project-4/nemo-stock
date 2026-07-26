@@ -196,6 +196,10 @@ class BacktestResultRecord:
     trade_count: int
     equity_curve: list[dict[str, Any]]  # [{"date": "YYYY-MM-DD", "equity": float}, ...]
     daily_runs: list[dict[str, Any]] = field(default_factory=list)  # [{"date": "...", "run_id": "..."}, ...]
+    universe: list[str] = field(default_factory=list)
+    trades: list[dict[str, Any]] = field(default_factory=list)
+    """[{"date": "...", "run_id": "...", "order_id": "...", "symbol": "...", "side": "buy|sell",
+    "qty": int, "price": float, "status": "...", "reason": str|None, "realized_pnl": float|None}, ...]"""
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -244,6 +248,12 @@ class NewsRepository(ABC):
 
     @abstractmethod
     def list_recent(self, symbol: str, limit: int = 5) -> list[NewsRecord]: ...
+
+    @abstractmethod
+    def get(self, news_id: str) -> NewsRecord | None: ...
+
+    @abstractmethod
+    def list_range(self, symbol: str, start: datetime, end: datetime) -> list[NewsRecord]: ...
 
 
 @dataclass

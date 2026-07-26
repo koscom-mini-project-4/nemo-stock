@@ -39,6 +39,10 @@ class BacktestResult:
     orders: list[OrderResult] = field(default_factory=list)
     trading_days: int = 0
     daily_runs: list[tuple[date, str]] = field(default_factory=list)
+    universe: list[str] = field(default_factory=list)
+    trades: list[tuple[date, str, OrderResult]] = field(default_factory=list)
+    """(거래일, run_id, 그 날 새로 생긴 주문결과). filled_at은 실제 벽시계 시각이라
+    시뮬레이션 날짜와 다르므로 러너가 날짜를 직접 태깅한다."""
 
 
 class BacktestRunner:
@@ -80,9 +84,11 @@ class BacktestRunner:
 
         equity_curve: list[tuple[date, float]] = []
         daily_runs: list[tuple[date, str]] = []
+        trades: list[tuple[date, str, OrderResult]] = []
         for day in trading_days:
             market_data.advance_to(day)
             run_id = str(uuid.uuid4())
+            prev_order_count = len(broker.orders)
             result = self._engine.execute(
                 workflow_id=workflow_id,
                 graph=graph,
@@ -95,6 +101,8 @@ class BacktestRunner:
             )
             self._save_run(run_id, workflow_id, result.status, result.error)
             daily_runs.append((day, run_id))
+            for order in broker.orders[prev_order_count:]:
+                trades.append((day, run_id, order))
             if result.status != "success":
                 continue
             equity_curve.append((day, self._mark_to_market_equity(broker, market_data, universe)))
@@ -113,6 +121,8 @@ class BacktestRunner:
             orders=list(broker.orders),
             trading_days=len(trading_days),
             daily_runs=daily_runs,
+            universe=universe,
+            trades=trades,
         )
 
     def _save_run(self, run_id: str, workflow_id: str, status: str, error: str | None) -> None:

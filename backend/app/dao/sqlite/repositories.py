@@ -397,6 +397,8 @@ class SqliteBacktestResultRepository(BacktestResultRepository):
             row.trade_count = result.trade_count
             row.equity_curve_json = result.equity_curve
             row.daily_runs_json = result.daily_runs
+            row.universe_json = result.universe
+            row.trades_json = result.trades
             row.created_at = result.created_at
             session.commit()
 
@@ -432,6 +434,8 @@ class SqliteBacktestResultRepository(BacktestResultRepository):
             trade_count=row.trade_count,
             equity_curve=row.equity_curve_json,
             daily_runs=row.daily_runs_json or [],
+            universe=row.universe_json or [],
+            trades=row.trades_json or [],
             created_at=row.created_at,
         )
 
@@ -498,6 +502,31 @@ class SqliteNewsRepository(NewsRepository):
                 .where(NewsORM.symbol == symbol)
                 .order_by(NewsORM.published_at.desc())
                 .limit(limit)
+            ).all()
+            return [
+                NewsRecord(
+                    id=r.id, symbol=r.symbol, title=r.title, body=r.body,
+                    published_at=r.published_at, source=r.source,
+                )
+                for r in rows
+            ]
+
+    def get(self, news_id: str) -> NewsRecord | None:
+        with self._sf() as session:
+            row = session.get(NewsORM, news_id)
+            if row is None:
+                return None
+            return NewsRecord(
+                id=row.id, symbol=row.symbol, title=row.title, body=row.body,
+                published_at=row.published_at, source=row.source,
+            )
+
+    def list_range(self, symbol: str, start: datetime, end: datetime) -> list[NewsRecord]:
+        with self._sf() as session:
+            rows = session.scalars(
+                select(NewsORM)
+                .where(NewsORM.symbol == symbol, NewsORM.published_at >= start, NewsORM.published_at <= end)
+                .order_by(NewsORM.published_at.asc())
             ).all()
             return [
                 NewsRecord(

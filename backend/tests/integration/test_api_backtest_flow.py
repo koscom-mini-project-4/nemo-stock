@@ -6,8 +6,9 @@ from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_price_ingest_client
+from app.api.deps import get_ai_client, get_price_ingest_client
 from app.dao.base import PriceBarRecord
+from tests.unit.ai_test_doubles import FakeAIClient
 
 
 def _bars_payload(symbol: str, start: date, days: int, start_price: float) -> dict:
@@ -94,6 +95,138 @@ def test_manual_ingest_then_backtest_end_to_end(app_client: TestClient, auth_hea
     assert run_out["mode"] == "backtest"
     assert len(run_out["events"]) > 0
     assert any(e["node_id"] == "n1" for e in run_out["events"])
+
+    # 매매 시점(trades)이 종목/대상 universe와 함께 저장되어야 한다 — 매일 상승하는 합성 시세라
+    # if_else(price > prev_close)가 매일 통과해 매수가 15번 모두 체결되어야 한다.
+    assert result["universe"] == ["TESTSYM"]
+    assert len(result["trades"]) == 15
+    assert all(t["symbol"] == "TESTSYM" and t["side"] == "buy" and t["status"] == "filled" for t in result["trades"])
+    assert {t["date"] for t in result["trades"]} == {d["date"] for d in result["daily_runs"]}
+
+    # 대상 종목의 시세(OHLCV)를 백테스트 기간 그대로 조회할 수 있어야 한다.
+    prices_resp = app_client.get(f"/backtest/{result['id']}/prices", params={"symbol": "TESTSYM"}, headers=auth_headers)
+    assert prices_resp.status_code == 200, prices_resp.text
+    assert len(prices_resp.json()) == 15
+
+    # 대상이 아닌 종목은 400.
+    bad_prices_resp = app_client.get(
+        f"/backtest/{result['id']}/prices", params={"symbol": "NOTINUNIVERSE"}, headers=auth_headers
+    )
+    assert bad_prices_resp.status_code == 400
+
+    # 워크플로에 data.news 노드가 없으므로 "참고한 뉴스"는 비어 있어야 한다.
+    news_used_resp = app_client.get(
+        f"/backtest/{result['id']}/news/used", params={"symbol": "TESTSYM"}, headers=auth_headers
+    )
+    assert news_used_resp.status_code == 200
+    assert news_used_resp.json() == []
+
+    # news 테이블에 아무것도 적재하지 않았으므로 "전체 뉴스"도 비어 있어야 한다.
+    news_all_resp = app_client.get(
+        f"/backtest/{result['id']}/news/all", params={"symbol": "TESTSYM"}, headers=auth_headers
+    )
+    assert news_all_resp.status_code == 200
+    assert news_all_resp.json() == []
+
+
+def _workflow_payload_with_news() -> dict:
+    return {
+        "name": "백테스트용 뉴스 참고 매수",
+        "schedule_interval_sec": 60,
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "scheduler.interval", "params": {"interval_sec": 60, "universe": "NEWSSYM"}},
+                {"id": "n2", "type": "data.price", "params": {}},
+                {"id": "n3", "type": "data.news", "params": {"limit": 3}},
+                {"id": "n4", "type": "logic.if_else", "params": {"expr": "price > prev_close"}},
+                {"id": "n5", "type": "execution.market_order", "params": {"side": "buy", "qty": 1}},
+            ],
+            "edges": [
+                {"from": "n1", "to": "n2"},
+                {"from": "n2", "to": "n3"},
+                {"from": "n3", "to": "n4"},
+                {"from": "n4", "to": "n5"},
+            ],
+        },
+    }
+
+
+def test_backtest_news_used_and_ai_explain(app_client: TestClient, auth_headers: dict):
+    """data.news 노드가 그 날 조회한 뉴스만 "참고한 뉴스"로 노출되고, /ai/backtest-explain이
+    그 근거 데이터를 포함해 정상 동작하는지 확인한다."""
+    start = date(2025, 3, 1)
+    app_client.post(
+        "/data/ingest/prices/manual",
+        json=_bars_payload("NEWSSYM", start, days=5, start_price=100.0),
+        headers=auth_headers,
+    )
+    app_client.post(
+        "/data/ingest/news/manual",
+        json={
+            "symbol": "NEWSSYM",
+            "items": [
+                {
+                    "title": "테스트기업 실적 호조",
+                    "body": "분기 실적이 예상치를 상회했다.",
+                    "published_at": f"{start.isoformat()}T09:00:00",
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+
+    wf_resp = app_client.post("/workflows", json=_workflow_payload_with_news(), headers=auth_headers)
+    workflow_id = wf_resp.json()["id"]
+
+    bt_resp = app_client.post(
+        "/backtest",
+        json={
+            "workflow_id": workflow_id,
+            "universe": ["NEWSSYM"],
+            "start_date": start.isoformat(),
+            "end_date": (start + timedelta(days=4)).isoformat(),
+            "initial_capital": 1_000_000,
+        },
+        headers=auth_headers,
+    )
+    assert bt_resp.status_code == 201, bt_resp.text
+    result = bt_resp.json()
+
+    news_used_resp = app_client.get(
+        f"/backtest/{result['id']}/news/used", params={"symbol": "NEWSSYM"}, headers=auth_headers
+    )
+    assert news_used_resp.status_code == 200
+    used = news_used_resp.json()
+    assert len(used) == 5  # 매일 data.news 노드가 실행되며 같은 뉴스를 조회
+    assert all(m["used"] is True and m["title"] == "테스트기업 실적 호조" for m in used)
+
+    # /ai/backtest-explain: changed=false(순수 설명) 경로.
+    fake_ai = FakeAIClient(
+        responses=[{"reply": "이 구간에서는 상승세라 매일 매수했습니다.", "changed": False}]
+    )
+    app_client.app.dependency_overrides[get_ai_client] = lambda: fake_ai
+    try:
+        explain_resp = app_client.post(
+            "/ai/backtest-explain",
+            json={
+                "backtest_id": result["id"],
+                "message": "왜 매일 매수했는지 설명해줘",
+                "selection": {"kind": "range", "symbol": "NEWSSYM", "start_date": start.isoformat(), "end_date": (start + timedelta(days=4)).isoformat()},
+            },
+            headers=auth_headers,
+        )
+    finally:
+        app_client.app.dependency_overrides.pop(get_ai_client, None)
+
+    assert explain_resp.status_code == 200, explain_resp.text
+    body = explain_resp.json()
+    assert body["changed"] is False
+    assert "매수" in body["reply"]
+    assert len(fake_ai.calls) == 1
+    # AI에 전달된 프롬프트에 참고 뉴스(used_news)는 포함되지만, news/all 체크박스용 데이터는
+    # 별도로 조회하지 않았으므로 프롬프트 조립 과정에 관여하지 않는다(설계 결정).
+    _, user_prompt = fake_ai.calls[0]
+    assert "테스트기업 실적 호조" in user_prompt
 
 
 def test_backtest_without_price_data_returns_400(app_client: TestClient, auth_headers: dict):

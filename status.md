@@ -398,6 +398,47 @@ in-memory 대비 실질적 개선) (3) 합성 시세로 15거래일 백테스트
 `<select>`(15개 옵션)로 전환 시마다 해당 날짜의 노드 그래프가 색상 하이라이트되며 재생되고
 디버그 패널이 채워짐을 스크린샷으로 확인, 콘솔 에러 0건.
 
+## 2026-07-27 후속 작업: 백테스트 매매 시점 시각화 + 시세/보조지표/뉴스 오버레이 + AI 진단·수정 제안
+
+사용자 요청: 백테스트 결과 그래프에 매수/매도 시점을 점으로 표시하고, 점(또는 구간)을 선택하면
+현재 워크플로 로직과 함께 AI에게 왜 그렇게 매매했는지/왜 매매가 없었는지 물어보고 수정 제안까지
+받을 수 있게. 대상 종목 시세와 이동평균/볼린저밴드 등 보조지표, 해당 시점 참고 뉴스도 그래프에
+표시. 규모가 커서 `EnterPlanMode`로 계획 수립 후 승인받아 진행(계획 파일: `lazy-stirring-crown.md`).
+사전 확인한 범위 결정: (1) 뉴스는 그 백테스트가 실제 참고한 것(`data.news` 노드 조회분)을 기본
+표시하고, 기존 news 테이블 전체는 체크박스로만 옅게 보여주며 "무거우니" AI 질문에는 포함하지 않음
+(2) 보조지표는 별도 호가/체결 데이터 없이 기존 `price_bars`(OHLCV)만으로 계산 가능한 것 전부
+(MA5/20/60 + 볼린저밴드 + RSI14 + 거래량).
+
+**백엔드 데이터 노출**: `OrderResult.filled_at`이 실제 벽시계 시각이라 `BacktestRunner`가 거래일
+루프에서 직접 날짜를 태깅해 `trades`를 쌓음. `BacktestResultRecord`에 `universe`/`trades` 필드
+추가(컬럼은 기존 `_add_missing_columns()` 마이그레이션이 자동 보정해 별도 코드 불필요).
+`NewsRepository`에 `get`/`list_range` 추가. 신규 엔드포인트 `GET /backtest/{id}/prices`,
+`GET /backtest/{id}/news/used`, `GET /backtest/{id}/news/all`.
+
+**AI 진단/수정 제안**: `app/ai/backtest_explain.py::explain_backtest()`가 `chat_about_workflow()`와
+동일 계약(reply/changed/graph, 검증+1회 재시도)을 따라 프론트가 같은 미리보기 UI를 재사용.
+`POST /ai/backtest-explain`이 backtest_id+selection(점/구간)으로 거래내역·노드실행 요약(축약)·
+종가·참고뉴스를 조립해 근거로 제공. 백테스트 화면엔 캔버스가 없어 "적용" 대신 "전략 빌더에서
+열기"로 `draftStore`(신규 `targetWorkflowId`)에 담아 이동, `StrategyBuilderView.load()`가 대상
+워크플로가 일치하면 그 draft를 캔버스에 덮어씀(저장은 사용자가 직접).
+
+**프론트 차트**: `BacktestChart.vue`(신규, `EquityCurveChart.vue` 대체) — vue-chartjs 래퍼 대신
+Chart.js를 직접 생성해 듀얼축(자산/시세)에 매매 마커(매수=녹색▲/매도=빨강▼)·뉴스 마커·MA·볼린저를
+그리고 RSI·거래량은 같은 x축을 공유하는 서브차트로 배치. 드래그 구간 선택은 추가 플러그인 없이
+`chart.scales.x.getValueForPixel()` 기반 수동 구현. `BacktestAskPanel.vue`(신규, `ChatPanel.vue`
+UI 패턴 재사용)가 선택 종류별 질문을 프리필하고 AI 응답/수정 제안을 표시.
+
+**검증**: 백엔드 pytest 112→**117개** 전부 통과(신규: `backtest_explain` changed=false/true+재시도,
+`NewsRepository.get/list_range`, 러너 trades 날짜 태깅, `/backtest/{id}/prices`+`/news/used`+
+`/news/all`+`/ai/backtest-explain` 통합 테스트). 프론트 `vue-tsc -b`+`npm run build` 통과(디버그
+전용 훅이 프로덕션 번들에서 완전히 제거됨을 grep으로 확인). 실제 uvicorn+vite 기동 후 실제
+OpenAI 키로 Playwright 골든 패스 전체 검증: 합성 시세(상승 5일-보합/하락 5일-상승 5일)+뉴스 1건
+적재 → 백테스트 실행(매매 10건) → 차트에 매수 마커/뉴스 마커/이동평균/거래량 렌더 확인 → 매매
+마커 클릭(Chart.js 내부 픽셀좌표를 dev-only 디버그훅으로 정확히 얻어 클릭) → AI가 노드 그래프
+로직(n2~n5)을 근거로 정확한 진단 응답 → 매매 없는 구간(보합/하락 5일) 드래그 선택 → AI가
+if_else 필터링 원인을 정확히 짚고 수정 그래프 제안 → "전략 빌더에서 열기" 클릭 시 캔버스에
+반영 확인 → "전체 뉴스 표시" 체크박스 토글 정상 → 콘솔 에러 0건.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

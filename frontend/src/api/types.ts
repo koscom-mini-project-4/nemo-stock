@@ -86,6 +86,37 @@ export interface DailyRunOut {
   run_id: string
 }
 
+export interface TradeOut {
+  date: string
+  run_id: string
+  order_id: string
+  symbol: string
+  side: 'buy' | 'sell'
+  qty: number
+  price: number
+  status: string
+  reason?: string | null
+  realized_pnl?: number | null
+}
+
+export interface PricePointOut {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export interface NewsMarkerOut {
+  date: string
+  news_id: string
+  title: string
+  published_at: string
+  source: string
+  used: boolean
+}
+
 export interface BacktestResultOut {
   id: string
   workflow_id: string
@@ -102,6 +133,8 @@ export interface BacktestResultOut {
   trade_count: number
   equity_curve: EquityPoint[]
   daily_runs: DailyRunOut[]
+  universe: string[]
+  trades: TradeOut[]
   created_at: string
 }
 
@@ -129,3 +162,10 @@ export interface WorkflowChatResponse {
   graph?: WorkflowGraph | null
   disclaimer?: string | null
 }
+
+export type BacktestExplainSelection =
+  | { kind: 'point'; symbol: string; date: string }
+  | { kind: 'range'; symbol: string; start_date: string; end_date: string }
+
+/** 응답 형태는 WorkflowChatResponse와 동일하다(백엔드 app/schemas/ai.py::BacktestExplainResponse 참조). */
+export type BacktestExplainResponse = WorkflowChatResponse

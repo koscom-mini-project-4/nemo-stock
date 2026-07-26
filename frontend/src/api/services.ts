@@ -1,9 +1,13 @@
 import { apiClient } from './client'
 import type {
+  BacktestExplainResponse,
+  BacktestExplainSelection,
   BacktestResultOut,
   ChatMessage,
   GenerateDraftResponse,
+  NewsMarkerOut,
   NodeTypeSchema,
+  PricePointOut,
   RunResultOut,
   ValidationResult,
   WorkflowChatLastRun,
@@ -106,6 +110,31 @@ export async function chatAboutWorkflow(payload: {
   last_run?: WorkflowChatLastRun | null
 }): Promise<WorkflowChatResponse> {
   const { data } = await apiClient.post('/ai/workflow-chat', payload)
+  return data
+}
+
+export async function fetchBacktestPrices(id: string, symbol: string): Promise<PricePointOut[]> {
+  const { data } = await apiClient.get(`/backtest/${id}/prices`, { params: { symbol } })
+  return data
+}
+
+export async function fetchBacktestNewsUsed(id: string, symbol: string): Promise<NewsMarkerOut[]> {
+  const { data } = await apiClient.get(`/backtest/${id}/news/used`, { params: { symbol } })
+  return data
+}
+
+export async function fetchBacktestNewsAll(id: string, symbol: string): Promise<NewsMarkerOut[]> {
+  const { data } = await apiClient.get(`/backtest/${id}/news/all`, { params: { symbol } })
+  return data
+}
+
+export async function explainBacktest(payload: {
+  backtest_id: string
+  message: string
+  history: ChatMessage[]
+  selection: BacktestExplainSelection
+}): Promise<BacktestExplainResponse> {
+  const { data } = await apiClient.post('/ai/backtest-explain', payload)
   return data
 }
 

@@ -383,6 +383,52 @@ run_id=...)`에 넘기고, 실행 직후 `WorkerPool`(§5.3)과 동일한 방식
 특정 날짜의 노드 실행 이벤트를 가져와, 프론트 `BacktestResultView.vue`가 "테스트 실행"과 동일한
 `VueFlow` 캔버스 + `DebugPanel.vue` 조합으로 재생한다(날짜 `<select>`로 전환).
 
+### 8-3. 매매 시점 시각화 + AI 진단/수정 제안 (2026-07-27 사용자 확인)
+
+백테스트 결과 화면에서 매수/매도 시점을 그래프 위에 점으로 표시하고, 그 시점(또는 매매가 없는
+구간)을 선택해 AI에게 "왜 이렇게 매매했는지/왜 매매가 없었는지"를 묻고 필요하면 수정 제안까지
+받을 수 있어야 한다는 요청에 따라 추가.
+
+**매매 시점 데이터**: `OrderResult.filled_at`은 실제 벽시계 시각(시뮬레이션 날짜 아님)이라
+`BacktestRunner.run()`이 거래일 루프마다 `len(broker.orders)` 증가분을 그 날짜로 직접 태깅해
+`BacktestResult.trades: list[(date, run_id, OrderResult)]`에 쌓는다. `BacktestResultRecord`에
+`universe`/`trades`(JSON) 필드를 추가했고, 기존 `daily_runs_json` 때와 동일하게
+`_add_missing_columns()`(§ DB 스키마 진화, `database.py`)가 컬럼을 자동 보정하므로 별도
+마이그레이션이 필요 없었다.
+
+**시세/보조지표**: 새 엔드포인트 `GET /backtest/{id}/prices?symbol=`이 해당 종목의 `price_bars`
+OHLCV를 그대로 반환한다. 이동평균(5/20/60)·볼린저밴드(20, 2σ)·RSI(14)는 별도 데이터 수집/저장
+없이 프론트(`frontend/src/utils/indicators.ts`)에서 종가만으로 계산한다 — 호가/체결 등 별도
+데이터가 없어도 이미 있는 일봉 OHLCV(거래량 포함)로 계산 가능한 지표만 포함하기로 확정.
+
+**뉴스 표시**: 두 계층으로 분리했다(사용자 확정 사항).
+- `GET /backtest/{id}/news/used?symbol=` — 그 백테스트 실행 중 `data.news` 노드가 실제로 조회한
+  뉴스만(`NodeEventRecord.output_json.symbols[symbol].news_id`를 `NewsRepository.get()`으로 복원),
+  기본으로 표시되고 `/ai/backtest-explain`의 근거 데이터에도 포함된다.
+- `GET /backtest/{id}/news/all?symbol=` — 워크플로 사용 여부와 무관하게 `news` 테이블 해당 기간
+  전체(`NewsRepository.list_range()` 신규 메서드), 프론트 체크박스를 켰을 때만 옅게 추가 표시되는
+  부가 기능이며 "무거우니" AI 프롬프트에는 포함하지 않는다.
+
+**AI 진단/수정 제안**: `app/ai/backtest_explain.py::explain_backtest()`가
+`app/ai/workflow_chat.py::chat_about_workflow()`와 동일한 계약(reply/changed/name/graph/disclaimer,
+`changed=true`면 `WorkflowGraph.validate()` 검증 후 실패 시 1회 재시도)을 따르므로 프론트가 같은
+"미리보기 후 적용" UI 패턴을 재사용할 수 있다. `POST /ai/backtest-explain`(`app/api/routers/ai.py`)이
+`backtest_id`+`selection`(kind=point|range, symbol, 날짜/구간)을 받아 그 구간의 거래 내역·노드 실행
+요약(전체 input/output 스냅샷 대신 `{node_id, node_type, status, symbols, filtered_out, orders}`로
+축약해 프롬프트 크기 억제)·종가 시계열·"참고한 뉴스"를 조립해 넘긴다. 백테스트 결과 화면에는 저장할
+캔버스가 없으므로, 수정 제안은 "적용" 대신 "전략 빌더에서 열기" 버튼으로 `draftStore`(신규
+`targetWorkflowId` 필드)에 담아 `/strategies/{workflow_id}`로 이동시키고, `StrategyBuilderView.load()`
+가 기존 워크플로 로드 후 그 draft가 자신을 대상으로 하면 캔버스에 덮어써 보여준다(저장은 사용자가
+직접 — 미리보기 후 적용 원칙 유지).
+
+**프론트 차트**(`frontend/src/components/BacktestChart.vue`, `EquityCurveChart.vue` 대체): Chart.js를
+`<script setup>`에서 직접 `new Chart()`로 생성해(vue-chartjs 래퍼 대신) 듀얼축(자산/시세)에 매매
+scatter(매수=녹색 삼각형-up, 매도=빨강 삼각형-down)·뉴스 마커·MA/볼린저 라인을 함께 그리고, RSI·
+거래량은 같은 x축 라벨을 공유하는 보조 서브차트로 배치한다. 드래그 구간 선택은 별도 플러그인 없이
+캔버스에 mousedown/mousemove/mouseup을 직접 붙여 `chart.scales.x.getValueForPixel()`로 픽셀↔날짜
+인덱스를 변환하고 절대위치 오버레이 `<div>`로 표시하며, 매매 마커 클릭은
+`chart.getElementsAtEventForMode(..., intersect:true)`로 판별해 드래그와 구분한다.
+
 ---
 
 ## 9. DAO / 데이터베이스
@@ -410,7 +456,11 @@ portfolio_cash(user_id PK, cash, updated_at)  -- §0-3, PersistentOrderExecution
 portfolio_positions(id, user_id, symbol, qty, avg_price, updated_at, UNIQUE(user_id, symbol))  -- §0-3
 backtest_results(id, run_id, workflow_id, start_date, end_date, initial_capital, final_equity,
                   cagr, mdd, win_rate, profit_loss_ratio, trade_count, equity_curve_json,
-                  daily_runs_json)  -- daily_runs_json: [{"date":..., "run_id":...}, ...] (§8-2)
+                  daily_runs_json, universe_json, trades_json)
+                  -- daily_runs_json: [{"date":..., "run_id":...}, ...] (§8-2)
+                  -- universe_json: ["005930", ...], trades_json: [{"date":..., "run_id":..., "order_id":...,
+                  --   "symbol":..., "side":..., "qty":..., "price":..., "status":..., "reason":...,
+                  --   "realized_pnl":...}, ...] (§8-3)
 price_bars(symbol, date, open, high, low, close, volume, source, PRIMARY KEY(symbol, date))
 price_bars_intraday(symbol, bar_datetime, interval, open, high, low, close, volume, source,
                      PRIMARY KEY(symbol, bar_datetime, interval))  -- §8-1, 네이버 시간봉(minute60)

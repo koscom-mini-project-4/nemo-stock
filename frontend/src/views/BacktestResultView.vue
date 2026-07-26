@@ -8,9 +8,10 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import { fetchBacktest, fetchNodeTypes, fetchRun, fetchWorkflow, runBacktest } from '@/api/services'
-import type { BacktestResultOut, NodeEventOut, NodeTypeSchema } from '@/api/types'
+import type { BacktestExplainSelection, BacktestResultOut, NodeEventOut, NodeTypeSchema } from '@/api/types'
 import { graphToFlowElements, type FlowNodeData } from '@/utils/flowAdapter'
-import EquityCurveChart from '@/components/EquityCurveChart.vue'
+import BacktestChart from '@/components/BacktestChart.vue'
+import BacktestAskPanel from '@/components/BacktestAskPanel.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
 
 const props = defineProps<{ id: string }>()
@@ -41,6 +42,21 @@ const selectedRunDate = ref('')
 const debugEvents = ref<NodeEventOut[]>([])
 const replaying = ref(false)
 const replayError = ref('')
+
+// 매매 시점 시각화 + AI 진단/수정 제안(BacktestChart/BacktestAskPanel) — 차트에서 매매 지점 클릭 또는
+// 구간 드래그로 선택하면 그 근거로 AI에게 물어볼 수 있다.
+const chartSelection = ref<BacktestExplainSelection | null>(null)
+
+function onChartSelect(selection: BacktestExplainSelection) {
+  chartSelection.value = selection
+}
+
+function onChartSelectDay(date: string) {
+  if (result.value?.daily_runs.some((d) => d.date === date)) {
+    selectedRunDate.value = date
+    selectDay(date)
+  }
+}
 
 function defaultEnd() {
   return new Date().toISOString().slice(0, 10)
@@ -227,8 +243,19 @@ onMounted(() => {
       </div>
 
       <div class="card">
-        <h2>자산 곡선</h2>
-        <EquityCurveChart :points="result.equity_curve" />
+        <h2>매매 시점 · 시세 · 보조지표</h2>
+        <div class="chart-ask-body">
+          <div class="chart-pane">
+            <BacktestChart :result="result" @select="onChartSelect" @select-day="onChartSelectDay" />
+          </div>
+          <div class="ask-pane">
+            <BacktestAskPanel
+              :backtest-id="result.id"
+              :workflow-id="result.workflow_id"
+              :selection="chartSelection"
+            />
+          </div>
+        </div>
       </div>
 
       <div v-if="result.daily_runs.length > 0" class="card">
@@ -275,7 +302,7 @@ onMounted(() => {
 <style scoped>
 .backtest-view {
   padding: 24px;
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
   width: 100%;
   display: flex;
@@ -339,6 +366,25 @@ h2 {
 
 .metric-value.negative {
   color: var(--danger);
+}
+
+.chart-ask-body {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.chart-pane {
+  flex: 1.6;
+  min-width: 0;
+}
+
+.ask-pane {
+  flex: 1;
+  min-width: 280px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .replay-header {

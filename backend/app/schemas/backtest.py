@@ -23,6 +23,37 @@ class DailyRunOut(BaseModel):
     run_id: str
 
 
+class TradeOut(BaseModel):
+    date: str
+    run_id: str
+    order_id: str
+    symbol: str
+    side: str
+    qty: int
+    price: float
+    status: str
+    reason: str | None = None
+    realized_pnl: float | None = None
+
+
+class PricePointOut(BaseModel):
+    date: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+
+
+class NewsMarkerOut(BaseModel):
+    date: str
+    news_id: str
+    title: str
+    published_at: str
+    source: str
+    used: bool
+
+
 class BacktestResultOut(BaseModel):
     id: str
     workflow_id: str
@@ -39,4 +70,6 @@ class BacktestResultOut(BaseModel):
     trade_count: int
     equity_curve: list[EquityPoint] = Field(default_factory=list)
     daily_runs: list[DailyRunOut] = Field(default_factory=list)
+    universe: list[str] = Field(default_factory=list)
+    trades: list[TradeOut] = Field(default_factory=list)
     created_at: datetime
