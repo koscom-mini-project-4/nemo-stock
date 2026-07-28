@@ -49,6 +49,13 @@ class WorkflowOut(BaseModel):
     updated_at: datetime
 
 
+class WorkflowTemplateOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    graph: dict[str, Any]
+
+
 class ValidationResult(BaseModel):
     valid: bool
     errors: list[str] = Field(default_factory=list)
