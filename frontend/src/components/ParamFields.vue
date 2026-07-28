@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { NodeParamSchema } from '@/api/types'
 
-defineProps<{
+const props = defineProps<{
   paramSchema: NodeParamSchema[]
   params: Record<string, unknown>
   compact?: boolean
@@ -10,6 +11,40 @@ defineProps<{
 const emit = defineEmits<{
   'update-param': [key: string, value: unknown]
 }>()
+
+const GROUP_LABELS: Record<string, string> = {
+  calc: '계산용 파라미터',
+  condition: '매매 조건',
+}
+
+// show_if 조건(다른 파라미터 값에 의존)이 충족된 필드만 노출한다.
+function isVisible(spec: NodeParamSchema): boolean {
+  if (!spec.show_if) return true
+  const current = props.params[spec.show_if.param] ?? ''
+  return String(current) === spec.show_if.equals
+}
+
+// select의 옵션 라벨(프리셋 사람이 읽는 라벨)을 반환한다.
+function optionLabel(spec: NodeParamSchema, idx: number, value: string): string {
+  return spec.option_labels?.[idx] ?? value
+}
+
+// group이 지정된 파라미터가 하나라도 있으면 그룹 헤더로 구획을 나눠 보여준다.
+const groups = computed(() => {
+  const visible = props.paramSchema.filter(isVisible)
+  const hasGroups = visible.some((s) => s.group)
+  if (!hasGroups) return [{ key: '', label: '', items: visible }]
+  const order = ['calc', 'condition', '']
+  const map = new Map<string, NodeParamSchema[]>()
+  for (const spec of visible) {
+    const g = spec.group ?? ''
+    if (!map.has(g)) map.set(g, [])
+    map.get(g)!.push(spec)
+  }
+  return order
+    .filter((g) => map.has(g))
+    .map((g) => ({ key: g, label: GROUP_LABELS[g] ?? '', items: map.get(g)! }))
+})
 
 function onInput(key: string, event: Event) {
   const target = event.target as HTMLInputElement
@@ -30,60 +65,67 @@ function onCheckbox(key: string, event: Event) {
 <template>
   <div class="param-fields" :class="{ compact }">
     <p v-if="paramSchema.length === 0" class="text-muted no-params">파라미터 없음</p>
-    <label
-      v-for="spec in paramSchema"
-      :key="spec.key"
-      class="param-field"
-      :class="{ 'is-expression': spec.type === 'expression' }"
-    >
-      <span class="param-label">{{ spec.label }}<span v-if="spec.required" class="required">*</span></span>
-
-      <select
-        v-if="spec.type === 'select'"
-        class="nodrag nopan"
-        :value="(params[spec.key] as string) ?? spec.default"
-        @mousedown.stop
-        @change="onInput(spec.key, $event)"
+    <div v-for="grp in groups" :key="grp.key || 'default'" class="param-group">
+      <div v-if="grp.label" class="param-group-title">{{ grp.label }}</div>
+      <label
+        v-for="spec in grp.items"
+        :key="spec.key"
+        class="param-field"
+        :class="{ 'is-expression': spec.type === 'expression' }"
       >
-        <option v-for="opt in spec.options ?? []" :key="opt" :value="opt">{{ opt }}</option>
-      </select>
+        <span class="param-label">{{ spec.label }}<span v-if="spec.required" class="required">*</span></span>
 
-      <input
-        v-else-if="spec.type === 'boolean'"
-        type="checkbox"
-        class="nodrag nopan"
-        :checked="Boolean(params[spec.key] ?? spec.default)"
-        @mousedown.stop
-        @change="onCheckbox(spec.key, $event)"
-      />
+        <select
+          v-if="spec.type === 'select'"
+          class="nodrag nopan"
+          :value="(params[spec.key] as string) ?? spec.default"
+          @mousedown.stop
+          @change="onInput(spec.key, $event)"
+        >
+          <option v-for="(opt, i) in spec.options ?? []" :key="opt" :value="opt">
+            {{ optionLabel(spec, i, opt) }}
+          </option>
+        </select>
 
-      <input
-        v-else-if="spec.type === 'number'"
-        type="number"
-        class="nodrag nopan"
-        :value="(params[spec.key] as number) ?? spec.default"
-        @mousedown.stop
-        @input="onNumberInput(spec.key, $event)"
-      />
+        <input
+          v-else-if="spec.type === 'boolean'"
+          type="checkbox"
+          class="nodrag nopan"
+          :checked="Boolean(params[spec.key] ?? spec.default)"
+          @mousedown.stop
+          @change="onCheckbox(spec.key, $event)"
+        />
 
-      <textarea
-        v-else-if="spec.type === 'expression'"
-        class="nodrag nopan mono"
-        :rows="compact ? 1 : 2"
-        :value="(params[spec.key] as string) ?? spec.default"
-        @mousedown.stop
-        @input="onInput(spec.key, $event)"
-      />
+        <input
+          v-else-if="spec.type === 'number'"
+          type="number"
+          class="nodrag nopan"
+          :value="(params[spec.key] as number) ?? spec.default"
+          @mousedown.stop
+          @input="onNumberInput(spec.key, $event)"
+        />
 
-      <input
-        v-else
-        type="text"
-        class="nodrag nopan"
-        :value="(params[spec.key] as string) ?? spec.default"
-        @mousedown.stop
-        @input="onInput(spec.key, $event)"
-      />
-    </label>
+        <textarea
+          v-else-if="spec.type === 'expression'"
+          class="nodrag nopan mono"
+          :rows="compact ? 1 : 2"
+          :value="(params[spec.key] as string) ?? spec.default"
+          @mousedown.stop
+          @input="onInput(spec.key, $event)"
+        />
+
+        <input
+          v-else
+          type="text"
+          class="nodrag nopan"
+          :value="(params[spec.key] as string) ?? spec.default"
+          @mousedown.stop
+          @input="onInput(spec.key, $event)"
+        />
+
+        <span v-if="spec.hint && !compact" class="param-hint">{{ spec.hint }}</span>
+      </label>
+    </div>
   </div>
 </template>
 
@@ -94,11 +136,36 @@ function onCheckbox(key: string, event: Event) {
   gap: 10px;
 }
 
+.param-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.param-group + .param-group {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.param-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .param-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
+}
+
+.param-hint {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .required {
@@ -123,6 +190,19 @@ function onCheckbox(key: string, event: Event) {
 .param-fields.compact .param-label {
   color: var(--text-muted);
   font-size: 10.5px;
+}
+
+.param-fields.compact .param-group {
+  gap: 5px;
+}
+
+.param-fields.compact .param-group + .param-group {
+  margin-top: 6px;
+  padding-top: 5px;
+}
+
+.param-fields.compact .param-group-title {
+  font-size: 9px;
 }
 
 .param-fields.compact input,

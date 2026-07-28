@@ -12,7 +12,17 @@ def load_all_nodes() -> None:
     from app.nodes.ai import sentiment_score  # noqa: F401
     from app.nodes.data import disclosure, news, price  # noqa: F401
     from app.nodes.execution import market_order  # noqa: F401
-    from app.nodes.indicator import momentum, moving_average, rsi  # noqa: F401
+    from app.nodes.indicator import (  # noqa: F401
+        drawdown,
+        momentum,
+        momentum_signal,
+        moving_average,
+        position,
+        rsi,
+        trend,
+        volatility,
+        volume,
+    )
     from app.nodes.logic import if_else, rank  # noqa: F401
     from app.nodes.portfolio import equal_weight  # noqa: F401
     from app.nodes.risk import max_position, stop_loss  # noqa: F401

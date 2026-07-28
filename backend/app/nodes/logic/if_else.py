@@ -35,17 +35,22 @@ class IfElseNode(Node):
         out = context.clone()
         passed: dict[str, dict] = {}
         failed: list[str] = []
+        decisions: dict[str, dict] = {}
         for symbol, data in out.symbols.items():
             evaluator = EvalWithCompoundTypes(names=dict(data))
             try:
                 result = bool(evaluator.eval(expr))
+                reason = f"{expr} → {result}"
             except Exception as exc:  # noqa: BLE001 - 조건식 오류는 해당 종목 탈락으로 처리
                 out.meta.setdefault("errors", []).append(f"{self.node_id}:{symbol}: {exc}")
                 result = False
+                reason = f"평가 오류: {exc}"
+            decisions[symbol] = {"pass": result, "reason": reason}
             if result:
                 passed[symbol] = data
             else:
                 failed.append(symbol)
         out.symbols = passed
         out.meta.setdefault("filtered_out", {})[self.node_id] = failed
+        out.meta.setdefault("decisions", {})[self.node_id] = decisions
         return out

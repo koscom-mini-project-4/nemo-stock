@@ -27,17 +27,26 @@ class StopLossNode(Node):
 
         passed: dict[str, dict] = {}
         failed: list[str] = []
+        decisions: dict[str, dict] = {}
         for symbol, data in out.symbols.items():
             held_qty = data.get("held_qty", 0)
             held_avg_price = data.get("held_avg_price", 0.0)
             price = data.get("price")
             if held_qty > 0 and price is not None and held_avg_price > 0:
                 pnl_pct = (price - held_avg_price) / held_avg_price * 100
-                if pnl_pct <= -loss_pct:
+                ok = pnl_pct <= -loss_pct
+                decisions[symbol] = {
+                    "pass": ok,
+                    "reason": f"손실률 {pnl_pct:.2f}% (기준 -{loss_pct}% 이하 시 손절)",
+                }
+                if ok:
                     passed[symbol] = data
                     continue
+            else:
+                decisions[symbol] = {"pass": False, "reason": "보유 없음 또는 평단가/현재가 정보 없음"}
             failed.append(symbol)
 
         out.symbols = passed
         out.meta.setdefault("filtered_out", {})[self.node_id] = failed
+        out.meta.setdefault("decisions", {})[self.node_id] = decisions
         return out

@@ -49,6 +49,23 @@
 - **공공데이터포털 금융위원회_주식시세정보 API** (`data.go.kr`, 서비스키 필요, 무료): 종목코드+일자 기준 시가/종가/고가/저가/거래량 등 제공. **일 1회, 영업일 T+1 오후 갱신** (실시간 아님) → 백테스트용 일봉 데이터 소스로 적합. 1초/1분 단위 "실시간성"은 이 데이터로 재현 불가능하므로, 라이브/테스트 모드에서는 이 일봉을 시드로 한 더미 실시간 시세 생성기를 별도로 둔다 (§5.2).
 - **OpenDART(공시)**: `opendart.fss.or.kr` API 키 발급 필요(무료). 공시 원문/공시목록 조회에 사용.
 
+## 0-4. 추가 확정 사항 (2026-07-28 사용자 확인 — 조건 내장 지표 노드 + 판단 로그)
+
+사용자 요청: 팀 원본 저장소 `koscom-mini-project-4/koscom_nemonemo`를 참고해 if문/조건 관련
+기능을 늘리고 노드 편집을 쉽게 만들 것, "테스트 실행" 로그에 실행 결과뿐 아니라 각 노드의
+판단 근거도 함께 보이게 할 것.
+
+fork 저장소를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit`) 이후 커밋을 조사한 결과,
+"계산 + 조건 내장" 지표 노드(원시 수식 대신 사람이 읽는 조건 프리셋 드롭다운으로 판단)라는
+아이디어를 발견해 우리 아키텍처에 맞게 이식했다. fork에도 없던 "판단 근거를 로그에 표시"하는
+기능은 이번에 새로 설계했다.
+
+| 항목 | 결정 |
+| --- | --- |
+| 조건 내장 지표 노드 범위 | fork와 동일하게 **12종 전부** 포트(SMA/EMA/MACD/RSI매매신호/기간수익률/변동성/볼린저/ATR추적손절/52주최고가대비/MDD/거래량비율/거래량Z-score, §3.2). 값만 계산하던 기존 `indicator.moving_average`/`indicator.rsi`/`indicator.momentum`은 변경하지 않고 그대로 유지(하위호환). `indicator.rsi`와 타입이 겹치는 fork의 조건 내장 RSI는 `indicator.rsi_signal`로 개명해 충돌을 피함. |
+| `logic.if_else` 처리 | **유지**(fork처럼 팔레트에서 숨기지 않음). 복합조건/OR 로직 등 프리셋으로 커버되지 않는 경우에 여전히 필요하기 때문. |
+| 판단(judgment) 로그 | 모든 필터형 노드(`logic.if_else`/`logic.rank`/`risk.stop_loss`/조건 내장 지표 노드 12종)가 종목별 통과/탈락 근거를 `context.meta.decisions[node_id][symbol] = {"pass": bool, "reason": str, "metrics"?: dict}` 형태로 공통 기록(§3.1). 기존 `meta.filtered_out`(탈락 종목 코드 목록만 기록, `app/api/routers/ai.py`의 챗봇 컨텍스트가 참조)은 하위호환을 위해 그대로 유지하고 신규 필드만 추가. 프론트 `DebugPanel.vue`가 "테스트 실행" 시 이 값을 종목별 판단 테이블로 렌더링한다. |
+
 ---
 
 ## 1. 목표와 PoC 범위
@@ -153,6 +170,8 @@ def register_node(cls: type[Node]) -> type[Node]:
 
 **포트폴리오 자동 주입 변수** (§0-3): `WorkflowEngine.execute()`가 런 시작 시점에 `broker.get_balance()`/`get_positions()`를 1회 조회해, 각 노드의 출력 컨텍스트가 만들어질 때마다 `symbols[code]`에 아직 없는 경우에 한해 `held_qty`(보유수량)/`held_avg_price`(평단가)/`cash`(현금)/`equity`(평가자산)를 채워 넣는다(`meta.cash`/`meta.equity`에도 동일 값 기록). 어떤 노드도 이 값을 배선하지 않으며, `logic.if_else`의 `expr`(`simpleeval`, `names=dict(symbols[code])`)에서 바로 참조 가능하다(예: `held_qty == 0 and cash > price * 10`). 값은 런 시작 시점 스냅샷이므로 해당 런 자신이 실행 도중 발생시킨 주문으로는 바뀌지 않는다 — `node_registry_schema()`에는 나타나지 않는 암묵적 변수이므로 AI 프롬프트(§7.2, §7.5)에 별도 문구로 고지한다.
 
+**판단(judgment) 로그** (§0-4): 종목을 걸러내는 필터형 노드(`logic.if_else`/`logic.rank`/`risk.stop_loss`/조건 내장 지표 노드, §3.2)는 탈락 종목 코드 목록만 남기는 `meta.filtered_out[node_id]`와 별개로, 종목별 통과/탈락 근거를 `meta.decisions[node_id][symbol] = {"pass": bool, "reason": str, "metrics"?: dict}` 형태로 함께 기록한다. `NodeContext.snapshot()`이 `meta`를 그대로 실어 `NodeExecutionEvent.output_snapshot`으로 발행하므로 엔진 수정 없이 각 노드만 이 값을 채우면 되고, 프론트 `DebugPanel.vue`가 "테스트 실행" 결과에서 이를 종목별 판단 테이블(통과✅/탈락⛔ + 사유)로 렌더링한다.
+
 ### 3.2 PoC 기본 제공 노드 목록
 
 | 카테고리 | type | 설명 |
@@ -162,10 +181,16 @@ def register_node(cls: type[Node]) -> type[Node]:
 | data | `data.volume` | 거래량/거래대금 조회 |
 | data | `data.news` | 종목 관련 최근 뉴스 조회(sqlite 적재분) |
 | data | `data.disclosure` | 종목 관련 최근 공시 조회(OpenDART 적재분) |
-| indicator | `indicator.moving_average` | 이동평균 계산 |
-| indicator | `indicator.rsi` | RSI 계산 |
-| indicator | `indicator.volatility` | 변동성(표준편차) 계산 |
-| indicator | `indicator.custom_formula` | 사용자 수식(안전한 표현식 평가, `simpleeval` 등 사용) |
+| indicator | `indicator.moving_average` | 이동평균 계산(값만 계산, 필터링 없음) |
+| indicator | `indicator.rsi` | RSI 계산(값만 계산, 필터링 없음) |
+| indicator | `indicator.momentum` | 모멘텀(N일 수익률) 계산(값만 계산, 필터링 없음) |
+| indicator | `indicator.custom_formula` | 사용자 수식(안전한 표현식 평가, `simpleeval` 등 사용) — 미구현 |
+| indicator(조건 내장, §0-4) | `indicator.sma`/`indicator.ema`/`indicator.macd` | 추세 — 계산+조건 판정을 자체 완결하는 필터형 노드(logic.if_else 내장) |
+| indicator(조건 내장, §0-4) | `indicator.rsi_signal`/`indicator.period_return` | 모멘텀 — 위와 동일한 필터형 노드 |
+| indicator(조건 내장, §0-4) | `indicator.volatility`/`indicator.bollinger`/`indicator.atr_stop` | 변동성 — 위와 동일한 필터형 노드 |
+| indicator(조건 내장, §0-4) | `indicator.high_52w` | 가격 위치(52주 최고가 대비 낙폭) — 위와 동일한 필터형 노드 |
+| indicator(조건 내장, §0-4) | `indicator.mdd` | 위험(최대낙폭) — 위와 동일한 필터형 노드 |
+| indicator(조건 내장, §0-4) | `indicator.volume_ratio`/`indicator.volume_zscore` | 거래량 — 위와 동일한 필터형 노드 |
 | ai | `ai.sentiment_score` | 뉴스/공시 텍스트 감성 점수화(캐시 적용) |
 | ai | `ai.regime` | 시장 국면 판단(상승/하락/횡보) — 보조 판단용 |
 | logic | `logic.if_else` | 조건식 분기 (True 경로만 컨텍스트 전달) |

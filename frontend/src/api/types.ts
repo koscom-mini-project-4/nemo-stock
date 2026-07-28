@@ -5,14 +5,34 @@ export interface NodeParamSchema {
   default?: unknown
   required?: boolean
   options?: string[]
+  /** options와 같은 길이의 사람이 읽는 라벨(매매 조건 프리셋 표시용) */
+  option_labels?: string[]
+  /** 프론트 입력 그룹: 'calc'(계산용 파라미터) | 'condition'(매매 조건) */
+  group?: 'calc' | 'condition'
+  /** 입력 도움말(예: "5, 20, 60, 120") */
+  hint?: string
+  /** {param, equals}일 때만 노출(예: '직접 설정' 선택 시에만 연산자/기준값 노출) */
+  show_if?: { param: string; equals: string }
 }
 
 export interface NodeTypeSchema {
   type: string
   category: string
+  /** 분류(예: 추세/모멘텀/변동성/거래량) — 팔레트 2차 그룹핑용 */
+  subcategory?: string
   display_name: string
   description: string
+  /** 매매 신호 발생 예시 */
+  example?: string
   param_schema: NodeParamSchema[]
+}
+
+/** 필터형 노드(logic.if_else/logic.rank/risk.stop_loss/조건 내장 지표 노드)의 종목별 판단 근거.
+ * NodeEventOut.output_snapshot.meta.decisions[node_id][symbol]에서 읽는다. */
+export interface NodeDecision {
+  pass: boolean
+  reason: string
+  metrics?: Record<string, unknown>
 }
 
 export interface GraphNode {

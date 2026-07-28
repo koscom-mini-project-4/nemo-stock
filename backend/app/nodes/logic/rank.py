@@ -40,14 +40,26 @@ class RankNode(Node):
         reverse = str(self.get_param("order", "desc")) != "asc"
 
         out = context.clone()
-        scored = [(symbol, data) for symbol, data in out.symbols.items() if key in data]
+        original = out.symbols
+        scored = [(symbol, data) for symbol, data in original.items() if key in data]
         scored.sort(key=lambda pair: pair[1][key], reverse=reverse)
         ranked = scored[:top_n]
         ranked_symbols = {symbol for symbol, _ in ranked}
 
-        failed = [s for s in out.symbols if s not in ranked_symbols]
+        failed = [s for s in original if s not in ranked_symbols]
         out.symbols = {symbol: data for symbol, data in ranked}
+        decisions: dict[str, dict] = {}
         for rank_idx, (symbol, data) in enumerate(ranked, start=1):
             data["rank"] = rank_idx
+            decisions[symbol] = {
+                "pass": True,
+                "reason": f"{key}={data[key]} (상위 {rank_idx}/{top_n})",
+            }
+        for symbol in failed:
+            if key in original[symbol]:
+                decisions[symbol] = {"pass": False, "reason": f"{key}={original[symbol][key]} (순위 밖)"}
+            else:
+                decisions[symbol] = {"pass": False, "reason": f"'{key}' 값 없음"}
         out.meta.setdefault("filtered_out", {})[self.node_id] = failed
+        out.meta.setdefault("decisions", {})[self.node_id] = decisions
         return out

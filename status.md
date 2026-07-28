@@ -439,6 +439,62 @@ OpenAI 키로 Playwright 골든 패스 전체 검증: 합성 시세(상승 5일-
 if_else 필터링 원인을 정확히 짚고 수정 그래프 제안 → "전략 빌더에서 열기" 클릭 시 캔버스에
 반영 확인 → "전체 뉴스 표시" 체크박스 토글 정상 → 콘솔 에러 0건.
 
-## 커밋 이력 참고
+## 2026-07-28 후속 작업: 조건 내장 지표 노드 12종 + 테스트 실행 판단(judgment) 로그
+
+사용자 요청: 팀 원본 저장소 `koscom-mini-project-4/koscom_nemonemo`를 참고해 if문/조건 관련
+기능을 늘리고 노드 편집을 쉽게 만들 것, "테스트 실행"이 결과뿐 아니라 각 노드의 판단 근거도
+로그에 보이게 할 것.
+
+**fork 조사**: fork를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit`, 이전 조사에서는
+"병합할 신규 기능 없음"으로 종료했던 그 시점) 이후 커밋 15개를 확인. `c4d7936`/`59726d8`
+커밋에서 "계산 + 조건 내장" 지표 노드 12종(원시 수식 대신 사람이 읽는 조건 프리셋 드롭다운으로
+판단)을 발견 — 정확히 이번 요청과 일치. 다만 fork의 `DebugPanel.vue`도 raw JSON만 보여줄 뿐
+판단 근거를 사람이 읽게 보여주진 않아, 그 부분은 새로 설계했다. fork는 그 갈라진 지점 이후
+우리와 다른 방향(뉴스신호 파이프라인, 산업 섹터 통제 어휘 등)으로 발전했고, 우리도 포트폴리오
+자동 주입/노드 description 등 독자적으로 발전했으므로 코드를 그대로 머지하지 않고 아이디어만
+이식했다.
+
+**조건 내장 지표 노드 12종** (`backend/app/nodes/indicator/`): `calc.py`(SMA/EMA/RSI/MACD/ATR/
+표준편차/MDD/rolling_max 등 순수 계산 함수) + `base.py`(`IndicatorNode` 베이스 — 봉 조회 →
+`compute()` → 조건 연산자 판정 → 필터링, `Cmp`/`IndicatorSignal`/`evaluate_condition`/
+`condition_param`/`threshold_param`) + 6개 노드 파일(`trend.py`: SMA/EMA/MACD,
+`momentum_signal.py`: RSI매매신호/기간수익률, `volatility.py`: 변동성/볼린저/ATR추적손절,
+`position.py`: 52주최고가대비, `drawdown.py`: MDD, `volume.py`: 거래량비율/거래량Z-score).
+값만 계산하던 기존 `indicator.moving_average`/`indicator.rsi`/`indicator.momentum`은 변경하지
+않고 그대로 유지(하위호환·기존 템플릿 안전). `indicator.rsi`와 타입이 겹치는 fork의 조건 내장
+RSI는 `indicator.rsi_signal`로 개명해 충돌 회피. `logic.if_else`는 fork처럼 숨기지 않고 팔레트에
+유지(복합조건/OR 로직에 여전히 필요, 사용자 확인).
+
+**판단(judgment) 로그**: 모든 필터형 노드(`logic.if_else`/`logic.rank`/`risk.stop_loss`/조건
+내장 지표 12종)가 `context.meta.decisions[node_id][symbol] = {"pass": bool, "reason": str,
+"metrics"?: dict}`를 공통 포맷으로 기록하도록 통일(기존 `meta.filtered_out`은 `ai.py` 챗봇
+컨텍스트 하위호환을 위해 그대로 유지, 신규 필드만 추가). `NodeContext.snapshot()`이 `meta`를
+그대로 이벤트에 싣기 때문에 엔진(`workflow/engine.py`) 변경은 불필요했다.
+
+**프론트엔드**: `types.ts`에 `NodeParamSchema.group/hint/option_labels/show_if`,
+`NodeTypeSchema.subcategory/example`, `NodeDecision` 타입 추가. `ParamFields.vue`가 `group`별로
+"계산용 파라미터"/"매매 조건" 구획 헤더를 나누고 `hint`를 안내 텍스트로 표시(캔버스 인라인
+노드·속성 패널 공용이라 조건 프리셋 편집이 노드 박스 안에서 바로 가능). `NodePalette.vue`는
+category 안에서 `subcategory`로 2차 그룹핑(추세/모멘텀/변동성/가격 위치/위험/거래량) — 기존
+드래그 앤 드롭 기능은 보존. `DebugPanel.vue`에 "판단 결과" 섹션 신설: 이벤트 리스트 각 행에
+통과/탈락 요약 배지, 상세 패널에 종목별 판단 테이블(통과✅/탈락⛔ + 사유)을 raw JSON 위에 추가.
+
+**테스트**: 신규 유닛 26개(`test_indicator_calc.py` 9, `test_indicator_signal_nodes.py` 13,
+`test_decision_log.py` 4) — 백엔드 pytest **119→145개 전부 통과**. 프론트 `vue-tsc -b` +
+`npm run build` 통과.
+
+**검증**: 이번 세션에는 브라우저 자동화(Playwright MCP) 도구가 연결되어 있지 않아 실제
+화면 조작 검증은 수행하지 못했다(이전 작업들과 달리, CLAUDE.md가 요구하는 "브라우저로 실제
+동작 확인"을 완전히 충족하지 못한 한계로 명시해 둔다). 대신 실제 uvicorn 서버를 띄우고
+curl로 API 골든 패스를 검증: 로그인 → `GET /nodes`로 신규 12종 노드의 스키마(subcategory/
+example/group/hint 포함) 확인 → 스케줄러→시세→`indicator.sma`(조건: 상향 돌파)→`logic.if_else`
+→ 매수 주문 워크플로를 생성해 `POST /workflows/{id}/run`(테스트 모드) 실행 → 응답의
+`sma1`/`if1` 이벤트 각각의 `output_snapshot.meta.decisions`에 종목별 `{"pass": true, "reason":
+"48244.7 상향 돌파 48022.14 → 통과"}` / `{"pass": true, "reason": "price > 0 → True"}`가
+정확히 기록됨을 확인(프론트 `DebugPanel.vue`가 소비하는 것과 동일한 경로). 다음 세션에서
+Playwright(또는 수동 브라우저)로 팔레트 2차 그룹핑·조건 프리셋 인라인 편집·판단 결과 UI를
+실제 화면으로 재확인할 것을 후속 작업으로 남긴다.
+
+
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.
