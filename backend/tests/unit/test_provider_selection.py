@@ -55,3 +55,38 @@ def test_koscom_market_data_with_credentials_builds():
     )
     provider = _build_market_data_provider(settings)
     assert provider.__class__.__name__ == "KoscomMarketDataProvider"
+
+
+def test_kis_market_data_without_credentials_raises():
+    settings = Settings(_env_file=None, market_data_provider="kis")
+    with pytest.raises(RuntimeError):
+        _build_market_data_provider(settings)
+
+
+def test_kis_market_data_with_credentials_builds():
+    settings = Settings(
+        _env_file=None,
+        market_data_provider="kis",
+        kis_app_key="key",
+        kis_app_secret="secret",
+    )
+    provider = _build_market_data_provider(settings)
+    assert provider.__class__.__name__ == "KISMarketDataProvider"
+
+
+def test_kis_order_provider_without_account_no_raises():
+    settings = Settings(_env_file=None, order_provider="kis", kis_app_key="key", kis_app_secret="secret")
+    with pytest.raises(RuntimeError):
+        _build_order_provider(settings)
+
+
+def test_kis_order_provider_with_full_credentials_builds():
+    settings = Settings(
+        _env_file=None,
+        order_provider="kis",
+        kis_app_key="key",
+        kis_app_secret="secret",
+        kis_account_no="12345678-01",
+    )
+    provider = _build_order_provider(settings)
+    assert provider.__class__.__name__ == "KISOrderExecutionProvider"

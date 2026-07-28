@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     pro_min_interval_sec: int = 1
 
     # Providers
-    market_data_provider: str = "dummy"  # dummy | historical | toss | koscom
-    order_provider: str = "dummy"  # dummy | toss
+    market_data_provider: str = "dummy"  # dummy | historical | toss | koscom | kis
+    order_provider: str = "dummy"  # dummy | toss | kis
 
     # AI
     openai_api_key: str | None = None
@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     koscom_cust_id: str | None = None
     koscom_auth_key: str | None = None
     koscom_base_url: str = "https://checkapi.koscom.co.kr"
+
+    # 한국투자증권(KIS) Open API — 공식 예제(github.com/koreainvestment/open-trading-api)
+    # 원본 코드 대조로 확인(Toss처럼 순수 추정치가 아님), 실제 앱키로는 미검증.
+    # base_url 기본값은 모의투자 서버(openapivts). 실전은 https://openapi.koreainvestment.com:9443.
+    kis_app_key: str | None = None
+    kis_app_secret: str | None = None
+    kis_base_url: str = "https://openapivts.koreainvestment.com:29443"
+    kis_is_paper: bool = True
+    kis_account_no: str | None = None  # "12345678-01" 형식(계좌번호 8자리-상품코드 2자리)
 
 
 @lru_cache

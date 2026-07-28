@@ -18,6 +18,7 @@ from app.auth.security import hash_password
 from app.broker.base import OrderExecutionProvider
 from app.broker.dummy import DummyOrderExecutionProvider
 from app.broker.persistent_dummy import PersistentOrderExecutionProvider
+from app.broker.kis_adapter import KISOrderExecutionProvider
 from app.broker.toss_adapter import TossInvestOrderExecutionProvider
 from app.config import Settings
 from app.dao.base import (
@@ -57,6 +58,7 @@ from app.dao.sqlite.repositories import (
 )
 from app.market_data.base import MarketDataProvider
 from app.market_data.dummy import DummyMarketDataProvider
+from app.market_data.kis_adapter import KISMarketDataProvider
 from app.market_data.koscom_adapter import KoscomMarketDataProvider
 from app.market_data.toss_adapter import TossInvestMarketDataProvider
 from app.market_data import symbol_master
@@ -127,6 +129,14 @@ def _build_market_data_provider(settings: Settings) -> MarketDataProvider:
         return KoscomMarketDataProvider(
             settings.koscom_cust_id, settings.koscom_auth_key, settings.koscom_base_url
         )
+    if settings.market_data_provider == "kis":
+        if not settings.kis_app_key or not settings.kis_app_secret:
+            raise RuntimeError(
+                "MARKET_DATA_PROVIDER=kis 이지만 KIS_APP_KEY/KIS_APP_SECRET이 설정되지 않았습니다."
+            )
+        return KISMarketDataProvider(
+            settings.kis_app_key, settings.kis_app_secret, settings.kis_base_url, settings.kis_is_paper
+        )
     # "historical"은 백테스트 전용(BacktestRunner가 자체 생성)이라 라이브 컨테이너에서는 dummy로 폴백한다.
     return DummyMarketDataProvider()
 
@@ -141,6 +151,18 @@ def _build_order_provider(
             )
         return TossInvestOrderExecutionProvider(
             settings.toss_client_id, settings.toss_client_secret, settings.toss_base_url, settings.toss_account_id
+        )
+    if settings.order_provider == "kis":
+        if not settings.kis_app_key or not settings.kis_app_secret or not settings.kis_account_no:
+            raise RuntimeError(
+                "ORDER_PROVIDER=kis 이지만 KIS_APP_KEY/KIS_APP_SECRET/KIS_ACCOUNT_NO가 설정되지 않았습니다."
+            )
+        return KISOrderExecutionProvider(
+            settings.kis_app_key,
+            settings.kis_app_secret,
+            settings.kis_base_url,
+            settings.kis_account_no,
+            settings.kis_is_paper,
         )
     if portfolio_repo is not None and user_id is not None:
         return PersistentOrderExecutionProvider(

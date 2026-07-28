@@ -899,6 +899,41 @@ KOSPI+KOSDAQ 전 종목(4,297개)으로 확장됨을 실측 확인, "기아"(000
 **미완료**: 버그 수정 후 실제 "5일 + 하이닉스/반도체/삼성 키워드" 크롤 트리거는 사용자가
 커밋/푸시를 먼저 요청해 보류 — 커밋/푸시 이후 별도로 실행 필요.
 
+## 2026-07-28 후속 작업 13: 크롤 트리거 재실행 + 한국투자증권(KIS) 연동 + 주문 수량 비율(%) (DESIGN.md §0-13)
+
+"트리거하고, 한국투자증권 api도 붙이세요" + 중간 요청 "https://github.com/koreainvestment/
+open-trading-api 여기 참고하세요" + "주문 수량을 주문 가능수량의 n% 로도 설정 가능하게
+해줘(바꿀 경우 기본값 50%)". EnterPlanMode로 KIS 연동(Part A-D) + 주문 수량 비율(Part E)
+통합 계획 승인 후 진행.
+
+- **크롤 트리거 재실행**: 후속 작업 12 버그 수정 후 `POST /data/news/update`
+  (`days=5, keywords=[하이닉스,반도체,삼성]`) 트리거 → `collected:0`. `GET /data/news/stats`/
+  `topics`로 확인한 결과 이미 그날 이전 테스트에서 뉴스 467건/클러스터 329건(2026-07-26~
+  07-28, 정확히 요청한 5일 창)이 삼성전자/SK하이닉스 등을 포함해 수집돼 있어 새로 가져올
+  게 없었던 정상 동작(버그 아님)으로 결론.
+- **KIS 연동**: 실제 앱키 없이도 신뢰도를 높이기 위해, 기억에 의존한 추정 대신 사용자가
+  지정한 공식 GitHub 원본 예제 코드(`github.com/koreainvestment/open-trading-api`)를
+  `gh api`/`curl raw.githubusercontent.com`으로 직접 fetch해 대조 확인하며 구현 — 이 과정에서
+  기억으로 추정했던 주문 tr_id(`TTTC0802U` 등)가 실제로는 다름(`TTTC0011U`/`TTTC0012U`)을
+  코드 대조로 잡아 정정. `app/broker/kis_auth.py`(OAuth 토큰 공급자, market_data/broker
+  공유) + `app/market_data/kis_adapter.py`(시세) + `app/broker/kis_adapter.py`(주문 실행,
+  잔고/보유종목 조회) 신규, `Settings`/`.env`/`.env.example`에 `KIS_APP_KEY` 등 빈 값
+  추가(사용자가 직접 채워 넣을 예정), `market_data_provider`/`order_provider="kis"` DI 배선.
+- **주문 수량 비율(%) 설정**: `execution.market_order`에 `qty_mode`("고정수량"|"가능수량
+  비율(%)")/`qty_pct`(기본 50) 추가. KIS 전용 API 없이 엔진이 자동 주입하는 `cash`/
+  `held_qty` 필드로 모든 broker provider에 동일하게 동작(provider-agnostic). **주의**:
+  처음에 두 파라미터를 `required: True`로 만들었다가 기존 저장된 워크플로 그래프(이
+  파라미터를 지정 안 함)가 전부 그래프 검증 실패하는 것을 pytest로 발견 — `get_param()`이
+  스키마 `default`로 폴백하므로 `required: False`가 맞았다. 신규 파라미터를 required로
+  추가할 때는 항상 기존 그래프 호환성을 pytest로 확인할 것(교훈).
+- 상세 확인된 API 사실/필드 대소문자 비일관성 등은 DESIGN.md §0-13 참조.
+
+**검증**: 신규 테스트(`test_kis_adapter.py`, `test_provider_selection.py` KIS 케이스,
+`test_execution_nodes.py`) 포함 백엔드 pytest 313→334개 전부 통과. `vue-tsc -b` 통과(신규
+파라미터가 select/number/show_if 표준 타입이라 프론트 코드 변경 불필요, `ParamFields.vue`가
+그대로 렌더링). 실제 KIS API 호출 검증은 불가(앱키 미발급) — mock 기반 유닛 테스트로
+구조/필드만 확인, 사용자가 앱키 발급 후 재검증 권장.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.
