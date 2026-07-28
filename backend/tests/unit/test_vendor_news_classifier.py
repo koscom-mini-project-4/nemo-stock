@@ -363,3 +363,29 @@ def test_crawl_without_keywords_is_unaffected_by_keyword_filter(monkeypatch):
     collected = crawler.crawl(conn, days=1, max_pages=1, workers=1)
 
     assert {c["url"] for c in collected} == {u for u, _ in titled_urls}
+
+
+def test_list_page_prefers_headline_text_over_empty_thumbnail_anchor():
+    """네이버 목록 HTML은 기사 하나당 <a>가 두 개(썸네일 이미지용 + 헤드라인 텍스트용) 나오고
+    둘의 href가 같다. 썸네일 <a>가 먼저 나오면(실측상 대부분 이 순서) "첫 등장만 기록"하던
+    예전 로직은 빈 제목("")을 저장해 crawl(keywords=...)의 키워드 매칭이 사실상 항상
+    실패하는 버그가 있었다. 나중에 나온 비어있지 않은 텍스트로 덮어써야 한다."""
+    html = """
+    <html><body><ul class="type06_headline">
+      <li>
+        <dt><a href="/mnews/article/001/0000000001"><img src="thumb.jpg"/></a></dt>
+        <dt><a href="/mnews/article/001/0000000001">진짜 헤드라인 제목</a></dt>
+      </li>
+      <li>
+        <dt><a href="/mnews/article/002/0000000002">이미 텍스트 있는 첫 앵커</a></dt>
+      </li>
+    </ul></body></html>
+    """
+    session = MagicMock()
+    session.get.return_value = MagicMock(status_code=200, text=html)
+
+    items = crawler._list_page(session, "20260723", 1)
+
+    assert ("https://n.news.naver.com/mnews/article/001/0000000001", "진짜 헤드라인 제목") in items
+    assert ("https://n.news.naver.com/mnews/article/002/0000000002", "이미 텍스트 있는 첫 앵커") in items
+    assert len(items) == 2  # 같은 href의 두 앵커가 중복 항목으로 남지 않는다

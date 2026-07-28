@@ -98,16 +98,25 @@ def _list_page(session, date_str: str, page: int) -> list:
     if res.status_code != 200:
         return []
     soup = BeautifulSoup(res.text, "html.parser")
-    items, seen = [], set()
+    # 목록 HTML은 기사 하나당 <a>가 두 개(썸네일 이미지용 + 헤드라인 텍스트용) 나오고 둘의
+    # href가 같다. 썸네일 <a>가 텍스트 <a>보다 먼저 나오는 경우가 대부분이라 "첫 등장만
+    # 기록"하면 대부분 빈 제목("")이 저장돼(a.text가 <img>만 감싸 비어있음)
+    # crawl(keywords=...)의 키워드 매칭이 사실상 항상 실패하는 버그가 있었다 — 같은 URL이
+    # 다시 나오면 기존 값이 비어있을 때만 새 텍스트로 덮어써 실제 헤드라인을 보존한다.
+    items: list[list[str]] = []
+    index_by_url: dict[str, int] = {}
     for a in soup.select(LIST_SELECTOR):
         href = a.get("href", "")
         if "article/" not in href:
             continue
         u = _normalize(href)
-        if u not in seen:
-            seen.add(u)
-            items.append((u, a.text.strip()))
-    return items
+        text = a.text.strip()
+        if u not in index_by_url:
+            index_by_url[u] = len(items)
+            items.append([u, text])
+        elif text and not items[index_by_url[u]][1]:
+            items[index_by_url[u]][1] = text
+    return [(u, t) for u, t in items]
 
 
 def _article(session, url: str, fallback_date_str: str | None = None) -> dict:
