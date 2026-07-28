@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import type {
+  AccountSummaryOut,
   BacktestExplainResponse,
   BacktestExplainSelection,
   BacktestResultOut,
@@ -15,7 +16,18 @@ import type {
   WorkflowGraph,
   WorkflowOut,
   WorkflowStatus,
+  WorkflowTemplateOut,
 } from './types'
+
+export async function fetchAccountSummary(): Promise<AccountSummaryOut> {
+  const { data } = await apiClient.get('/account/summary')
+  return data
+}
+
+export async function fetchWorkflowTemplates(): Promise<WorkflowTemplateOut[]> {
+  const { data } = await apiClient.get('/workflows/templates')
+  return data
+}
 
 export async function login(username: string, password: string): Promise<string> {
   const { data } = await apiClient.post('/auth/login', { username, password })

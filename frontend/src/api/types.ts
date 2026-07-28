@@ -138,6 +138,25 @@ export interface BacktestResultOut {
   created_at: string
 }
 
+export interface PositionOut {
+  symbol: string
+  qty: number
+  avg_price: number
+}
+
+export interface AccountSummaryOut {
+  cash: number
+  equity: number
+  positions: PositionOut[]
+}
+
+export interface WorkflowTemplateOut {
+  id: string
+  name: string
+  description: string
+  graph: WorkflowGraph
+}
+
 export interface GenerateDraftResponse {
   name: string
   graph: WorkflowGraph

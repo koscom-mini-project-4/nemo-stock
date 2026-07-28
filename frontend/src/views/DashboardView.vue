@@ -1,17 +1,34 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { deleteWorkflow, fetchWorkflows, updateWorkflow } from '@/api/services'
-import type { WorkflowOut } from '@/api/types'
+import {
+  deleteWorkflow,
+  fetchAccountSummary,
+  fetchWorkflows,
+  fetchWorkflowTemplates,
+  updateWorkflow,
+} from '@/api/services'
+import type { AccountSummaryOut, WorkflowOut, WorkflowTemplateOut } from '@/api/types'
+import { useDraftStore } from '@/stores/draft'
 
 const workflows = ref<WorkflowOut[]>([])
+const templates = ref<WorkflowTemplateOut[]>([])
+const account = ref<AccountSummaryOut | null>(null)
 const loading = ref(true)
 const router = useRouter()
+const draftStore = useDraftStore()
 
 async function load() {
   loading.value = true
   try {
-    workflows.value = await fetchWorkflows()
+    const [wf, acc, tpl] = await Promise.all([
+      fetchWorkflows(),
+      fetchAccountSummary().catch(() => null),
+      fetchWorkflowTemplates().catch(() => []),
+    ])
+    workflows.value = wf
+    account.value = acc
+    templates.value = tpl
   } finally {
     loading.value = false
   }
@@ -33,8 +50,17 @@ async function remove(wf: WorkflowOut) {
   await load()
 }
 
+function useTemplate(template: WorkflowTemplateOut) {
+  draftStore.setDraft(template.name, template.graph)
+  router.push('/strategies/new')
+}
+
 function statusLabel(status: string) {
   return { draft: '초안', active: '실행 중', inactive: '중지' }[status] || status
+}
+
+function formatMoney(value: number) {
+  return Math.round(value).toLocaleString()
 }
 
 onMounted(load)
@@ -51,28 +77,65 @@ onMounted(load)
     </div>
 
     <p v-if="loading" class="text-muted">불러오는 중...</p>
-    <p v-else-if="workflows.length === 0" class="text-muted">
-      아직 전략이 없습니다. "새 전략 만들기"로 시작하세요.
-    </p>
 
-    <div v-else class="workflow-grid">
-      <div v-for="wf in workflows" :key="wf.id" class="card workflow-card">
-        <div class="workflow-card-head">
-          <RouterLink :to="`/strategies/${wf.id}`" class="workflow-name">{{ wf.name }}</RouterLink>
-          <span :class="['badge', `badge-${wf.status}`]">{{ statusLabel(wf.status) }}</span>
+    <template v-else>
+      <div class="kpi-grid">
+        <div class="card kpi-card">
+          <div class="kpi-label">실행 중 전략</div>
+          <div class="kpi-value">{{ workflows.filter((w) => w.status === 'active').length }} / {{ workflows.length }}</div>
         </div>
-        <p class="text-muted">
-          노드 {{ wf.graph.nodes.length }}개 · 주기 {{ wf.schedule_interval_sec }}초 · 수정 {{ new Date(wf.updated_at).toLocaleString() }}
-        </p>
-        <div class="workflow-card-actions">
-          <button class="btn" @click="router.push(`/strategies/${wf.id}`)">편집</button>
-          <button class="btn" @click="toggleActive(wf)">
-            {{ wf.status === 'active' ? '중지' : '활성화' }}
-          </button>
-          <button class="btn btn-danger" @click="remove(wf)">삭제</button>
+        <div class="card kpi-card">
+          <div class="kpi-label">계좌 현금</div>
+          <div class="kpi-value">{{ account ? formatMoney(account.cash) : '—' }}</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">평가자산(equity)</div>
+          <div class="kpi-value">{{ account ? formatMoney(account.equity) : '—' }}</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">보유 종목 수</div>
+          <div class="kpi-value">{{ account ? account.positions.length : '—' }}</div>
         </div>
       </div>
-    </div>
+
+      <section>
+        <h2>템플릿으로 시작하기</h2>
+        <p v-if="templates.length === 0" class="text-muted">불러올 템플릿이 없습니다.</p>
+        <div v-else class="template-grid">
+          <div v-for="tpl in templates" :key="tpl.id" class="card template-card">
+            <h3>{{ tpl.name }}</h3>
+            <p class="text-muted">{{ tpl.description }}</p>
+            <button class="btn btn-primary" type="button" @click="useTemplate(tpl)">이 템플릿으로 시작하기</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>내 전략 ({{ workflows.length }})</h2>
+        <p v-if="workflows.length === 0" class="text-muted">
+          아직 전략이 없습니다. 위 템플릿이나 "새 전략 만들기"로 시작하세요.
+        </p>
+
+        <div v-else class="workflow-grid">
+          <div v-for="wf in workflows" :key="wf.id" class="card workflow-card">
+            <div class="workflow-card-head">
+              <RouterLink :to="`/strategies/${wf.id}`" class="workflow-name">{{ wf.name }}</RouterLink>
+              <span :class="['badge', `badge-${wf.status}`]">{{ statusLabel(wf.status) }}</span>
+            </div>
+            <p class="text-muted">
+              노드 {{ wf.graph.nodes.length }}개 · 주기 {{ wf.schedule_interval_sec }}초 · 수정 {{ new Date(wf.updated_at).toLocaleString() }}
+            </p>
+            <div class="workflow-card-actions">
+              <button class="btn" @click="router.push(`/strategies/${wf.id}`)">편집</button>
+              <button class="btn" @click="toggleActive(wf)">
+                {{ wf.status === 'active' ? '중지' : '활성화' }}
+              </button>
+              <button class="btn btn-danger" @click="remove(wf)">삭제</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </template>
   </div>
 </template>
 
@@ -82,13 +145,15 @@ onMounted(load)
   max-width: 1100px;
   margin: 0 auto;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
 }
 
 .dashboard-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
 }
 
 .dashboard-header h1 {
@@ -99,6 +164,56 @@ onMounted(load)
 .actions {
   display: flex;
   gap: 8px;
+}
+
+section h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kpi-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.template-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.template-card p {
+  flex: 1;
+  margin: 0;
+  line-height: 1.5;
 }
 
 .workflow-grid {
