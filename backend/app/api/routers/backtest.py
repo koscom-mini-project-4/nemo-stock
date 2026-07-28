@@ -101,7 +101,12 @@ def run_backtest(
             )
 
     runner = BacktestRunner(
-        container.engine, container.price_bar_repo, container.run_repo, container.node_event_repo, container.event_bus
+        container.engine,
+        container.price_bar_repo,
+        container.run_repo,
+        container.node_event_repo,
+        container.event_bus,
+        ai_usage_repo=container.ai_usage_repo,
     )
     try:
         result = runner.run(
@@ -112,6 +117,7 @@ def run_backtest(
             end=payload.end_date,
             initial_capital=payload.initial_capital,
             extra_providers=container.node_providers(),
+            progress_run_id=payload.progress_run_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

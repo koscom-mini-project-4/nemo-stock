@@ -45,11 +45,29 @@ function applyTemplate(template: IdeaTemplate) {
   if (template.universe) universeText.value = template.universe
 }
 
+const elapsedSec = ref(0)
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
+function startElapsedTimer() {
+  elapsedSec.value = 0
+  elapsedTimer = setInterval(() => {
+    elapsedSec.value += 1
+  }, 1000)
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+}
+
 async function submit() {
   if (!idea.value.trim()) return
   loading.value = true
   errorMessage.value = ''
   draft.value = null
+  startElapsedTimer()
   try {
     const universe = universeText.value
       .split(',')
@@ -66,6 +84,7 @@ async function submit() {
           : 'AI 초안 생성에 실패했습니다. OPENAI_API_KEY 설정을 확인하세요.'
   } finally {
     loading.value = false
+    stopElapsedTimer()
   }
 }
 
@@ -114,6 +133,7 @@ function editOnCanvas() {
       <button class="btn btn-primary" :disabled="loading || !idea.trim()" @click="submit">
         {{ loading ? '생성 중...' : '초안 생성' }}
       </button>
+      <p v-if="loading" class="text-muted elapsed">AI 응답 대기 중... ({{ elapsedSec }}초 경과)</p>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
 
@@ -125,6 +145,11 @@ function editOnCanvas() {
           <span class="mono">{{ node.id }}</span> — {{ node.type }}
         </li>
       </ul>
+      <p v-if="draft.usage" class="text-muted usage-line">
+        토큰 {{ draft.usage.total_tokens.toLocaleString() }}개 사용
+        (prompt {{ draft.usage.prompt_tokens.toLocaleString() }} / completion
+        {{ draft.usage.completion_tokens.toLocaleString() }})
+      </p>
       <button class="btn btn-primary" @click="editOnCanvas">캔버스에서 편집</button>
     </div>
   </div>
@@ -200,6 +225,16 @@ h1 {
   padding: 8px 10px;
   border-radius: 6px;
   font-size: 13px;
+}
+
+.elapsed {
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+.usage-line {
+  font-size: 12px;
+  margin: 6px 0;
 }
 
 .node-list {

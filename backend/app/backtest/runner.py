@@ -19,12 +19,15 @@ from typing import Any
 from app.backtest.metrics import BacktestMetrics, compute_metrics
 from app.broker.base import OrderResult
 from app.broker.dummy import DummyOrderExecutionProvider
-from app.dao.base import NodeEventRepository, PriceBarRepository, RunRecord, RunRepository
+from app.dao.base import AIUsageRepository, NodeEventRepository, PriceBarRepository, RunRecord, RunRepository
 from app.market_data.historical import HistoricalMarketDataProvider
 from app.workflow.engine import WorkflowEngine
-from app.workflow.events import EventBus
+from app.workflow.events import EventBus, NodeExecutionEvent
 from app.workflow.graph import WorkflowGraph
 from app.workflow.run_persistence import events_to_records
+
+PROGRESS_NODE_ID = "__progress__"
+PROGRESS_NODE_TYPE = "backtest.progress"
 
 
 @dataclass
@@ -53,12 +56,14 @@ class BacktestRunner:
         run_repo: RunRepository,
         node_event_repo: NodeEventRepository,
         event_bus: EventBus,
+        ai_usage_repo: AIUsageRepository | None = None,
     ):
         self._engine = engine
         self._price_bar_repo = price_bar_repo
         self._run_repo = run_repo
         self._node_event_repo = node_event_repo
         self._event_bus = event_bus
+        self._ai_usage_repo = ai_usage_repo
 
     def run(
         self,
@@ -69,7 +74,13 @@ class BacktestRunner:
         end: date,
         initial_capital: float = 10_000_000.0,
         extra_providers: dict[str, Any] | None = None,
+        progress_run_id: str | None = None,
     ) -> BacktestResult:
+        """progress_run_id(§0-11): 주어지면 거래일마다 진행 상황(§0-11 GET /ws/runs/{id}로
+        실시간 구독 가능)을 event_bus에 발행한다. 기존 daily_runs(§8, 노드별 디버그 재생용)와는
+        완전히 별개 채널 — 여기 실는 이벤트는 "가상 노드"(node_id=__progress__)로, 실제
+        워크플로 노드 실행 이력을 오염시키지 않는다.
+        """
         if not universe:
             raise ValueError("백테스트 대상 종목(universe)이 비어 있습니다.")
 
@@ -85,27 +96,48 @@ class BacktestRunner:
         equity_curve: list[tuple[date, float]] = []
         daily_runs: list[tuple[date, str]] = []
         trades: list[tuple[date, str, OrderResult]] = []
-        for day in trading_days:
-            market_data.advance_to(day)
-            run_id = str(uuid.uuid4())
-            prev_order_count = len(broker.orders)
-            result = self._engine.execute(
-                workflow_id=workflow_id,
-                graph=graph,
-                mode="backtest",
-                market_data=market_data,
-                broker=broker,
-                run_id=run_id,
-                timestamp=datetime.combine(day, time()),
-                extra_providers=extra_providers,
+
+        if progress_run_id:
+            self._publish_progress(
+                progress_run_id, day=None, day_index=0, total_days=len(trading_days), status="running"
             )
-            self._save_run(run_id, workflow_id, result.status, result.error)
-            daily_runs.append((day, run_id))
-            for order in broker.orders[prev_order_count:]:
-                trades.append((day, run_id, order))
-            if result.status != "success":
-                continue
-            equity_curve.append((day, self._mark_to_market_equity(broker, market_data, universe)))
+        try:
+            for day_index, day in enumerate(trading_days, start=1):
+                day_started_at = datetime.now()
+                market_data.advance_to(day)
+                run_id = str(uuid.uuid4())
+                prev_order_count = len(broker.orders)
+                result = self._engine.execute(
+                    workflow_id=workflow_id,
+                    graph=graph,
+                    mode="backtest",
+                    market_data=market_data,
+                    broker=broker,
+                    run_id=run_id,
+                    timestamp=datetime.combine(day, time()),
+                    extra_providers=extra_providers,
+                )
+                self._save_run(run_id, workflow_id, result.status, result.error)
+                daily_runs.append((day, run_id))
+                new_orders = broker.orders[prev_order_count:]
+                for order in new_orders:
+                    trades.append((day, run_id, order))
+                if progress_run_id:
+                    self._publish_progress(
+                        progress_run_id,
+                        day=day,
+                        day_index=day_index,
+                        total_days=len(trading_days),
+                        status=result.status,
+                        orders=len(new_orders),
+                        ai_tokens_delta=self._ai_tokens_since(day_started_at),
+                    )
+                if result.status != "success":
+                    continue
+                equity_curve.append((day, self._mark_to_market_equity(broker, market_data, universe)))
+        finally:
+            if progress_run_id:
+                self._event_bus.close_run(progress_run_id)
 
         metrics = compute_metrics(equity_curve, broker.orders, initial_capital)
         final_equity = equity_curve[-1][1] if equity_curve else initial_capital
@@ -124,6 +156,40 @@ class BacktestRunner:
             universe=universe,
             trades=trades,
         )
+
+    def _publish_progress(
+        self,
+        progress_run_id: str,
+        *,
+        day: date | None,
+        day_index: int,
+        total_days: int,
+        status: str,
+        orders: int = 0,
+        ai_tokens_delta: int | None = None,
+    ) -> None:
+        self._event_bus.publish(
+            NodeExecutionEvent(
+                run_id=progress_run_id,
+                node_id=PROGRESS_NODE_ID,
+                node_type=PROGRESS_NODE_TYPE,
+                status=status,  # type: ignore[arg-type] - WorkflowEngine.execute()가 돌려주는 status는 "success"|"error"만 있음
+                output_snapshot={
+                    "day": day.isoformat() if day else None,
+                    "day_index": day_index,
+                    "total_days": total_days,
+                    "orders": orders,
+                    "ai_tokens_delta": ai_tokens_delta,
+                },
+            )
+        )
+
+    def _ai_tokens_since(self, since: datetime) -> int | None:
+        """그 거래일 처리를 시작한 시점 이후 새로 쌓인 AI 사용량(§0-6 AIUsageRepository)
+        토큰 합계. ai_usage_repo가 주입 안 됐으면(하위호환) None."""
+        if self._ai_usage_repo is None:
+            return None
+        return sum(r.total_tokens for r in self._ai_usage_repo.list_since(since))
 
     def _save_run(self, run_id: str, workflow_id: str, status: str, error: str | None) -> None:
         now = datetime.now()

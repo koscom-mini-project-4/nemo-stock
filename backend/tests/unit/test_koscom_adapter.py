@@ -118,6 +118,58 @@ def test_raises_on_success_false_response():
         provider.get_price("005930")
 
 
+def test_fetch_symbol_master_combines_kospi_and_kosdaq_code_info():
+    """§0-10 폴백 소스: /stock/m001/code_info(거래소)와 /stock/m003/code_info(코스닥)를
+    각각 1회씩만 불러 전 종목 코드/명을 합친다."""
+    paths_seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths_seen.append(request.url.path)
+        if request.url.path == "/stock/m001/code_info":
+            results = [
+                {"F16013": "005930", "F16002": "삼성전자"},
+                {"F16013": "000660", "F16002": "SK하이닉스"},
+            ]
+        else:
+            results = [{"F16013": "066570", "F16002": "LG전자"}]
+        return httpx.Response(200, json={"success": True, "results": results})
+
+    provider = KoscomMarketDataProvider(
+        "NS00000001", "authkey123", "https://checkapi.koscom.co.kr", http_client=_client(handler)
+    )
+
+    rows = provider.fetch_symbol_master()
+
+    assert paths_seen == ["/stock/m001/code_info", "/stock/m003/code_info"]
+    by_symbol = {r["symbol"]: r for r in rows}
+    assert by_symbol["005930"] == {"symbol": "005930", "name": "삼성전자", "market": "KOSPI"}
+    assert by_symbol["000660"]["market"] == "KOSPI"
+    assert by_symbol["066570"] == {"symbol": "066570", "name": "LG전자", "market": "KOSDAQ"}
+
+
+def test_fetch_symbol_master_skips_rows_missing_code_or_name():
+    """양쪽 시장 호출 모두 동일한 mock 응답을 주므로(핸들러가 경로를 안 봄), 필드 누락 skip
+    로직만 검증한다 — 결과는 시장마다 유효한 행 1건씩, 총 2건이어야 한다."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        results = [
+            {"F16013": "005930", "F16002": "삼성전자"},
+            {"F16013": "", "F16002": "코드없음"},
+            {"F16013": "999999"},  # 이름 없음
+        ]
+        return httpx.Response(200, json={"success": True, "results": results})
+
+    provider = KoscomMarketDataProvider(
+        "NS00000001", "authkey123", "https://checkapi.koscom.co.kr", http_client=_client(handler)
+    )
+
+    rows = provider.fetch_symbol_master()
+
+    assert len(rows) == 2
+    assert all(r["symbol"] == "005930" and r["name"] == "삼성전자" for r in rows)
+    assert {r["market"] for r in rows} == {"KOSPI", "KOSDAQ"}
+
+
 def test_enforces_minimum_one_second_between_requests():
     call_times: list[float] = []
 

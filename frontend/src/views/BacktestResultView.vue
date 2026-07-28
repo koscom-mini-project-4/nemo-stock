@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type Ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Handle, Position, VueFlow, type Edge as VFEdge, type Node as VFNode } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -8,10 +8,12 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import { fetchBacktest, fetchNodeTypes, fetchRun, fetchWorkflow, runBacktest } from '@/api/services'
+import { subscribeRunEvents } from '@/api/ws'
 import type { BacktestExplainSelection, BacktestResultOut, NodeEventOut, NodeTypeSchema } from '@/api/types'
 import { graphToFlowElements, type FlowNodeData } from '@/utils/flowAdapter'
 import BacktestChart from '@/components/BacktestChart.vue'
 import BacktestAskPanel from '@/components/BacktestAskPanel.vue'
+import BacktestProgressPanel from '@/components/BacktestProgressPanel.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
 
 const props = defineProps<{ id: string }>()
@@ -28,6 +30,13 @@ const endDate = ref(defaultEnd())
 const initialCapital = ref(10_000_000)
 const running = ref(false)
 const runError = ref('')
+const progressEvents = ref<NodeEventOut[]>([])
+let progressWs: WebSocket | null = null
+
+function closeProgressWs() {
+  progressWs?.close()
+  progressWs = null
+}
 
 const result = ref<BacktestResultOut | null>(null)
 const loading = ref(false)
@@ -192,6 +201,14 @@ async function submitRun() {
     return
   }
   running.value = true
+  progressEvents.value = []
+  // POST 응답을 기다리는 동안(§0-11) 거래일별 진행 상황을 실시간으로 보여준다 — 백엔드가
+  // 이미 갖고 있던 EventBus/WS 인프라(app/api/ws.py)를 재사용하는 것이라, POST가 끝나기 전에
+  // 먼저 구독을 걸어둬야 시작 이벤트부터 놓치지 않는다.
+  const progressRunId = crypto.randomUUID()
+  progressWs = subscribeRunEvents(progressRunId, (evt) => {
+    progressEvents.value = [...progressEvents.value, evt]
+  })
   try {
     const r = await runBacktest({
       workflow_id: workflowId.value,
@@ -199,6 +216,7 @@ async function submitRun() {
       start_date: startDate.value,
       end_date: endDate.value,
       initial_capital: initialCapital.value,
+      progress_run_id: progressRunId,
     })
     result.value = r
     await loadGraphAndFirstDay(r)
@@ -208,6 +226,7 @@ async function submitRun() {
     runError.value = detail || '백테스트 실행에 실패했습니다.'
   } finally {
     running.value = false
+    closeProgressWs()
   }
 }
 
@@ -215,6 +234,10 @@ onMounted(() => {
   if (!isNew.value) {
     loadExisting(props.id)
   }
+})
+
+onUnmounted(() => {
+  closeProgressWs()
 })
 </script>
 
@@ -252,6 +275,7 @@ onMounted(() => {
         최대 {{ NEWS_SIGNAL_MAX_DAYS }}일).
       </p>
       <p v-if="runError" class="error">{{ runError }}</p>
+      <BacktestProgressPanel v-if="running" :events="progressEvents" />
       <button class="btn btn-primary" :disabled="running" @click="submitRun">
         {{ running ? '실행 중...' : '백테스트 실행' }}
       </button>

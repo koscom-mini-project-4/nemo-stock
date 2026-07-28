@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-from app.backtest.runner import BacktestRunner
-from app.dao.base import PriceBarRecord
+from app.backtest.runner import PROGRESS_NODE_ID, BacktestRunner
+from app.dao.base import AIUsageRecord, AIUsageRepository, PriceBarRecord
 from app.dao.memory.repositories import InMemoryNodeEventRepository, InMemoryPriceBarRepository, InMemoryRunRepository
 from app.market_data.historical import HistoricalMarketDataProvider
 from app.nodes import load_all_nodes
@@ -12,6 +12,19 @@ from app.workflow.events import InMemoryEventBus
 from app.workflow.graph import WorkflowGraph
 
 load_all_nodes()
+
+
+class _FakeAIUsageRepo(AIUsageRepository):
+    def __init__(self) -> None:
+        self.saved: list[AIUsageRecord] = []
+
+    def save(self, record: AIUsageRecord) -> None:
+        self.saved.append(record)
+
+    def list_since(self, since: datetime | None) -> list[AIUsageRecord]:
+        if since is None:
+            return list(self.saved)
+        return [r for r in self.saved if r.created_at >= since]
 
 
 def _seed_uptrend(repo: InMemoryPriceBarRepository, symbol: str, start: date, days: int, start_price: float) -> None:
@@ -107,6 +120,135 @@ def test_backtest_runner_on_synthetic_uptrend_produces_positive_return():
         assert order.status == "filled"
         assert run_id in daily_run_ids
     assert {d for d, _, _ in result.trades} == {d for d, _ in result.daily_runs}
+
+
+def test_progress_events_published_started_and_per_day_then_closed(monkeypatch):
+    """§0-11: progress_run_id를 주면 시작 이벤트 1건 + 거래일마다 진행 이벤트가 event_bus에
+    발행되고, 끝나면 close_run으로 스트림이 닫혀야 한다.
+
+    close_run 호출 여부는 실제로 재구독(subscribe)해서 확인하지 않는다 —
+    InMemoryEventBus.close_run은 "그 시점에 이미 구독 중인" 큐에만 종료 신호를 보내므로,
+    끝난 뒤 새로 subscribe하면 신호를 못 받아 영원히 블로킹된다(운영상 문제는 아님 — WS는
+    항상 백테스트 시작 전에 먼저 구독하므로 늦게 구독하는 경우가 없다. 테스트에서만
+    이 순서 문제가 생기므로 monkeypatch로 호출 여부만 스파이한다).
+    """
+    repo = InMemoryPriceBarRepository()
+    start = date(2025, 1, 1)
+    _seed_uptrend(repo, "TESTSYM", start, days=5, start_price=100.0)
+
+    graph = WorkflowGraph.from_dict(_buy_on_uptrend_graph())
+    bus = InMemoryEventBus()
+    engine = WorkflowEngine(bus)
+    runner = BacktestRunner(engine, repo, InMemoryRunRepository(), InMemoryNodeEventRepository(), bus)
+
+    closed_runs: list[str] = []
+    original_close_run = bus.close_run
+    monkeypatch.setattr(bus, "close_run", lambda run_id: (closed_runs.append(run_id), original_close_run(run_id)))
+
+    runner.run(
+        workflow_id="wf1", graph=graph, universe=["TESTSYM"],
+        start=start, end=start + timedelta(days=4), initial_capital=1_000_000.0,
+        progress_run_id="progress-1",
+    )
+
+    events = bus.get_history("progress-1")
+    assert len(events) == 6  # 시작 1건 + 거래일 5건
+    assert all(e.node_id == PROGRESS_NODE_ID for e in events)
+
+    started = events[0]
+    assert started.output_snapshot["day"] is None
+    assert started.output_snapshot["day_index"] == 0
+    assert started.output_snapshot["total_days"] == 5
+    assert started.status == "running"
+
+    per_day = events[1:]
+    assert [e.output_snapshot["day_index"] for e in per_day] == [1, 2, 3, 4, 5]
+    assert all(e.status == "success" for e in per_day)
+    assert all(e.output_snapshot["orders"] == 1 for e in per_day)  # 우상향 그래프는 매일 매수
+    assert all(e.output_snapshot["ai_tokens_delta"] is None for e in per_day)  # usage_repo 미주입
+    assert all(e.node_type == "backtest.progress" for e in events)
+
+    # WorkflowEngine.execute()도 거래일마다 자기 자신의 run_id를 close_run하므로(§8, 노드별
+    # 디버그 재생 채널), closed_runs에는 그것들도 섞여 들어온다 — progress_run_id가 최소
+    # 한 번은 닫혔는지만 확인한다.
+    assert closed_runs.count("progress-1") == 1
+
+
+def test_progress_events_include_ai_token_delta_from_usage_repo():
+    """거래일마다 ai_usage_repo.list_since()를 조회해 그 델타가 진행 이벤트에 실려야 한다."""
+
+    class _StubUsageRepo(AIUsageRepository):
+        def __init__(self, tokens_per_call: int):
+            self._tokens = tokens_per_call
+            self.call_count = 0
+
+        def save(self, record: AIUsageRecord) -> None:  # pragma: no cover - 미사용
+            pass
+
+        def list_since(self, since):
+            self.call_count += 1
+            return [
+                AIUsageRecord(
+                    id=str(self.call_count), purpose="test", model="m",
+                    prompt_tokens=self._tokens, completion_tokens=0, total_tokens=self._tokens,
+                )
+            ]
+
+    repo = InMemoryPriceBarRepository()
+    start = date(2025, 1, 1)
+    _seed_uptrend(repo, "TESTSYM", start, days=3, start_price=100.0)
+    graph = WorkflowGraph.from_dict(_buy_on_uptrend_graph())
+    bus = InMemoryEventBus()
+    engine = WorkflowEngine(bus)
+    usage_repo = _StubUsageRepo(tokens_per_call=42)
+    runner = BacktestRunner(
+        engine, repo, InMemoryRunRepository(), InMemoryNodeEventRepository(), bus, ai_usage_repo=usage_repo
+    )
+
+    runner.run(
+        workflow_id="wf1", graph=graph, universe=["TESTSYM"],
+        start=start, end=start + timedelta(days=2), initial_capital=1_000_000.0,
+        progress_run_id="progress-2",
+    )
+
+    per_day = [e for e in bus.get_history("progress-2") if e.output_snapshot["day"] is not None]
+    assert len(per_day) == 3
+    assert all(e.output_snapshot["ai_tokens_delta"] == 42 for e in per_day)
+    assert usage_repo.call_count == 3
+
+
+def test_progress_stream_closed_even_when_engine_raises(monkeypatch):
+    """거래일 처리 중 예외가 나도 close_run은 finally에서 반드시 호출돼야 한다(WS가 영원히
+    열려있지 않도록)."""
+    repo = InMemoryPriceBarRepository()
+    start = date(2025, 1, 1)
+    _seed_uptrend(repo, "TESTSYM", start, days=3, start_price=100.0)
+    graph = WorkflowGraph.from_dict(_buy_on_uptrend_graph())
+    bus = InMemoryEventBus()
+    engine = WorkflowEngine(bus)
+    runner = BacktestRunner(engine, repo, InMemoryRunRepository(), InMemoryNodeEventRepository(), bus)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("engine exploded")
+
+    monkeypatch.setattr(engine, "execute", _boom)
+
+    closed_runs: list[str] = []
+    original_close_run = bus.close_run
+    monkeypatch.setattr(bus, "close_run", lambda run_id: (closed_runs.append(run_id), original_close_run(run_id)))
+
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        runner.run(
+            workflow_id="wf1", graph=graph, universe=["TESTSYM"],
+            start=start, end=start + timedelta(days=2), initial_capital=1_000_000.0,
+            progress_run_id="progress-3",
+        )
+
+    assert closed_runs == ["progress-3"]
+    # 예외가 첫 거래일에서 났으므로 시작 이벤트 1건만 발행되고 거래일 진행 이벤트는 없어야 한다.
+    assert [e.node_id for e in bus.get_history("progress-3")] == [PROGRESS_NODE_ID]
 
 
 def test_backtest_runner_raises_when_no_price_data():

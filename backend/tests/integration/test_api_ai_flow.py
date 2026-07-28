@@ -8,7 +8,30 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_ai_client
+from app.dao.base import AIUsageRecord
 from tests.unit.ai_test_doubles import FakeAIClient
+
+
+class _UsageRecordingFakeClient(FakeAIClient):
+    """§0-11: 실제 OpenAIClient._record_usage()가 하는 것처럼, 호출마다 container의
+    ai_usage_repo에 사용량을 기록하는 FakeAIClient. 델타 계산 로직(app/api/routers/ai.py::
+    _usage_delta)이 실제로 새 레코드를 반영하는지 검증하는 데 쓴다."""
+
+    def __init__(self, container, tokens: int, **kwargs):
+        super().__init__(**kwargs)
+        self._container = container
+        self._tokens = tokens
+        self._call_no = 0
+
+    def complete_json(self, *args, **kwargs):
+        self._call_no += 1
+        self._container.ai_usage_repo.save(
+            AIUsageRecord(
+                id=f"usage-{id(self)}-{self._call_no}", purpose="test", model=self._model,
+                prompt_tokens=self._tokens, completion_tokens=0, total_tokens=self._tokens,
+            )
+        )
+        return super().complete_json(*args, **kwargs)
 
 _VALID_DRAFT_RESPONSE = {
     "name": "뉴스 긍정 매수 전략",
@@ -60,6 +83,33 @@ def test_generate_draft_created_workflow_can_be_saved_and_validated(app_client: 
 
     validate_resp = app_client.post(f"/workflows/{workflow_id}/validate", headers=auth_headers)
     assert validate_resp.json()["valid"] is True
+
+
+def test_generate_draft_response_includes_ai_usage_delta(app_client: TestClient, auth_headers: dict):
+    """§0-11: 이 호출 동안 새로 쌓인 토큰 사용량이 응답의 usage 필드에 실려야 한다."""
+    container = app_client.app.state.container
+    fake_client = _UsageRecordingFakeClient(container, tokens=120, responses=[_VALID_DRAFT_RESPONSE])
+    app_client.app.dependency_overrides[get_ai_client] = lambda: fake_client
+    try:
+        resp = app_client.post("/ai/generate-draft", json={"idea": "테스트"}, headers=auth_headers)
+    finally:
+        app_client.app.dependency_overrides.pop(get_ai_client, None)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["usage"] == {"prompt_tokens": 120, "completion_tokens": 0, "total_tokens": 120}
+
+
+def test_generate_draft_usage_is_null_when_nothing_recorded(app_client: TestClient, auth_headers: dict):
+    """usage_repo에 새로 기록된 게 없으면(FakeAIClient는 기본적으로 기록 안 함) usage는 null."""
+    fake_client = FakeAIClient(responses=[_VALID_DRAFT_RESPONSE])
+    app_client.app.dependency_overrides[get_ai_client] = lambda: fake_client
+    try:
+        resp = app_client.post("/ai/generate-draft", json={"idea": "테스트"}, headers=auth_headers)
+    finally:
+        app_client.app.dependency_overrides.pop(get_ai_client, None)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["usage"] is None
 
 
 def test_workflow_chat_without_api_key_returns_400(app_client: TestClient, auth_headers: dict):
@@ -117,6 +167,25 @@ def test_workflow_chat_edit_returns_updated_graph(app_client: TestClient, auth_h
     assert body["changed"] is True
     assert body["graph"]["nodes"][2]["params"]["qty"] == 2
     assert body["disclaimer"]
+
+
+def test_workflow_chat_response_includes_ai_usage_delta(app_client: TestClient, auth_headers: dict):
+    container = app_client.app.state.container
+    fake_client = _UsageRecordingFakeClient(
+        container, tokens=55, responses=[{"reply": "설명입니다.", "changed": False}]
+    )
+    app_client.app.dependency_overrides[get_ai_client] = lambda: fake_client
+    try:
+        resp = app_client.post(
+            "/ai/workflow-chat",
+            json={"name": "전략", "graph": _VALID_DRAFT_RESPONSE, "message": "지금 뭐하는거야?"},
+            headers=auth_headers,
+        )
+    finally:
+        app_client.app.dependency_overrides.pop(get_ai_client, None)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["usage"] == {"prompt_tokens": 55, "completion_tokens": 0, "total_tokens": 55}
 
 
 def test_ingest_manual_news(app_client: TestClient, auth_headers: dict):

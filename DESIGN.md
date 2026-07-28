@@ -247,9 +247,69 @@ API(`DATA_GO_KR_SERVICE_KEY`, 금융위원회_주식시세정보)를 재사용�
   이미 있던 `fetch_daily_prices`/`ingest_public_prices` 경로도 현재 `DATA_GO_KR_SERVICE_KEY`
   로는 같은 엔드포인트에서 항상 `totalCount: 0`(resultCode는 "00" 정상)을 받는다**는 것을
   확인했다(2025-01-02처럼 명백한 과거 영업일로 직접 curl해도 동일). data.go.kr 콘솔에서 이
-  API("금융위원회_주식시세정보")에 대한 서비스키 활용 승인 상태를 확인해야 한다 — 코드
-  로직(페이지네이션/필드 파싱/폴백)은 mock 응답으로 전부 유닛 테스트 통과했으므로, 승인이
-  완료되면 별도 코드 수정 없이 정상 동작할 것으로 예상된다.
+  API("금융위원회_주식시세정보")에 대한 서비스키 활용 승인 상태를 확인해야 한다.
+
+### 0-10-1. KOSCOM CHECK-API 폴백 (2026-07-28 후속 — 사용자 요청 "공공데이터에서 안되는건 check api에서받아오세요")
+
+공공데이터포털 서비스키가 계속 빈 응답만 주는 상황이라, 이미 실제 자격증명으로 검증된
+KOSCOM CHECK-API(`app/market_data/koscom_adapter.py::KoscomMarketDataProvider`, `get_price`/
+`get_orderbook`/`get_ohlcv` 3개 엔드포인트가 2026-07-15 실호출 검증 완료돼 있음)를 동기화
+대안 소스로 추가했다.
+
+- `docs/koscom-api/pages/01-stock-api/{거래소,코스닥} 종목/01-코드 정보.md` 조사 결과,
+  `POST /stock/m001/code_info`(거래소=KOSPI)와 `/stock/m003/code_info`(코스닥)가 `jcode`
+  없이 그룹 전체를 한 번에 돌려주는 벌크 엔드포인트임을 확인 — 페이지네이션도 없고 시장당
+  호출 1회(총 2회, 기존 "초당 1회" 레이트리밋 적용)로 전 종목 코드(`F16013`)/한글종목명
+  (`F16002`)을 가져올 수 있다.
+- `KoscomMarketDataProvider.fetch_symbol_master()` 신규 — 두 엔드포인트를 호출해
+  `[{"symbol","name","market"}, ...]`로 합쳐 반환(§0-10의 `PublicDataPriceClient.
+  fetch_market_snapshot()`과 동일한 반환 형태라 그대로 재사용 가능).
+- `POST /data/symbols/sync`(`app/api/routers/data.py`)를 폴백 체인으로 변경: 공공데이터
+  포털을 먼저 시도(무료, 현재 미승인으로 빈 응답) → 응답이 비어 있으면
+  `KOSCOM_CUST_ID`/`KOSCOM_AUTH_KEY`가 설정돼 있을 때 KOSCOM CHECK-API로 자동 전환. 응답에
+  `source`("data.go.kr" | "koscom") 필드 추가(관리자 페이지에서 어느 소스로 동기화됐는지
+  확인 가능, 하위호환 — 기존 필드는 그대로 유지).
+- **실 서버 라이브 검증**: `POST /data/symbols/sync` 실행 결과 `{"synced": 4297, "source":
+  "koscom"}` — 4일 전(§0-10) 8개였던 매핑이 실제 KOSPI+KOSDAQ 전 종목(4,297개)으로 확장됨을
+  확인. "기아"(000270)/"LG전자"(066570) 등 기존 8개 목록에 없던 종목도 정상 검색·매핑됨을
+  실 서버에서 직접 확인.
+- 섹터(업종) 정보도 `docs/koscom-api/pages/01-stock-api/거래소 종목/14-소속 업종 정보.md`
+  (`/stock/m001/upjong_info`)로 조회 가능함을 확인했으나, 이 엔드포인트는 종목당 `jcode`가
+  필요해(벌크 조회 불가) 초당 1회 제한상 전 종목 일괄 동기화에는 부적합하다 — §0-10에서
+  범위 제외 결정한 "섹터 자동 매핑"은 이번에도 그대로 제외(필요하면 종목 단위 온디맨드
+  조회로 추후 별도 구현 가능하다는 점만 기록).
+
+## 0-11. 백테스트/AI 화면 실시간 진행률·로그·토큰 사용량 (2026-07-28 사용자 요청)
+
+백테스트 실행(`POST /backtest`)은 완전히 동기 HTTP 요청이라, AI 노드가 포함된 워크플로가
+여러 거래일에 걸쳐 실행되는 동안 프론트는 로딩 스피너만 보여줬다. AI 사용 화면(초안 생성/
+챗봇/백테스트 설명)도 마찬가지였다. 조사 결과 **실시간 이벤트 스트리밍 인프라
+(`app/workflow/events.py::EventBus` + `app/api/ws.py::/ws/runs/{run_id}` + 프론트
+`frontend/src/api/ws.ts::subscribeRunEvents()`)가 이미 구현돼 있었지만 전혀 쓰이지 않고
+있었다** — 이번 작업은 그 기존 인프라를 재사용하는 것이다.
+
+- **Part A — 백테스트 진행률**: `BacktestRequest.progress_run_id`(프론트가 미리 생성한
+  UUID)를 `BacktestRunner.run()`에 전달하면, 거래일 루프 시작 전 "시작" 이벤트(총 거래일수)
+  + 매 거래일 처리 후 "진행" 이벤트(날짜/인덱스/주문건수/그날 AI 토큰 사용량 델타)를
+  `event_bus.publish()`로 발행한다. 새 이벤트 스키마를 만들지 않고 기존
+  `NodeExecutionEvent`를 "가상 노드"(`node_id="__progress__"`, `node_type=
+  "backtest.progress"`)로 재사용해 `EventBus`/WS/`subscribeRunEvents()`를 전혀 안 건드리고
+  값만 실어 보냈다. AI 토큰 델타는 `AIUsageRepository.list_since(그 거래일 시작 시각)`으로
+  계산(§0-6 기존 조회 메서드 재사용, 새 계측 훅 없음). 완료/예외 양쪽 다 `finally`에서
+  `close_run()`으로 스트림을 닫는다.
+- **Part B — 프론트 진행 패널**: `frontend/src/components/BacktestProgressPanel.vue` 신규.
+  `BacktestResultView.vue::submitRun()`이 POST 직전 `progress_run_id`를 생성해 먼저
+  WS 구독을 걸고(시작 이벤트를 놓치지 않기 위해 POST보다 먼저), 응답이 오면 구독을 닫는다.
+- **Part C — AI 사용 화면 토큰 표시**: `app/api/routers/ai.py`의 세 엔드포인트(초안 생성/
+  챗봇/백테스트 설명)가 호출 전/후 `ai_usage_repo.list_since()` 델타를 계산해 응답에
+  `usage: {prompt_tokens, completion_tokens, total_tokens} | null`을 추가(옵션 필드,
+  하위호환). `AIGenerateView.vue`/`ChatPanel.vue`에 로딩 중 경과 시간 카운터 + 응답 후
+  토큰 사용량 한 줄 표시.
+- **실 서버 라이브 검증(중요)**: TestClient mock이 아니라 실제 실행 중이던 사용자의
+  `--reload` 서버에 진짜 워크플로/백테스트를 만들고, 별도 파이썬 프로세스에서 실제
+  WebSocket으로 `/ws/runs/{progress_run_id}`에 접속해 백테스트가 진행되는 동안 실시간으로
+  이벤트 6건(시작 1 + 거래일 5)을 정확한 순서·내용으로 수신함을 확인 — mock을 거치지 않은
+  end-to-end 검증.
 
 ---
 

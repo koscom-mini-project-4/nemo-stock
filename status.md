@@ -806,6 +806,63 @@ API(금융위원회_주식시세정보)에서 이미 항상 빈 응답(resultCod
 `test_api_symbol_sync.py`, `test_public_data_price_client.py`/`test_dao_sqlite.py` 확장).
 `vue-tsc -b` + `npm run build` 통과.
 
+## 2026-07-28 후속 작업 10: 종목 마스터 동기화 — KOSCOM CHECK-API 폴백 (DESIGN.md §0-10-1)
+
+사용자 요청: "공공데이터에서 안되는건 check api에서받아오세요" — 직전 작업(§0-10)에서 공공
+데이터포털 서비스키가 실제로는 항상 빈 응답만 준다는 걸 확인했는데, 이미 실제 자격증명으로
+검증된 KOSCOM CHECK-API(`app/market_data/koscom_adapter.py`)로 대체하라는 지시.
+
+`docs/koscom-api/pages/01-stock-api/{거래소,코스닥} 종목/01-코드 정보.md`를 조사해
+`POST /stock/m001(m003)/code_info`가 `jcode` 없이 시장 그룹 전체를 한 번에 돌려주는 벌크
+엔드포인트임을 확인 — `KoscomMarketDataProvider.fetch_symbol_master()` 신규 추가(거래소+
+코스닥 각 1회 호출, 기존 초당1회 쓰로틀 그대로 적용). `POST /data/symbols/sync`를 폴백
+체인으로 변경: 공공데이터포털 먼저 시도 → 빈 응답이면 KOSCOM으로 자동 전환, 응답에
+`source` 필드 추가. 관리자 페이지 문구도 갱신.
+
+**실 서버 라이브 검증**: 사용자가 이미 띄워둔 `--reload` 서버(직접 새로 띄우지 않고 기존
+프로세스 재사용 — 과거 세션에서 남의 서버를 잘못 죽인 사고 이후 확립한 습관)에
+`POST /data/symbols/sync` 실행 → `{"synced": 4297, "source": "koscom"}`. 8개였던 매핑이
+KOSPI+KOSDAQ 전 종목(4,297개)으로 확장됨을 실측 확인, "기아"(000270)/"LG전자"(066570) 등
+정상 검색·매핑됨을 curl로 직접 확인.
+
+섹터(업종) 정보도 API 문서상 존재함을 확인했으나(`/stock/m001/upjong_info`) 종목당 `jcode`
+필요(벌크 불가) + 초당1회 제한이라 전 종목 일괄 동기화엔 부적합 — §0-10의 "섹터 자동 매핑
+제외" 결정 유지, 필요시 온디맨드 개별 조회로 추후 확장 가능하다는 점만 기록.
+
+**검증**: 백엔드 pytest 286→290개 전부 통과(신규: `test_koscom_adapter.py` 확장,
+`test_api_symbol_sync.py` 확장). `vue-tsc -b` 통과.
+
+## 2026-07-28 후속 작업 11: 백테스트/AI 화면 실시간 진행률·로그·토큰 사용량 (DESIGN.md §0-11)
+
+사용자 요청: "백테스팅이나 ai 쓰는 화면에서 현재 로그랑 토큰 사용량, 진행률 보여줄 수 있는
+패치 추가해주세요." 백테스트가 완전히 동기 요청이라 여러 거래일 실행되는 동안 프론트는
+로딩 스피너만 보여주던 문제 — 조사 결과 EventBus/`/ws/runs/{run_id}`/
+`subscribeRunEvents()` 실시간 스트리밍 인프라가 이미 구현돼 있었지만 전혀 안 쓰이고 있었음을
+발견, 그 인프라를 재사용하는 방향으로 EnterPlanMode 계획을 세워 승인받고 진행.
+
+- **Part A**: `BacktestRequest.progress_run_id` + `BacktestRunner.run()`이 거래일마다
+  진행 이벤트(날짜/인덱스/주문건수/AI 토큰 델타)를 기존 `NodeExecutionEvent`를 "가상
+  노드"로 재사용해 발행. AI 토큰 델타는 `AIUsageRepository.list_since()`(§0-6) 재사용,
+  새 계측 훅 없음.
+- **Part B**: `BacktestProgressPanel.vue` 신규, `BacktestResultView.vue`가 POST 전에 먼저
+  WS 구독을 걸어 시작 이벤트부터 놓치지 않게 함.
+- **Part C**: `/ai/generate-draft`/`/ai/workflow-chat`/`/ai/backtest-explain` 응답에
+  `usage`(호출 전/후 토큰 델타) 옵션 필드 추가, `AIGenerateView.vue`/`ChatPanel.vue`에
+  경과시간 카운터 + 토큰 사용량 표시.
+
+**중요 발견(테스트 설계 버그)**: 진행 이벤트 발행 테스트에서 `bus.subscribe(id)`를 실행 완료
+"이후"에 호출했더니 무한 대기(hang)가 발생 — `InMemoryEventBus.close_run()`은 "그 시점에
+이미 구독 중인" 큐에만 종료 신호를 보내고 과거를 기록하지 않으므로, 늦게 구독하면 종료 신호를
+영원히 못 받는다. 실제 운영에서는 WS가 항상 POST 이전에 먼저 붙으므로 문제가 안 되지만,
+테스트는 monkeypatch로 `close_run` 호출 여부만 스파이하도록 수정.
+
+**실 서버 라이브 검증(mock 아님)**: 사용자가 이미 띄워둔 서버(직접 새로 안 띄우고 기존
+프로세스 재사용 — 과거 세션 사고 이후 확립한 습관)에 진짜 워크플로/백테스트를 만들고, 별도
+파이썬 프로세스에서 실제 WebSocket으로 접속해 백테스트 진행 중 실시간으로 이벤트 6건을
+정확한 순서로 수신함을 확인.
+
+**검증**: 백엔드 pytest 290→293개 전부 통과. `vue-tsc -b` + `npm run build` 통과.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.
