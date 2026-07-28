@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime
 from time import sleep as real_sleep  # crawler.time.sleep을 monkeypatch해도 영향받지 않는다
 from unittest.mock import MagicMock
 
@@ -15,6 +16,8 @@ import pytest
 from openai import BadRequestError
 
 from app.vendor.news_classifier import classifier, crawler, db
+from app.vendor.news_classifier.api import NewsTrader
+from app.vendor.news_classifier.config import Settings
 
 
 def _temperature_error() -> BadRequestError:
@@ -131,9 +134,9 @@ def test_crawl_with_workers_collects_same_items_as_sequential(monkeypatch):
     seen_threads: set[int] = set()
 
     def fake_list_page(session, date_str, page):
-        return urls if page == 1 else []
+        return [(u, f"제목 {u[-3:]}") for u in urls] if page == 1 else []
 
-    def fake_article(session, url):
+    def fake_article(session, url, fallback_date_str=None):
         seen_threads.add(threading.get_ident())
         real_sleep(0.02)  # fetch가 겹치도록 의도적으로 블로킹(네트워크 지연 흉내)
         return _fake_article(url)
@@ -155,9 +158,9 @@ def test_crawl_sequential_and_parallel_produce_identical_url_sets(monkeypatch):
     urls = [f"https://n.news.naver.com/article/111/{i:03d}" for i in range(5)]
 
     def fake_list_page(session, date_str, page):
-        return urls if page == 1 else []
+        return [(u, f"제목 {u[-3:]}") for u in urls] if page == 1 else []
 
-    def fake_article(session, url):
+    def fake_article(session, url, fallback_date_str=None):
         return _fake_article(url)
 
     monkeypatch.setattr(crawler, "_list_page", fake_list_page)
@@ -167,3 +170,196 @@ def test_crawl_sequential_and_parallel_produce_identical_url_sets(monkeypatch):
     parallel = crawler.crawl(db.connect(":memory:"), days=1, max_pages=2, workers=4)
 
     assert {i["url"] for i in sequential} == {i["url"] for i in parallel} == set(urls)
+
+
+def test_news_trader_update_overrides_days_and_keywords_without_mutating_settings(monkeypatch):
+    """§0-12: NewsTrader.update(days=, keywords=)는 이번 호출에만 적용되고 self.settings의
+    전역 crawl_days/crawl_keywords 값은 그대로 남아야 한다(1회성 오버라이드)."""
+    captured = {}
+
+    def fake_crawl(conn, days, max_pages, workers, progress, keywords):
+        captured["days"] = days
+        captured["keywords"] = keywords
+        return []
+
+    monkeypatch.setattr(crawler, "crawl", fake_crawl)
+
+    trader = NewsTrader(Settings(db_path=":memory:", auto_update=False, crawl_days=1, crawl_keywords=None))
+    trader.update(force=True, days=5, keywords=["하이닉스", "반도체", "삼성"])
+
+    assert captured == {"days": 5, "keywords": ["하이닉스", "반도체", "삼성"]}
+    assert trader.settings.crawl_days == 1  # 전역 설정은 그대로
+    assert trader.settings.crawl_keywords is None
+    trader.close()
+
+
+def test_news_trader_update_without_overrides_uses_settings_defaults(monkeypatch):
+    captured = {}
+
+    def fake_crawl(conn, days, max_pages, workers, progress, keywords):
+        captured["days"] = days
+        captured["keywords"] = keywords
+        return []
+
+    monkeypatch.setattr(crawler, "crawl", fake_crawl)
+
+    trader = NewsTrader(Settings(db_path=":memory:", auto_update=False, crawl_days=3, crawl_keywords=["기본키워드"]))
+    trader.update(force=True)
+
+    assert captured == {"days": 3, "keywords": ["기본키워드"]}
+    trader.close()
+
+
+class _FakeResponse:
+    def __init__(self, text: str, status_code: int = 200):
+        self.text = text
+        self.status_code = status_code
+
+
+class _FakeArticleSession:
+    """_article()이 쓰는 session.get()만 흉내낸다. 발행일시 셀렉터(DATE_SELECTOR)가 없는
+    기사 HTML을 반환해 파싱 실패(fallback 경로) 상황을 재현한다."""
+
+    _HTML_NO_DATE = (
+        '<html><body>'
+        '<div id="title_area"><span>테스트 기사 제목</span></div>'
+        '<div id="newsct_article">본문 내용입니다.</div>'
+        '</body></html>'
+    )
+
+    def get(self, url, timeout=None):
+        return _FakeResponse(self._HTML_NO_DATE)
+
+
+def test_article_uses_crawled_day_not_now_when_date_parse_fails():
+    """§0-12-1: 발행일시를 못 읽어오면 수집 시점(now)이 아니라 크롤링 중인 목록 날짜로
+    채워야 한다 — 과거 날짜를 크롤링할 때 "오늘 막 발행됨"으로 잘못 찍히는 버그의 회귀 테스트
+    (사용자 제보: "기사가 수집될 때 수집시점 말고 뉴스 기사 등록 시점 기준으로 판단되어야")."""
+    item = crawler._article(
+        _FakeArticleSession(), "https://n.news.naver.com/article/x/001", fallback_date_str="20260101"
+    )
+    assert item["published_at"] == "2026-01-01 12:00:00"
+
+
+def test_article_falls_back_to_now_when_no_fallback_date_str_given():
+    """fallback_date_str을 안 주는 기존 호출부(직접 _article을 부르는 다른 코드가 있다면)와의
+    하위호환 — 여전히 datetime.now()로 떨어진다."""
+    before = datetime.now().replace(microsecond=0)
+    item = crawler._article(_FakeArticleSession(), "https://n.news.naver.com/article/x/002")
+    after = datetime.now()
+    published = datetime.strptime(item["published_at"], crawler.DATE_FMT)
+    assert before <= published <= after
+
+
+def test_fetch_one_passes_date_str_to_article_as_fallback(monkeypatch):
+    """crawl()이 알고 있는 "지금 훑는 목록 날짜"가 실제로 _article()의 fallback까지
+    전달되는지(배선 확인)."""
+    monkeypatch.setattr(crawler.time, "sleep", lambda *_: None)
+    captured = {}
+
+    def fake_article(session, url, fallback_date_str=None):
+        captured["fallback_date_str"] = fallback_date_str
+        return _fake_article(url)
+
+    monkeypatch.setattr(crawler, "_thread_session", lambda: object())
+    monkeypatch.setattr(crawler, "_article", fake_article)
+
+    crawler._fetch_one("https://n.news.naver.com/article/x/003", "20260115")
+
+    assert captured["fallback_date_str"] == "20260115"
+
+
+def test_matches_keywords_none_always_true():
+    assert crawler._matches_keywords("아무 제목", None) is True
+    assert crawler._matches_keywords("아무 제목", []) is True
+
+
+def test_matches_keywords_partial_match_korean_no_case_folding_needed():
+    assert crawler._matches_keywords("SK하이닉스 실적 발표", ["하이닉스"]) is True
+    assert crawler._matches_keywords("삼성전자 신제품 공개", ["하이닉스", "삼성"]) is True
+    assert crawler._matches_keywords("현대차 신차 출시", ["하이닉스", "반도체", "삼성"]) is False
+
+
+def test_crawl_with_keywords_only_fetches_matching_titles(monkeypatch):
+    """§0-12: 제목이 키워드에 안 걸리는 기사는 본문(_article)을 아예 가져오지 않아야 한다."""
+    monkeypatch.setattr(crawler, "_session", _stub_session)
+    monkeypatch.setattr(crawler.time, "sleep", lambda *_: None)
+
+    titled_urls = [
+        ("https://n.news.naver.com/article/a/001", "SK하이닉스 실적 서프라이즈"),
+        ("https://n.news.naver.com/article/a/002", "현대차 신차 발표"),
+        ("https://n.news.naver.com/article/a/003", "삼성전자 파운드리 확대"),
+    ]
+    fetched_urls: list[str] = []
+
+    def fake_list_page(session, date_str, page):
+        return titled_urls if page == 1 else []
+
+    def fake_article(session, url, fallback_date_str=None):
+        fetched_urls.append(url)
+        return _fake_article(url)
+
+    monkeypatch.setattr(crawler, "_list_page", fake_list_page)
+    monkeypatch.setattr(crawler, "_article", fake_article)
+
+    conn = db.connect(":memory:")
+    collected = crawler.crawl(conn, days=1, max_pages=1, workers=1, keywords=["하이닉스", "삼성"])
+
+    assert fetched_urls == ["https://n.news.naver.com/article/a/001", "https://n.news.naver.com/article/a/003"]
+    assert {c["url"] for c in collected} == set(fetched_urls)
+
+
+def test_crawl_page_full_of_non_matching_titles_still_continues_to_next_page(monkeypatch):
+    """키워드에 안 걸리는 기사만 있는 페이지라도(하지만 전부 새 글이라 unseen은 비어있지
+    않음), "전부 중복" 조기중단으로 오인해 다음 페이지를 건너뛰면 안 된다."""
+    monkeypatch.setattr(crawler, "_session", _stub_session)
+    monkeypatch.setattr(crawler.time, "sleep", lambda *_: None)
+
+    page1 = [("https://n.news.naver.com/article/b/001", "현대차 신차 발표")]  # 키워드 불일치
+    page2 = [("https://n.news.naver.com/article/b/002", "삼성전자 실적 발표")]  # 키워드 일치
+    fetched_urls: list[str] = []
+
+    def fake_list_page(session, date_str, page):
+        if page == 1:
+            return page1
+        if page == 2:
+            return page2
+        return []
+
+    def fake_article(session, url, fallback_date_str=None):
+        fetched_urls.append(url)
+        return _fake_article(url)
+
+    monkeypatch.setattr(crawler, "_list_page", fake_list_page)
+    monkeypatch.setattr(crawler, "_article", fake_article)
+
+    conn = db.connect(":memory:")
+    collected = crawler.crawl(conn, days=1, max_pages=3, workers=1, keywords=["삼성"])
+
+    assert fetched_urls == ["https://n.news.naver.com/article/b/002"]
+    assert len(collected) == 1
+
+
+def test_crawl_without_keywords_is_unaffected_by_keyword_filter(monkeypatch):
+    """keywords 생략 시 기존과 완전히 동일하게 전부 수집돼야 한다(회귀 방지)."""
+    monkeypatch.setattr(crawler, "_session", _stub_session)
+    monkeypatch.setattr(crawler.time, "sleep", lambda *_: None)
+
+    titled_urls = [
+        ("https://n.news.naver.com/article/c/001", "SK하이닉스 실적"),
+        ("https://n.news.naver.com/article/c/002", "현대차 신차"),
+    ]
+
+    def fake_list_page(session, date_str, page):
+        return titled_urls if page == 1 else []
+
+    def fake_article(session, url, fallback_date_str=None):
+        return _fake_article(url)
+
+    monkeypatch.setattr(crawler, "_list_page", fake_list_page)
+    monkeypatch.setattr(crawler, "_article", fake_article)
+
+    conn = db.connect(":memory:")
+    collected = crawler.crawl(conn, days=1, max_pages=1, workers=1)
+
+    assert {c["url"] for c in collected} == {u for u, _ in titled_urls}

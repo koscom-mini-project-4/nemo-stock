@@ -69,6 +69,10 @@ class ClassifiedNewsIngestRequest(BaseModel):
 
 class NewsUpdateRequest(BaseModel):
     force: bool = False
+    # §0-12: 주어지면 이번 1회 갱신만 라이브러리 기본 크롤 설정을 오버라이드한다(전역
+    # 설정은 안 바꿈). days=최근 며칠치, keywords=헤드라인 부분일치 필터.
+    days: int | None = None
+    keywords: list[str] | None = None
 
 
 class NewsUpdateResponse(BaseModel):

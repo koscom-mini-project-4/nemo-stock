@@ -262,6 +262,33 @@ export interface NewsCluster {
   거시지표?: string[]
 }
 
+/** GET /data/news/pending(§0-12) 항목 — 크롤링은 됐지만 아직 AI 분류가 안 된 기사. */
+export interface PendingNewsItem {
+  url_hash: string
+  url: string
+  title: string
+  published_at: string
+}
+
+export interface PendingNewsResult {
+  count: number
+  items: PendingNewsItem[]
+}
+
+/** GET /data/news/analyzed(§0-12) 항목 — 이미 AI 분류된 기사 1건(여러 종목/섹터가 걸려도
+ * url_hash 기준으로 한 행으로 접힘). */
+export interface AnalyzedNewsItem {
+  url_hash: string
+  title: string
+  date: string
+  cluster_id: number
+  representative_title: string
+  strength: number
+  stocks: string[]
+  sectors: string[]
+  macros: string[]
+}
+
 /** GET /data/news/topics(-/clusters)의 axis 값. app/nodes/ai/news_signal.py의 AXIS_METHOD와 동일 매핑. */
 export type NewsTopicGroup = 'stock' | 'sector' | 'macro'
 

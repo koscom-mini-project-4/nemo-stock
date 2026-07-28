@@ -2,6 +2,7 @@ import { apiClient } from './client'
 import type {
   AccountSummaryOut,
   AdminMetrics,
+  AnalyzedNewsItem,
   BacktestExplainResponse,
   BacktestExplainSelection,
   BacktestResultOut,
@@ -14,6 +15,7 @@ import type {
   NewsTopicGroup,
   NewsUpdateResult,
   NodeTypeSchema,
+  PendingNewsResult,
   PricePointOut,
   RunResultOut,
   SymbolOut,
@@ -213,8 +215,25 @@ export async function fetchNewsClusters(start: string, end: string): Promise<New
   return data
 }
 
-export async function triggerNewsUpdate(force = false): Promise<NewsUpdateResult> {
-  const { data } = await apiClient.post('/data/news/update', { force })
+export async function triggerNewsUpdate(
+  force = false,
+  options?: { days?: number; keywords?: string[] },
+): Promise<NewsUpdateResult> {
+  const { data } = await apiClient.post('/data/news/update', {
+    force,
+    days: options?.days,
+    keywords: options?.keywords,
+  })
+  return data
+}
+
+export async function fetchNewsPending(limit = 100): Promise<PendingNewsResult> {
+  const { data } = await apiClient.get('/data/news/pending', { params: { limit } })
+  return data
+}
+
+export async function fetchNewsAnalyzed(limit = 100): Promise<AnalyzedNewsItem[]> {
+  const { data } = await apiClient.get('/data/news/analyzed', { params: { limit } })
   return data
 }
 

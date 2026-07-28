@@ -311,6 +311,47 @@ KOSCOM CHECK-API(`app/market_data/koscom_adapter.py::KoscomMarketDataProvider`, 
   이벤트 6건(시작 1 + 거래일 5)을 정확한 순서·내용으로 수신함을 확인 — mock을 거치지 않은
   end-to-end 검증.
 
+## 0-12. 뉴스 키워드 크롤링 + 관리자 페이지 사이드바/뉴스 목록 (2026-07-28 사용자 요청)
+
+사용자 요청 두 가지를 함께 처리: (1) "5일치 뉴스만, 하이닉스/반도체/삼성 글자가 들어간
+것만" 당겨오기 — 크롤러(`app/vendor/news_classifier/crawler.py`)에 키워드 필터가 없어
+매번 네이버 경제 섹션 전체를 무차별로 긁던 것을 좁힘. (2) 관리자 페이지(`AdminView.vue`)에
+분석됨/미분석 뉴스 목록 섹션 추가 + 사이드바 탭 레이아웃으로 재구성 + 스타일/하단 여백 개선.
+
+- `crawler.py::_list_page()`가 URL만 반환하던 것을 `list[tuple[url, title]]`로 바꿔(Naver
+  목록 HTML의 `<a>` 텍스트가 곧 헤드라인이라 추가 네트워크 호출 없이 얻음) 본문을 가져오기
+  전에 제목으로 먼저 걸러낼 수 있게 했다. `_matches_keywords(title, keywords)` +
+  `crawl(..., keywords=None)` — "이 페이지 전부 이미 봤음" 조기중단 판단은 키워드와 무관하게
+  전체 URL 기준(`unseen`)으로 하고, 본문을 실제로 가져올지(`fresh`)만 키워드로 추가
+  필터링해 페이지네이션 로직이 깨지지 않게 했다. `Settings.crawl_keywords` +
+  `NewsTrader.update(days=, keywords=)`(1회성 오버라이드, 전역 설정은 안 바꿈) +
+  `NewsUpdateRequest.days/keywords` → `POST /data/news/update`로 노출.
+- `db.py::count_pending`/`list_analyzed_news`(분류행을 url_hash로 GROUP BY해 종목/섹터/거시
+  태그를 합침) + `NewsTrader.pending_news/pending_count/analyzed_news` +
+  `GET /data/news/pending`, `GET /data/news/analyzed` 신규.
+- `AdminView.vue`를 좌측 사이드바(6개 섹션: 사용량 통계/종목 마스터/뉴스 분석 현황/탐색/
+  분석된 뉴스/미분석 뉴스) + 우측 단일 섹션 렌더링으로 재구성. "미분석 뉴스" 배지, "뉴스
+  분석 현황" 섹션에 기간(일)/키워드 입력 필드를 갱신 버튼 옆에 추가(비우면 기존 전역
+  동작과 동일). 카드에 `box-shadow`, 하단 `padding-bottom: 80px` 추가.
+
+### 0-12-1. 실사용 발견 버그 — 발행일시 파싱 실패 시 "수집 시점"으로 잘못 채워짐
+
+Part 4(실제 5일+키워드 크롤 트리거)를 실행하기 직전, 사용자가 지적: "기사가 수집될 때
+수집시점 말고 뉴스 기사 등록 시점 기준으로 판단되어야하는데" — 확인 결과
+`crawler.py::_article()`이 기사 페이지에서 발행일시(`DATE_SELECTOR`) 파싱에 실패하면
+`datetime.now()`(그 순간, 즉 크롤링 실행 시각)로 채우고 있었다. **과거 날짜를 크롤링
+중일 때(`days=5`처럼 여러 날짜를 훑을 때) 이 폴백이 걸리면, 실제로는 며칠 전 기사인데
+"방금 발행됨"으로 잘못 찍혀** 날짜 기준 필터링(최근 N일 조회, 백테스트 시점 재현 등)이
+전부 틀어지는 실질적인 버그였다.
+
+- `_article(session, url, fallback_date_str=None)`에 `fallback_date_str`(크롤링 중인
+  목록 날짜, `crawl()`의 `date_str`) 파라미터를 추가해 파싱 실패 시 "수집 시점"이 아니라
+  "그 기사가 속한 목록 날짜"(정오로 근사)로 채우도록 수정. `_fetch_one`/
+  `_fetch_page_articles`를 통해 `crawl()`의 `date_str`을 끝까지 threading. `fallback_date_str`
+  을 안 주면(다른 호출부가 있을 경우 대비) 기존과 동일하게 `datetime.now()` 폴백 유지(하위호환).
+- 이 버그를 실제 트리거 전에 잡아, 잘못된 타임스탬프로 5일치 데이터가 오염되는 사고를
+  피했다 — 수정 후 재검증하고 나서 실제 크롤을 실행한다.
+
 ---
 
 ## 1. 목표와 PoC 범위
