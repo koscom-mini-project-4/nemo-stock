@@ -456,6 +456,54 @@ clusters`가 실제로 포함되는지 검증) 추가. 백엔드 pytest 336→34
 검증된 패턴(TestRunModal 모달 CSS, DebugPanel decisions 추출 로직)을 그대로 재사용해 리스크를
 낮췄다.
 
+## 0-15. .env로 AI 제공자(OpenAI ↔ Claude) 선택 (2026-07-29 사용자 요청)
+
+사용자 요청: "`.env`를 사용해서 claude를 사용할지, openai를 사용할지 결정할 수 있도록 해
+주세요." 이 저장소는 이미 AI 호출을 `app/ai/base.py::AIClient`(ABC, `complete_json`/
+`complete_with_tools`)로 추상화해뒀고, 소비자(워크플로 초안/챗봇/백테스트 설명/`ai.free_
+prompt`/`ai.sentiment_score`)는 전부 인터페이스로만 의존해 `app/dependencies.py::
+build_container()`의 단 한 줄에서만 구체 구현을 생성한다 — `market_data_provider`/
+`order_provider`와 동일한 "provider 문자열 선택 + 팩토리 분기" 패턴을 그대로 적용했다.
+
+- `app/ai/claude_client.py`(신규): `ClaudeClient(AIClient)`. 엔드포인트/필드는 공식 문서
+  (`platform.claude.com/docs/en/api/messages`)를 직접 대조해 확인(추정 아님) — `model`/
+  `max_tokens`/`messages` 필수, `system`은 최상위 문자열 파라미터, 도구는
+  `{"name","description","input_schema"}` 형태(OpenAI의 `{"type":"function","function":
+  {...}}`와 달라 `_tool_to_anthropic()`으로 변환), 응답은 `content`(TextBlock/ToolUseBlock
+  배열) + `usage.input_tokens`/`output_tokens`(`prompt_tokens`/`completion_tokens`로 매핑해
+  기존 `AIUsageRecord`와 동일 계약 유지). `complete_json`은 Claude에 OpenAI의
+  `response_format=json_object` 같은 강제 JSON 모드가 없어 텍스트 블록을 모아 마크다운
+  코드펜스만 벗겨내고 `json.loads`. OpenAIClient의 temperature/reasoning_effort 특이
+  재시도 로직(§0-1, §0-16 이전 항목)은 이식하지 않음 — Claude 표준 API는 그런 제약이 없어
+  더 단순하게 유지.
+- `Settings.ai_provider`(기본 `"openai"`, `openai|claude`) + `anthropic_api_key`/
+  `anthropic_model`(기본 `"claude-sonnet-5"`) 추가. `app/dependencies.py::_build_ai_client()`
+  로 인라인 생성 코드를 추출(`_build_market_data_provider`/`_build_order_provider`와 동일
+  위치/패턴)해 `build_container()`가 호출. `.env`/`.env.example`에 `AI_PROVIDER=openai`,
+  `ANTHROPIC_API_KEY=`(빈 값, 사용자가 직접 채워 넣음), `ANTHROPIC_MODEL=claude-sonnet-5`
+  추가.
+- **범위 밖(명시적 결정)**: `app/vendor/news_classifier`(newsstock-lib, `ai.news_signal`
+  노드가 씀)는 자체 하드코딩된 OpenAI 클라이언트(`classifier.py::_client_once`/`call_ai`)를
+  갖는 완전히 별개의 vendored 파이프라인이라 이 토글의 영향을 받지 않는다 — vendored 코드
+  최소 수정 원칙(세션 전체에서 유지) + 사용량 로그만 콜백으로 같은 `ai_usage_repo`에 남기는
+  기존 구조를 그대로 둠.
+- **부수 발견/수정(테스트 인프라 버그)**: 전체 테스트 실행 중 `tests/conftest.py::app_client`
+  픽스처가 toss/koscom 자격증명만 빈 값으로 강제하고 `market_data_provider`/`order_provider`
+  선택 자체는 그대로 둬, 로컬 `.env`가 실사용을 위해 `koscom`/`kis` 등으로 설정돼 있으면
+  `build_container()`가 크리덴셜 누락 `RuntimeError`를 내며 거의 모든 통합 테스트가 fixture
+  단계에서 깨지는 문제를 실제로 겪고 발견 — `market_data_provider`/`order_provider`/
+  `ai_provider`/KIS·Anthropic 크리덴셜도 함께 강제로 되돌리도록 수정(이 픽스처의 기존 주석에
+  이미 명시된 "로컬 .env와 무관하게 결정적으로 동작해야 한다"는 의도를 완성한 것).
+
+**검증**: `tests/unit/test_claude_client.py`(신규, `test_openai_client.py`와 동일한 형태 —
+text/코드펜스 파싱, tool_use 라운드트립, max_rounds 폴백, 사용량 매핑, api_key 없을 때
+`AIUnavailableError`) + `test_provider_selection.py`에 `_build_ai_client` 케이스 3개 추가.
+백엔드 pytest 340→350개 전부 통과(`test_koscom_live.py`는 실 시장 상황에 따라 비결정적인
+기존 라이브 테스트라 제외 — §0-15와 무관). `vue-tsc -b` 통과(프론트 변경 없음, 관리자 페이지
+사용량 통계가 이미 provider 구분 없이 `model` 문자열 기준으로 집계해 그대로 동작). 실제
+Anthropic API 호출 검증은 못함(사용자가 이후 `ANTHROPIC_API_KEY`를 직접 채워 넣을 예정) —
+mock 기반 유닛 테스트로 구조/필드만 확인.
+
 ---
 
 ## 1. 목표와 PoC 범위

@@ -1038,6 +1038,39 @@ or set reasoning_effort to 'none'.`
 도구가 이 환경에 없어 모달 실제 클릭/렌더링은 라이브 검증 불가 — 기존 검증된 컴포넌트 패턴
 (TestRunModal 모달 스타일, DebugPanel decisions 추출)을 그대로 재사용해 리스크를 낮췄다.
 
+## 2026-07-29 후속 작업 18: .env로 AI 제공자(OpenAI ↔ Claude) 선택 + KIS 문의 답변 (DESIGN.md §0-15)
+
+사용자 요청: "`.env`를 사용해서 claude를 사용할지, openai를 사용할지 결정할 수 있도록 해
+주세요. order provider에 kis 들어가려면 어떻게 해야하는지 알려주세요." KIS 질문은 이미
+구현된 기능(§0-13)이라 `.env` 설정 방법만 답변, AI 제공자 선택은 EnterPlanMode로 계획 승인
+후 구현.
+
+- `AIClient` 추상화(§0-6 이전부터 존재)가 이미 모든 AI 소비자를 인터페이스로만 묶어놔서,
+  `app/ai/claude_client.py`(`ClaudeClient`) 신규 + `Settings.ai_provider`
+  (`openai|claude`) + `app/dependencies.py::_build_ai_client()` 분기 하나로 전체 AI 기능이
+  provider 전환됨. Anthropic Messages API 스펙은 공식 문서를 직접 대조해 확인(도구 스펙이
+  OpenAI와 달라 변환 필요 — `_tool_to_anthropic()`).
+- `app/vendor/news_classifier`(newsstock-lib)는 자체 하드코딩 OpenAI 클라이언트를 쓰는
+  별개 vendored 파이프라인이라 이 토글 범위 밖으로 명시적으로 뺌.
+- **실사용 중 발견한 문제 2건**(사용자가 KIS 설정을 직접 진행하며 실시간으로 마주침):
+  1. `KIS_ACCOUNT_NO`를 8자리 계좌번호만 넣어(`50199589`) 발생한 `ValueError`("12345678-01"
+     형식 요구) — 모의투자도 8자리+상품코드 2자리(보통 "01") 형식이 필요함을 안내, 사용자가
+     `50199589-01`로 직접 수정해 해결.
+  2. 그 후 실제 KIS API(`inquire-balance`)에서 500 에러 — 공식 예제(`inquire_balance.py`)와
+     파라미터/tr_id를 다시 대조해 우리 쪽 요청 구성엔 문제가 없음을 확인, KIS 측(신규 발급
+     키 전파 지연 또는 모의투자 서버 이슈로 추정) 문제로 안내. **미해결** — 사용자가 KIS
+     쪽에서 직접 확인 필요.
+  3. (부수 발견) `tests/conftest.py::app_client` 픽스처가 자격증명만 비우고 provider 선택
+     (`market_data_provider`/`order_provider`) 자체는 그대로 둬, 로컬 `.env`가 실사용 설정
+     (koscom/kis)일 때 거의 모든 통합 테스트가 fixture 단계에서 깨지는 걸 실제로 겪고 발견 →
+     provider 선택도 함께 dummy로 강제하도록 수정(픽스처 자체 주석에 이미 명시된 의도를
+     완성).
+
+**검증**: 신규 `test_claude_client.py`(8개) + `test_provider_selection.py` 확장 포함 백엔드
+pytest 340→350개 전부 통과(`test_koscom_live.py`는 실 시장 상황에 따라 비결정적인 기존
+라이브 테스트라 제외). `vue-tsc -b` 통과(프론트 변경 없음). 실제 Anthropic 호출은 사용자가
+`ANTHROPIC_API_KEY`를 채워 넣은 뒤 재검증 필요.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

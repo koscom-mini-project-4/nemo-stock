@@ -37,8 +37,11 @@ class Settings(BaseSettings):
     order_provider: str = "dummy"  # dummy | toss | kis
 
     # AI
+    ai_provider: str = "openai"  # openai | claude — 어느 쪽을 쓸지 이 값 하나로 결정된다
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.6-luna"
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-5"
     ai_prompt_version: str = "v1"
 
     # 뉴스 기반 매매 판단(newsstock-lib vendored, app/vendor/news_classifier). 자체 SQLite DB를
