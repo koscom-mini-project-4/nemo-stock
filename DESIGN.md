@@ -352,6 +352,65 @@ Part 4(실제 5일+키워드 크롤 트리거)를 실행하기 직전, 사용자
 - 이 버그를 실제 트리거 전에 잡아, 잘못된 타임스탬프로 5일치 데이터가 오염되는 사고를
   피했다 — 수정 후 재검증하고 나서 실제 크롤을 실행한다.
 
+## 0-13. 한국투자증권(KIS) 연동 모드 + 주문 수량 비율(%) 설정 (2026-07-28 사용자 요청)
+
+사용자 요청 두 가지를 함께 처리: (1) "한투증 모의투자 api 연결했는데 완료되면 한투증 api
+연동 모드도 추가해주세요" — 기존 `MarketDataProvider`/`OrderExecutionProvider` 어댑터
+패턴(Toss/KOSCOM과 동일)으로 KIS Open API를 추가. (2) "주문 수량을 주문 가능수량의 n% 로도
+설정 가능하게 해줘(기본값 50%)" — `execution.market_order`에 비율 기반 수량 모드 추가.
+
+- **엔드포인트/필드는 추정이 아니라 공식 GitHub(`github.com/koreainvestment/open-trading-api`,
+  사용자가 직접 지정) `examples_llm/`의 실제 동작하는 예제 코드를 직접 대조해 확인**했다 —
+  Toss 스켈레톤(사전신청 승인 대기라 전부 추정치)보다 신뢰도 높다. 확인 중 처음에 기억에
+  의존해 추정했던 매수/매도 주문 tr_id(`TTTC0802U` 등)가 실제로는 `TTTC0012U`(매수)/
+  `TTTC0011U`(매도)임을 원본 코드 대조로 정정했다(§ 아래).
+- **모의/실전 전환 규칙**: 실전용 tr_id는 전부 `T`/`J`/`C`로 시작하고, 모의투자는 첫 글자만
+  `V`로 바꾼 값을 그대로 쓴다(`app/broker/kis_auth.py::to_paper_tr_id`, 원본 레포
+  `_url_fetch`의 실제 치환 규칙 그대로 이식). 시세 조회(`F`로 시작하는 tr_id)는 모의/실전
+  구분 없이 동일 tr_id라 치환 대상이 아니다.
+- `app/broker/kis_auth.py`(신규): `KISOAuthTokenProvider` — `POST /oauth2/tokenP` OAuth2
+  Client Credentials 토큰 발급/캐싱(만료 30초 여유), `auth_headers(tr_id, is_paper)`가 공통
+  헤더(`authorization`/`appkey`/`appsecret`/`tr_id`/`custtype: P`) 구성. `hashkey()`(
+  `POST /uapi/hashkey`)는 원본 예제의 `order_cash.py`가 주석 처리해둔 것과 동일하게 기본
+  비활성, 필요 시 호출부에서 선택적으로 쓸 수 있는 헬퍼로만 제공. market_data/broker 두
+  어댑터가 공유한다.
+- `app/market_data/kis_adapter.py`(신규): `KISMarketDataProvider` — 현재가(`inquire-price`,
+  `FHKST01010100`), 일봉(`inquire-daily-itemchartprice`, `FHKST03010100`,
+  `FID_ORG_ADJ_PRC="0"`=수정주가), 호가(`inquire-asking-price-exp-ccn`, `FHKST01010200`).
+  `PriceTick.prev_close`는 응답에 직접 필드가 없어 `stck_prpr - prdy_vrss`로 역산(원본 응답
+  확인 결과).
+- `app/broker/kis_adapter.py`(신규): `KISOrderExecutionProvider` — `place_order`는
+  `order-cash`(`TTTC0011U`=매도/`TTTC0012U`=매수, 요청 body는 `CANO`/`ACNT_PRDT_CD`/`PDNO`/
+  `ORD_DVSN`/`ORD_QTY`/`ORD_UNPR`/`EXCG_ID_DVSN_CD="KRX"`/`SLL_TYPE`/`CNDT_PRIC` 전부
+  대문자 키 — KIS POST API 자체 규칙) 호출 후 `rt_cd=="0"`이면 `status="pending"`(KIS
+  주문 API는 접수 응답만 주므로 Toss 스켈레톤처럼 "filled"로 단정하지 않음), 실패면
+  `status="rejected"` + `reason=msg1`. 성공한 주문의 `(KRX_FWDG_ORD_ORGNO, ORD_DVSN)`을
+  인스턴스에 캐싱해 `cancel_order`(`order-rvsecncl`, `TTTC0013U`)가 재사용. `get_balance`/
+  `get_positions`는 `inquire-balance`(`TTTC8434R`) 공유 호출의 `output2[0]`(잔고요약,
+  `dnca_tot_amt`=현금/`tot_evlu_amt`=평가금액)/`output1`(보유종목 배열, `pdno`/`hldg_qty`/
+  `pchs_avg_pric`)를 매핑. **필드 대소문자 비일관성 확인**: 주문/취소 API의 요청 body와
+  응답 output은 대문자 키(`ODNO` 등), 잔고조회 응답 output은 소문자 키(`pdno` 등) —
+  원본 예제 코드로 직접 확인한 KIS API 자체의 비일관성이며 어댑터 버그가 아님.
+- `Settings`: `kis_app_key`/`kis_app_secret`/`kis_base_url`(기본값 모의투자 호스트
+  `https://openapivts.koreainvestment.com:29443`)/`kis_is_paper=True`/`kis_account_no`
+  (`"12345678-01"` 형식). `market_data_provider`/`order_provider`에 `"kis"` 옵션 추가.
+  `.env`/`.env.example`에 사용자 요청대로 앱키/시크릿/계좌번호는 **빈 값**으로 추가(사용자가
+  직접 채워 넣을 예정).
+- **주문 수량 비율(%) 설정** (KIS와 독립적, 모든 broker provider 공통): `execution.
+  market_order`에 `qty_mode`(select, 기본 "고정수량"|"가능수량 비율(%)")/`qty_pct`(number,
+  기본 50, `show_if`로 비율 모드일 때만 노출) 파라미터 추가. 수량 결정 우선순위(하위호환
+  유지): `target_qty`(상위 노드 지정, 기존 최우선) → 비율 모드면 매수는
+  `cash/기준가*qty_pct/100`, 매도는 `held_qty*qty_pct/100`(둘 다 `WorkflowEngine.execute()`
+  가 매 노드 실행 시 자동 주입하는 필드, §5 참조 — provider 종류와 무관하게 동작해야 해서
+  KIS 전용 "매수가능조회" API를 쓰지 않고 이 필드를 재사용) → 기본(고정수량 모드)은 기존
+  `params.qty` 그대로. `qty_mode`/`qty_pct`는 `required: False`로 둬야 기존 그래프(이
+  파라미터를 지정하지 않은 저장된 워크플로)가 그래프 검증에서 깨지지 않는다(`required: True`
+  로 처음 만들었다가 기존 테스트 그래프 다수가 검증 실패하는 것을 발견해 정정 — `get_param`
+  이 스키마 `default`로 폴백하므로 required일 필요가 없었음).
+- 실제 앱키 발급 전이라 실호출 검증은 못했다(`tests/unit/test_kis_adapter.py`가
+  `httpx.MockTransport`로 구조/필드만 검증). 사용자가 `.env`에 앱키/시크릿/계좌번호를 채워
+  넣은 뒤 실제 모의투자 계좌로 한 번 더 확인 권장.
+
 ---
 
 ## 1. 목표와 PoC 범위
