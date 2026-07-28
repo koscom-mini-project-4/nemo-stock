@@ -23,6 +23,7 @@ from app.data_ingestion.opendart_client import OpenDartAPIError, OpenDartClient
 from app.data_ingestion.public_data_price import PublicDataAPIError, PublicDataPriceClient
 from app.dependencies import Container
 from app.market_data import symbol_master
+from app.market_data.koscom_adapter import KoscomAPIError, KoscomMarketDataProvider
 from app.market_data.symbol_master import SymbolInfo, search_symbols
 from app.news_signals.ingest import build_news_signal, classify_and_build_signal
 from app.schemas.backtest import PricePointOut
@@ -54,21 +55,49 @@ def get_symbols(q: str = "") -> list[SymbolOut]:
 
 @router.post("/symbols/sync")
 def sync_symbols(container: Container = Depends(get_container)) -> dict[str, Any]:
-    """공공데이터포털 금융위원회_주식시세정보로 KOSPI/KOSDAQ 전 종목 코드/명/시장구분을
-    가져와 종목 마스터 캐시를 갱신한다(§0-10) — 관리자 페이지의 "지금 동기화" 버튼이 호출.
+    """KOSPI/KOSDAQ 전 종목 코드/명/시장구분을 가져와 종목 마스터 캐시를 갱신한다(§0-10) —
+    관리자 페이지의 "지금 동기화" 버튼이 호출.
 
     `app/market_data/symbol_master.py`의 8개 하드코딩 목록을 실제 전 종목으로 교체해,
     `ai.news_signal`/`ai.free_prompt`의 종목코드→종목명 자동 매핑이 관리자 페이지의 뉴스
     클러스터 검색(§0-7, newsstock.db 기준 종목명)과 최대한 같은 이름 기준으로 일치하게 한다.
-    수천 건을 페이지네이션으로 가져와 수 초~수십 초 걸릴 수 있다.
+
+    공공데이터포털(무료, `DATA_GO_KR_SERVICE_KEY`)을 먼저 시도하고, 응답이 비어 있으면
+    (2026-07-28 실사용 중 발견 — 이 API가 서비스 미승인 상태로 항상 빈 응답만 줌) KOSCOM
+    CHECK-API(`KOSCOM_CUST_ID`/`KOSCOM_AUTH_KEY`, 실제 발급 자격증명으로 검증된 API)로
+    폴백한다 — `KoscomMarketDataProvider.fetch_symbol_master()`가 거래소/코스닥 코드정보
+    엔드포인트를 시장당 1회씩만 불러 전 종목을 가져온다.
     """
-    if not container.settings.data_go_kr_service_key:
-        raise HTTPException(status_code=400, detail="DATA_GO_KR_SERVICE_KEY가 설정되지 않았습니다.")
-    with PublicDataPriceClient(container.settings.data_go_kr_service_key) as client:
+    as_of = date.today()
+    rows: list[dict] = []
+    source = "data.go.kr"
+
+    if container.settings.data_go_kr_service_key:
+        with PublicDataPriceClient(container.settings.data_go_kr_service_key) as client:
+            try:
+                as_of, rows = client.fetch_market_snapshot(as_of)
+            except PublicDataAPIError:
+                rows = []  # 폴백으로 넘어간다
+
+    if not rows:
+        if not (container.settings.koscom_cust_id and container.settings.koscom_auth_key):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "DATA_GO_KR_SERVICE_KEY 응답이 비어 있고(또는 미설정) "
+                    "KOSCOM_CUST_ID/KOSCOM_AUTH_KEY도 설정되지 않았습니다."
+                ),
+            )
+        koscom = KoscomMarketDataProvider(
+            container.settings.koscom_cust_id, container.settings.koscom_auth_key, container.settings.koscom_base_url
+        )
         try:
-            as_of, rows = client.fetch_market_snapshot(date.today())
-        except PublicDataAPIError as exc:
+            rows = koscom.fetch_symbol_master()
+        except KoscomAPIError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        finally:
+            koscom.close()
+        source = "koscom"
 
     now = datetime.now()
     records = [
@@ -76,7 +105,7 @@ def sync_symbols(container: Container = Depends(get_container)) -> dict[str, Any
     ]
     container.symbol_master_repo.upsert_many(records)
     symbol_master.load_cache([SymbolInfo(symbol=r.symbol, name=r.name, market=r.market) for r in records])
-    return {"synced": len(records), "as_of": as_of.isoformat()}
+    return {"synced": len(records), "as_of": as_of.isoformat(), "source": source}
 
 
 @router.get("/symbols/stats")

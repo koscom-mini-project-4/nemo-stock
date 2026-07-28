@@ -182,10 +182,18 @@ export interface WorkflowTemplateOut {
   graph: WorkflowGraph
 }
 
+/** 이 호출 1건에서 새로 쌓인 AI 토큰 사용량(§0-11). usage_repo 미기록 시 null일 수 있다. */
+export interface AIUsageDelta {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
 export interface GenerateDraftResponse {
   name: string
   graph: WorkflowGraph
   disclaimer: string
+  usage?: AIUsageDelta | null
 }
 
 export interface ChatMessage {
@@ -205,6 +213,7 @@ export interface WorkflowChatResponse {
   name?: string | null
   graph?: WorkflowGraph | null
   disclaimer?: string | null
+  usage?: AIUsageDelta | null
 }
 
 export type BacktestExplainSelection =
@@ -285,4 +294,6 @@ export interface SymbolStats {
 export interface SymbolSyncResult {
   synced: number
   as_of: string
+  /** 'data.go.kr'(공공데이터포털, 무료) | 'koscom'(CHECK-API, 공공데이터 응답이 비었을 때 폴백) */
+  source: string
 }

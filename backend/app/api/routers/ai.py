@@ -14,6 +14,7 @@ from app.auth.security import get_current_username
 from app.dao.base import NodeEventRecord
 from app.dependencies import Container
 from app.schemas.ai import (
+    AIUsageDelta,
     BacktestExplainRequest,
     BacktestExplainResponse,
     GenerateDraftRequest,
@@ -25,13 +26,30 @@ from app.schemas.ai import (
 router = APIRouter(prefix="/ai", tags=["ai"], dependencies=[Depends(get_current_username)])
 
 
+def _usage_delta(container: Container, since: datetime) -> AIUsageDelta | None:
+    """since 이후 새로 쌓인 AI 사용량(§0-6 AIUsageRepository)을 합산한다(§0-11) — 이 요청
+    "1건"이 실제로 얼마나 썼는지를 호출 전/후 델타로 근사한다(정확한 요청 단위 계측 훅을
+    추가하는 대신 기존 조회 메서드를 재사용, 관리자 페이지 사용량 통계와 동일 소스)."""
+    records = container.ai_usage_repo.list_since(since)
+    if not records:
+        return None
+    return AIUsageDelta(
+        prompt_tokens=sum(r.prompt_tokens for r in records),
+        completion_tokens=sum(r.completion_tokens for r in records),
+        total_tokens=sum(r.total_tokens for r in records),
+    )
+
+
 @router.post("/generate-draft", response_model=GenerateDraftResponse)
 def generate_draft(
-    payload: GenerateDraftRequest, ai_client: AIClient = Depends(get_ai_client)
+    payload: GenerateDraftRequest,
+    ai_client: AIClient = Depends(get_ai_client),
+    container: Container = Depends(get_container),
 ) -> GenerateDraftResponse:
     if not ai_client.available:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY가 설정되지 않았습니다.")
 
+    called_at = datetime.now()
     default_universe = ",".join(payload.universe) if payload.universe else None
     try:
         if default_universe:
@@ -46,16 +64,19 @@ def generate_draft(
             detail={"message": str(exc), "attempts": exc.attempts},
         ) from exc
 
-    return GenerateDraftResponse(**draft)
+    return GenerateDraftResponse(**draft, usage=_usage_delta(container, called_at))
 
 
 @router.post("/workflow-chat", response_model=WorkflowChatResponse)
 def workflow_chat(
-    payload: WorkflowChatRequest, ai_client: AIClient = Depends(get_ai_client)
+    payload: WorkflowChatRequest,
+    ai_client: AIClient = Depends(get_ai_client),
+    container: Container = Depends(get_container),
 ) -> WorkflowChatResponse:
     if not ai_client.available:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY가 설정되지 않았습니다.")
 
+    called_at = datetime.now()
     try:
         result = chat_about_workflow(
             ai_client,
@@ -73,7 +94,7 @@ def workflow_chat(
             detail={"message": str(exc), "attempts": exc.attempts},
         ) from exc
 
-    return WorkflowChatResponse(**result)
+    return WorkflowChatResponse(**result, usage=_usage_delta(container, called_at))
 
 
 def _summarize_day_events(events: list[NodeEventRecord]) -> dict[str, Any]:
@@ -166,6 +187,7 @@ def backtest_explain(
     if not ai_client.available:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY가 설정되지 않았습니다.")
 
+    called_at = datetime.now()
     workflow_name, graph, selection = _build_backtest_selection(payload, container)
     try:
         result = explain_backtest(
@@ -184,4 +206,4 @@ def backtest_explain(
             detail={"message": str(exc), "attempts": exc.attempts},
         ) from exc
 
-    return BacktestExplainResponse(**result)
+    return BacktestExplainResponse(**result, usage=_usage_delta(container, called_at))

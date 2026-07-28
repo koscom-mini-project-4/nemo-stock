@@ -118,6 +118,7 @@ export async function runBacktest(payload: {
   start_date: string
   end_date: string
   initial_capital?: number
+  progress_run_id?: string
 }): Promise<BacktestResultOut> {
   const { data } = await apiClient.post('/backtest', payload)
   return data

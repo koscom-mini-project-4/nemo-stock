@@ -26,6 +26,16 @@ BASIC_INFO_PATH = "/stock/m001/basic_info"  # 현재가 등 기본정보
 HOGA_INFO_PATH = "/stock/m001/hoga_info"  # 호가정보
 HIST_INFO_PATH = "/stock/m001/hist_info"  # 일별(과거) 정보
 
+# 종목코드/한글명 코드 마스터(§0-10 심볼 마스터 동기화 폴백 소스). jcode 없이 시장 그룹 전체를
+# 한 번에 돌려주는 벌크 엔드포인트라(docs/koscom-api/pages/01-stock-api/거래소 종목/01-코드
+# 정보.md, 코스닥 종목/01-코드 정보.md) 시장당 호출 1회로 전 종목을 가져올 수 있다 — 공공데이터
+# 포털(DATA_GO_KR_SERVICE_KEY)이 서비스 미승인으로 빈 응답만 주는 문제(2026-07-28 실사용 중
+# 발견)의 대안으로 쓴다.
+CODE_INFO_PATHS: dict[str, str] = {
+    "KOSPI": "/stock/m001/code_info",
+    "KOSDAQ": "/stock/m003/code_info",
+}
+
 MIN_REQUEST_INTERVAL_SEC = 1.0
 
 
@@ -79,6 +89,24 @@ class KoscomMarketDataProvider(MarketDataProvider):
         if isinstance(results, dict):
             results = [results]
         return results or []
+
+    def fetch_symbol_master(self) -> list[dict]:
+        """거래소(KOSPI)/코스닥(KOSDAQ) 전 종목의 코드/한글종목명을 가져온다(§0-10).
+
+        code_info는 jcode 없이 부르면 시장 그룹 전체를 한 번에 돌려주는 벌크 엔드포인트라
+        시장당 호출 1회(총 2회)로 끝난다 — 초당 1회 제한(_throttle)에 걸려도 약 1초만 더
+        걸린다. 반환: [{"symbol", "name", "market"}, ...].
+        """
+        out: list[dict] = []
+        for market, path in CODE_INFO_PATHS.items():
+            rows = self._post(path, {"data_list": "F16013,F16002"})
+            for row in rows:
+                symbol = str(row.get("F16013") or "").strip()
+                name = str(row.get("F16002") or "").strip()
+                if not symbol or not name:
+                    continue
+                out.append({"symbol": symbol, "name": name, "market": market})
+        return out
 
     def get_price(self, symbol: str) -> PriceTick:
         rows = self._post(BASIC_INFO_PATH, {"jcode": symbol, "data_list": "F15001,F15472,F15015"})

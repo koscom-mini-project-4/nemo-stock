@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
 import { chatAboutWorkflow } from '@/api/services'
-import type { ChatMessage, NodeTypeSchema, WorkflowChatLastRun, WorkflowGraph } from '@/api/types'
+import type { AIUsageDelta, ChatMessage, NodeTypeSchema, WorkflowChatLastRun, WorkflowGraph } from '@/api/types'
 import GraphDiffModal from '@/components/GraphDiffModal.vue'
 
 const props = defineProps<{
@@ -19,6 +19,7 @@ interface DisplayMessage extends ChatMessage {
   pendingGraph?: WorkflowGraph
   pendingName?: string
   applied?: boolean
+  usage?: AIUsageDelta | null
 }
 
 const messages = ref<DisplayMessage[]>([])
@@ -26,6 +27,22 @@ const input = ref('')
 const sending = ref(false)
 const errorMessage = ref('')
 const listEl = ref<HTMLDivElement | null>(null)
+const elapsedSec = ref(0)
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
+function startElapsedTimer() {
+  elapsedSec.value = 0
+  elapsedTimer = setInterval(() => {
+    elapsedSec.value += 1
+  }, 1000)
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+}
 
 const diffModalIndex = ref<number | null>(null)
 const refining = ref(false)
@@ -55,6 +72,7 @@ async function sendMessage(text: string, graphOverride?: WorkflowGraph) {
     content: result.reply,
     pendingGraph: result.changed ? (result.graph ?? undefined) : undefined,
     pendingName: result.changed ? (result.name ?? undefined) : undefined,
+    usage: result.usage,
   })
   scrollToBottom()
   return result
@@ -73,12 +91,14 @@ async function send() {
   errorMessage.value = ''
   input.value = ''
   sending.value = true
+  startElapsedTimer()
   try {
     await sendMessage(text)
   } catch (err) {
     errorMessage.value = extractErrorMessage(err)
   } finally {
     sending.value = false
+    stopElapsedTimer()
     scrollToBottom()
   }
 }
@@ -142,6 +162,9 @@ async function refineDiff(instruction: string) {
       </p>
       <div v-for="(msg, idx) in messages" :key="idx" :class="['chat-msg', `chat-msg-${msg.role}`]">
         <div class="chat-bubble">{{ msg.content }}</div>
+        <div v-if="msg.role === 'assistant' && msg.usage" class="chat-usage text-muted">
+          토큰 {{ msg.usage.total_tokens.toLocaleString() }}개 사용
+        </div>
         <div v-if="msg.pendingGraph && !msg.applied" class="chat-pending">
           <div class="chat-pending-label">
             변경 제안 — 노드 {{ msg.pendingGraph.nodes.length }}개, 엣지 {{ msg.pendingGraph.edges.length }}개
@@ -150,7 +173,7 @@ async function refineDiff(instruction: string) {
         </div>
         <div v-else-if="msg.applied" class="chat-applied text-muted">✓ 확정 적용됨</div>
       </div>
-      <p v-if="sending" class="text-muted chat-typing">AI가 응답 중...</p>
+      <p v-if="sending" class="text-muted chat-typing">AI가 응답 중... ({{ elapsedSec }}초 경과)</p>
     </div>
     <p v-if="errorMessage" class="error chat-error">{{ errorMessage }}</p>
     <div class="chat-input-row">
@@ -259,6 +282,10 @@ async function refineDiff(instruction: string) {
 
 .chat-applied {
   font-size: 12px;
+}
+
+.chat-usage {
+  font-size: 11px;
 }
 
 .chat-typing {

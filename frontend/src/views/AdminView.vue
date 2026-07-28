@@ -100,7 +100,8 @@ async function runSymbolSync() {
   symbolSyncMessage.value = ''
   try {
     const result = await syncSymbols()
-    symbolSyncMessage.value = `${result.as_of} 기준 ${result.synced.toLocaleString()}개 종목 동기화 완료`
+    const sourceLabel = result.source === 'koscom' ? 'KOSCOM CHECK-API' : '공공데이터포털'
+    symbolSyncMessage.value = `${result.as_of} 기준 ${result.synced.toLocaleString()}개 종목 동기화 완료 (${sourceLabel})`
     await loadSymbolStats()
   } catch (err) {
     const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -276,7 +277,8 @@ onMounted(() => {
       </div>
       <p class="text-muted hint">
         공공데이터포털(금융위원회_주식시세정보)로 KOSPI/KOSDAQ 전 종목의 코드/종목명을
-        가져와 캐시를 채웁니다. 동기화 전에는 대표 종목 8개만 사용됩니다(수 초~수십 초 소요될
+        가져와 캐시를 채웁니다. 그 응답이 비어 있으면(현재 서비스키 미승인 상태) KOSCOM
+        CHECK-API로 자동 전환합니다. 동기화 전에는 대표 종목 8개만 사용됩니다(수 초 소요될
         수 있음). 이 캐시가 채워지면 `ai.news_signal`/`ai.free_prompt` 노드의 종목코드→종목명
         자동 매핑이 위 뉴스 분석 현황 검색과 같은 기준으로 훨씬 많은 종목에서 동작합니다.
       </p>

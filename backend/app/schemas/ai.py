@@ -10,10 +10,21 @@ class GenerateDraftRequest(BaseModel):
     universe: list[str] | None = None
 
 
+class AIUsageDelta(BaseModel):
+    """이 호출 1건에서 새로 쌓인 AI 토큰 사용량(§0-11) — AIUsageRepository.list_since()로
+    호출 전/후 델타를 구해 채운다. usage_repo가 없거나 기록 실패 시 응답의 usage 필드
+    자체가 None이 될 수 있다(하위호환, 필수 아님)."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
 class GenerateDraftResponse(BaseModel):
     name: str
     graph: dict[str, Any]
     disclaimer: str
+    usage: AIUsageDelta | None = None
 
 
 class ChatMessage(BaseModel):
@@ -35,6 +46,7 @@ class WorkflowChatResponse(BaseModel):
     name: str | None = None
     graph: dict[str, Any] | None = None
     disclaimer: str | None = None
+    usage: AIUsageDelta | None = None
 
 
 class BacktestSelectionIn(BaseModel):

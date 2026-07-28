@@ -129,6 +129,39 @@ def test_manual_ingest_then_backtest_end_to_end(app_client: TestClient, auth_hea
     assert news_all_resp.json() == []
 
 
+def test_backtest_with_progress_run_id_publishes_progress_events(app_client: TestClient, auth_headers: dict):
+    """§0-11: progress_run_id를 주면 POST /backtest가 끝난 뒤 event_bus에 시작+거래일별
+    진행 이벤트가 쌓여 있어야 한다(WS /ws/runs/{id}가 실시간으로 이걸 실어나른다)."""
+    start = date(2025, 1, 1)
+    app_client.post(
+        "/data/ingest/prices/manual",
+        json=_bars_payload("TESTSYM", start, days=5, start_price=100.0),
+        headers=auth_headers,
+    )
+    wf_resp = app_client.post("/workflows", json=_workflow_payload(), headers=auth_headers)
+    workflow_id = wf_resp.json()["id"]
+
+    bt_resp = app_client.post(
+        "/backtest",
+        json={
+            "workflow_id": workflow_id,
+            "universe": ["TESTSYM"],
+            "start_date": start.isoformat(),
+            "end_date": (start + timedelta(days=4)).isoformat(),
+            "initial_capital": 1_000_000,
+            "progress_run_id": "progress-flow-1",
+        },
+        headers=auth_headers,
+    )
+    assert bt_resp.status_code == 201, bt_resp.text
+
+    events = app_client.app.state.container.event_bus.get_history("progress-flow-1")
+    assert len(events) == 6  # 시작 1건 + 거래일 5건
+    assert events[0].output_snapshot["day_index"] == 0
+    assert events[0].output_snapshot["total_days"] == 5
+    assert [e.output_snapshot["day_index"] for e in events[1:]] == [1, 2, 3, 4, 5]
+
+
 def _workflow_payload_with_news() -> dict:
     return {
         "name": "백테스트용 뉴스 참고 매수",
