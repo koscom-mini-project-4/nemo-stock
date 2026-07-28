@@ -4,16 +4,19 @@ import { useRouter } from 'vue-router'
 import {
   deleteWorkflow,
   fetchAccountSummary,
+  fetchPrices,
   fetchWorkflows,
   fetchWorkflowTemplates,
   updateWorkflow,
 } from '@/api/services'
-import type { AccountSummaryOut, WorkflowOut, WorkflowTemplateOut } from '@/api/types'
+import type { AccountSummaryOut, PricePointOut, WorkflowOut, WorkflowTemplateOut } from '@/api/types'
 import { useDraftStore } from '@/stores/draft'
+import PriceChart from '@/components/PriceChart.vue'
 
 const workflows = ref<WorkflowOut[]>([])
 const templates = ref<WorkflowTemplateOut[]>([])
 const account = ref<AccountSummaryOut | null>(null)
+const priceSeries = ref<Record<string, PricePointOut[]>>({})
 const loading = ref(true)
 const router = useRouter()
 const draftStore = useDraftStore()
@@ -29,9 +32,28 @@ async function load() {
     workflows.value = wf
     account.value = acc
     templates.value = tpl
+    await loadPriceSeries(acc)
   } finally {
     loading.value = false
   }
+}
+
+/** 보유 종목별 최근 90일 시세를 병렬로 조회한다. 종목 하나가 실패해도 나머지 차트는 보인다. */
+async function loadPriceSeries(acc: AccountSummaryOut | null) {
+  if (!acc || acc.positions.length === 0) {
+    priceSeries.value = {}
+    return
+  }
+  const entries = await Promise.all(
+    acc.positions.map(async (p) => {
+      try {
+        return [p.symbol, await fetchPrices(p.symbol, 90)] as const
+      } catch {
+        return [p.symbol, []] as const
+      }
+    }),
+  )
+  priceSeries.value = Object.fromEntries(entries)
 }
 
 async function toggleActive(wf: WorkflowOut) {
@@ -97,6 +119,19 @@ onMounted(load)
           <div class="kpi-value">{{ account ? account.positions.length : '—' }}</div>
         </div>
       </div>
+
+      <section v-if="account && account.positions.length > 0">
+        <h2>보유 종목 시세</h2>
+        <div class="price-grid">
+          <div v-for="pos in account.positions" :key="pos.symbol" class="card price-card">
+            <div class="price-card-head">
+              <span class="price-card-symbol">{{ pos.symbol }}</span>
+              <span class="text-muted">{{ pos.qty }}주 · 평단가 {{ formatMoney(pos.avg_price) }}</span>
+            </div>
+            <PriceChart :bars="priceSeries[pos.symbol] ?? []" mode="candlestick" :height="200" />
+          </div>
+        </div>
+      </section>
 
       <section>
         <h2>템플릿으로 시작하기</h2>
@@ -191,6 +226,30 @@ section h2 {
 .kpi-value {
   font-size: 22px;
   font-weight: 700;
+}
+
+.price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.price-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.price-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.price-card-symbol {
+  font-weight: 700;
+  font-size: 14px;
 }
 
 .template-grid {

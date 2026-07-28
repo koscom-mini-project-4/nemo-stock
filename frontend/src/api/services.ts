@@ -24,6 +24,11 @@ export async function fetchAccountSummary(): Promise<AccountSummaryOut> {
   return data
 }
 
+export async function fetchPrices(symbol: string, days = 90): Promise<PricePointOut[]> {
+  const { data } = await apiClient.get(`/data/prices/${symbol}`, { params: { days } })
+  return data
+}
+
 export async function fetchWorkflowTemplates(): Promise<WorkflowTemplateOut[]> {
   const { data } = await apiClient.get('/workflows/templates')
   return data
