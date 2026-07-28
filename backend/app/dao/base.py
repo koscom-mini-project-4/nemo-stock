@@ -213,6 +213,10 @@ class BacktestResultRepository(ABC):
     @abstractmethod
     def list_by_workflow(self, workflow_id: str) -> list[BacktestResultRecord]: ...
 
+    @abstractmethod
+    def count(self) -> int:
+        """저장된 백테스트 실행 결과 총 건수(관리자 페이지 사용량 통계용)."""
+
 
 @dataclass
 class DisclosureRecord:
@@ -257,6 +261,40 @@ class NewsRepository(ABC):
 
 
 @dataclass
+class NewsSignalRecord:
+    """단일 뉴스의 분류(Depth 1/2/3) + 백엔드가 계산한 충격량(Impact) 점수 1행.
+
+    koscom_nemonemo(fork)의 "뉴스 신호 파이프라인"(§0-6) 포트. 수집 시점에 AI 분류 결과로부터
+    계산되어 저장되며, app/nodes/data/news_signal.py의 11개 노드가 섹터·기간으로 집계해
+    매매 지표(섹터 모멘텀/공포 지수/테마 Z-Score 등)를 만든다. 우리 기존 NewsRecord(원문
+    저장용)와는 별개 테이블/용도다.
+    """
+
+    id: str
+    symbol: str | None
+    sector: str | None
+    direction: int
+    event_type: str
+    themes: list[str]
+    base_impact: float
+    sector_score: float
+    domestic_score: float
+    overseas_score: float
+    published_at: datetime
+    source: str = "manual"
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+class NewsSignalRepository(ABC):
+    @abstractmethod
+    def save_many(self, items: list[NewsSignalRecord]) -> None: ...
+
+    @abstractmethod
+    def list_since(self, cutoff: datetime) -> list[NewsSignalRecord]:
+        """published_at >= cutoff인 신호를 published_at 오름차순으로 반환(집계 입력)."""
+
+
+@dataclass
 class AIScoreCacheRecord:
     id: str
     subject_type: str  # "disclosure" | "news"
@@ -273,3 +311,27 @@ class AIScoreCacheRepository(ABC):
 
     @abstractmethod
     def save(self, record: AIScoreCacheRecord) -> None: ...
+
+
+@dataclass
+class AIUsageRecord:
+    """OpenAI 호출 1건의 사용량. 관리자 페이지의 "사용량 통계"(호출 수/토큰 수)가 집계 입력으로
+    쓴다. purpose는 어느 기능이 호출했는지 구분하는 자유 문자열(예: "workflow_draft",
+    "sentiment_score", "newsstock_classify") — 없으면 "unknown"으로 기록된다."""
+
+    id: str
+    purpose: str
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+class AIUsageRepository(ABC):
+    @abstractmethod
+    def save(self, record: AIUsageRecord) -> None: ...
+
+    @abstractmethod
+    def list_since(self, since: datetime | None) -> list[AIUsageRecord]:
+        """since가 None이면 전체."""

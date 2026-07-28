@@ -1,9 +1,11 @@
 """OpenAI 호출 + 프롬프트.
 
-vendored from koscom-mini-project-4/newsstock-lib. nemo-stock 통합 시 call_ai()의
-temperature 처리만 수정했다(아래 주석 참조) — 그 외 로직은 원본 그대로다.
+vendored from koscom-mini-project-4/newsstock-lib. nemo-stock 통합 시 call_ai()에 두 가지를
+수정했다(아래 주석 참조) — 그 외 로직은 원본 그대로다: (1) temperature 처리, (2) 사용량(호출
+수/토큰) 계측 훅. 자세한 건 VENDOR_NOTES.md 참조.
 """
 import json
+from typing import Callable, Optional
 
 from openai import BadRequestError, OpenAI
 
@@ -11,6 +13,17 @@ from .config import (OPENAI_API_KEY, OPENAI_MODEL, CONTENT_MAX_CHARS,
                      SECTORS, MACROS, STRENGTHS)
 
 _clients = {}   # api_key -> OpenAI 클라이언트. 키마다 따로 캐시한다.
+
+# nemo-stock 통합 수정: 사용량(호출 수/토큰) 계측 훅. 이 모듈은 자체 DI 컨테이너가 없어
+# app/dependencies.py::build_container()가 set_usage_sink()로 1회 콜백을 주입한다(관리자
+# 페이지 사용량 통계용). 콜백이 없으면(라이브러리를 독립적으로 쓰는 경우 등) 조용히 무시한다.
+_usage_sink: Optional[Callable[[str, str, int, int, int], None]] = None
+
+
+def set_usage_sink(sink: Optional[Callable[[str, str, int, int, int], None]]) -> None:
+    """sink(purpose, model, prompt_tokens, completion_tokens, total_tokens)."""
+    global _usage_sink
+    _usage_sink = sink
 
 # 목록이 길어져서 프롬프트에는 한 줄에 하나씩 넣는다.
 _SECTOR_LIST = "\n".join(f"  - {s}" for s in SECTORS)
@@ -137,4 +150,22 @@ def call_ai(news: dict, clusters: list, model: str = None,
         resp = client.chat.completions.create(
             model=model, response_format={"type": "json_object"}, messages=messages,
         )
+    _report_usage(model, resp)
     return json.loads(resp.choices[0].message.content)
+
+
+def _report_usage(model: str, resp) -> None:
+    if _usage_sink is None:
+        return
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return
+    try:
+        _usage_sink(
+            "newsstock_classify", model,
+            getattr(usage, "prompt_tokens", 0) or 0,
+            getattr(usage, "completion_tokens", 0) or 0,
+            getattr(usage, "total_tokens", 0) or 0,
+        )
+    except Exception:  # noqa: BLE001 - 사용량 기록 실패가 분류 결과를 막으면 안 된다
+        pass

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, type Ref } from 'vue'
+import { computed, onMounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Handle, Position, VueFlow, type Edge as VFEdge, type Node as VFNode } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -66,6 +66,60 @@ function defaultStart() {
   d.setMonth(d.getMonth() - 1)
   return d.toISOString().slice(0, 10)
 }
+
+function isWeekend(d: Date): boolean {
+  const dow = d.getDay()
+  return dow === 0 || dow === 6
+}
+
+function lastTradingDayOnOrBefore(d: Date): Date {
+  const r = new Date(d)
+  while (isWeekend(r)) r.setDate(r.getDate() - 1)
+  return r
+}
+
+// ai.news_signal 노드가 포함된 워크플로는 백테스트 기간이 AI 호출량 제한(서버
+// NEWS_SIGNAL_BACKTEST_MAX_DAYS)에 걸리기 쉬워, 기본 기간을 보수적으로 "최근 개장일 기준
+// N일"로 자동 설정한다(공휴일 캘린더는 없어 주말만 건너뛰는 근사치).
+function recentTradingDayRange(days: number): { start: string; end: string } {
+  const end = lastTradingDayOnOrBefore(new Date())
+  const start = new Date(end)
+  let count = 1
+  while (count < days) {
+    start.setDate(start.getDate() - 1)
+    if (!isWeekend(start)) count++
+  }
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) }
+}
+
+const NEWS_SIGNAL_DEFAULT_DAYS = 4
+// 백엔드 app/api/routers/backtest.py::NEWS_SIGNAL_BACKTEST_MAX_DAYS와 값을 맞춘다(안내 문구 전용).
+const NEWS_SIGNAL_MAX_DAYS = 7
+const newsRangeAppliedFor = ref('')
+
+async function applyNewsSignalDefaultRange(id: string) {
+  if (!id || newsRangeAppliedFor.value === id) return
+  try {
+    const wf = await fetchWorkflow(id)
+    const hasNewsSignal = wf.graph.nodes.some((n) => n.type === 'ai.news_signal')
+    newsRangeAppliedFor.value = id
+    if (hasNewsSignal) {
+      const range = recentTradingDayRange(NEWS_SIGNAL_DEFAULT_DAYS)
+      startDate.value = range.start
+      endDate.value = range.end
+    }
+  } catch {
+    // 워크플로를 못 불러와도 폼 자체는 계속 쓸 수 있어야 하므로 조용히 무시한다.
+  }
+}
+
+watch(
+  workflowId,
+  (id) => {
+    if (isNew.value) applyNewsSignalDefaultRange(id)
+  },
+  { immediate: true },
+)
 
 async function loadGraphAndFirstDay(r: BacktestResultOut) {
   if (nodeTypes.value.length === 0) {
@@ -193,7 +247,9 @@ onMounted(() => {
       <p class="text-muted">
         대상 기간에 해당하는 일봉 데이터가 sqlite에 없으면 실행 시 자동으로 수집합니다(네이버 증권
         시세, 종목당 최초 1회). 종목코드가 존재하지 않거나 데이터가 전혀 없는 기간이면 여전히
-        실패할 수 있습니다.
+        실패할 수 있습니다. 뉴스 신호(ai.news_signal) 노드가 포함된 전략은 AI 호출량 제한 때문에
+        기간이 최근 개장일 기준 {{ NEWS_SIGNAL_DEFAULT_DAYS }}일로 자동 설정됩니다(직접 수정 가능,
+        최대 {{ NEWS_SIGNAL_MAX_DAYS }}일).
       </p>
       <p v-if="runError" class="error">{{ runError }}</p>
       <button class="btn btn-primary" :disabled="running" @click="submitRun">

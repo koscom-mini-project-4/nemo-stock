@@ -155,6 +155,26 @@ class NewsORM(Base):
     source: Mapped[str] = mapped_column(String(32), default="manual")
 
 
+class NewsSignalORM(Base):
+    """koscom_nemonemo(fork) 뉴스 신호 파이프라인(§0-6). app.dao.base.NewsSignalRecord."""
+
+    __tablename__ = "news_signals"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    symbol: Mapped[str | None] = mapped_column(String(16), index=True, nullable=True)
+    sector: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    direction: Mapped[int] = mapped_column(Integer)
+    event_type: Mapped[str] = mapped_column(String(32))
+    themes: Mapped[list] = mapped_column(JSON, default=list)
+    base_impact: Mapped[float] = mapped_column(Float)
+    sector_score: Mapped[float] = mapped_column(Float)
+    domestic_score: Mapped[float] = mapped_column(Float)
+    overseas_score: Mapped[float] = mapped_column(Float)
+    published_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    source: Mapped[str] = mapped_column(String(32), default="manual")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class AIScoreCacheORM(Base):
     __tablename__ = "ai_score_cache"
     __table_args__ = (
@@ -171,4 +191,19 @@ class AIScoreCacheORM(Base):
     prompt_version: Mapped[str] = mapped_column(String(16))
     model: Mapped[str] = mapped_column(String(64))
     score_json: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class AIUsageORM(Base):
+    """OpenAI 호출 1건의 사용량 로그(관리자 페이지 사용량 통계). app.dao.base.AIUsageRecord."""
+
+    __tablename__ = "ai_usage"
+    __table_args__ = (Index("ix_ai_usage_created_at", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    purpose: Mapped[str] = mapped_column(String(64), default="unknown")
+    model: Mapped[str] = mapped_column(String(64))
+    prompt_tokens: Mapped[int] = mapped_column(Integer)
+    completion_tokens: Mapped[int] = mapped_column(Integer)
+    total_tokens: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

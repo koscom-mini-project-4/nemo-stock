@@ -70,7 +70,7 @@ class NewsTrader:
                     "수집": 0, "분류": 0, "삭제클러스터": 0}
 
         crawled = crawler.crawl(self.conn, days=s.crawl_days,
-                                max_pages=s.crawl_max_pages, progress=progress)
+                                max_pages=s.crawl_max_pages, workers=s.crawl_workers, progress=progress)
 
         pending = db.pending_news(self.conn, limit=s.max_classify_per_update)
         classified = []

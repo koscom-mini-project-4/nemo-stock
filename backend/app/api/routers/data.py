@@ -9,7 +9,8 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -22,8 +23,10 @@ from app.data_ingestion.opendart_client import OpenDartAPIError, OpenDartClient
 from app.data_ingestion.public_data_price import PublicDataAPIError, PublicDataPriceClient
 from app.dependencies import Container
 from app.market_data.symbol_master import search_symbols
+from app.news_signals.ingest import build_news_signal, classify_and_build_signal
 from app.schemas.backtest import PricePointOut
 from app.schemas.data import (
+    ClassifiedNewsIngestRequest,
     IngestResponse,
     ManualNewsIngestRequest,
     ManualPriceIngestRequest,
@@ -110,6 +113,7 @@ def ingest_public_prices(payload: PublicPriceIngestRequest, container: Container
 
 @router.post("/ingest/news/manual", response_model=IngestResponse)
 def ingest_manual_news(payload: ManualNewsIngestRequest, container: Container = Depends(get_container)) -> IngestResponse:
+    """뉴스 원문을 적재한다. AI 키가 있으면 즉석 분류해 뉴스 신호(충격량, §0-6)까지 함께 저장한다."""
     records = [
         NewsRecord(
             id=str(uuid.uuid4()),
@@ -122,7 +126,64 @@ def ingest_manual_news(payload: ManualNewsIngestRequest, container: Container = 
         for item in payload.items
     ]
     container.news_repo.save_many(records)
+
+    # AI가 설정되어 있으면 수집 시점에 분류 → 충격량 계산 → 신호 저장(best-effort, 분류 실패는
+    # 원문 적재까지만 인정하고 넘어간다 — app/nodes/data/news_signal.py 11개 노드가 이 신호를 읽는다).
+    if container.ai_client.available:
+        signals = []
+        for rec, item in zip(records, payload.items):
+            try:
+                signals.append(
+                    classify_and_build_signal(
+                        container.ai_client,
+                        f"{item.title}: {item.body}",
+                        item.published_at,
+                        news_id=rec.id,
+                        symbol=payload.symbol,
+                        source="manual",
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                continue
+        container.news_signal_repo.save_many(signals)
+
     return IngestResponse(ingested=len(records))
+
+
+@router.post("/ingest/news/classified", response_model=IngestResponse)
+def ingest_classified_news(
+    payload: ClassifiedNewsIngestRequest, container: Container = Depends(get_container)
+) -> IngestResponse:
+    """외부에서 이미 분류(Depth 1/2/3)된 뉴스를 받아 충격량을 계산해 신호로 적재한다(§0-6).
+
+    "메인 서버가 정제된 JSON을 받아온 시점부터"의 계산 진입점 — AI 호출이 필요 없어 자체
+    뉴스 분류 파이프라인(예: back-news-analysis, 외부 크롤러)의 결과를 그대로 넣을 수 있다.
+    symbol이 있으면 원문 뉴스 레코드도 함께 저장해 data.news 노드에서도 조회 가능하게 한다.
+    """
+    signals = []
+    news_records = []
+    for item in payload.items:
+        news_id = str(uuid.uuid4())
+        signals.append(
+            build_news_signal(
+                item.classification,
+                item.published_at,
+                news_id=news_id,
+                symbol=item.symbol,
+                source="classified",
+            )
+        )
+        if item.symbol:
+            news_records.append(
+                NewsRecord(
+                    id=news_id, symbol=item.symbol, title=item.title, body=item.body,
+                    published_at=item.published_at, source="classified",
+                )
+            )
+    container.news_signal_repo.save_many(signals)
+    if news_records:
+        container.news_repo.save_many(news_records)
+    return IngestResponse(ingested=len(signals))
 
 
 @router.post("/ingest/disclosures/public", response_model=IngestResponse)
@@ -166,3 +227,32 @@ def update_news_signal(payload: NewsUpdateRequest, container: Container = Depend
     finally:
         trader.close()
     return NewsUpdateResponse.model_validate(result)
+
+
+@router.get("/news/stats")
+def get_news_stats(container: Container = Depends(get_container)) -> dict[str, Any]:
+    """뉴스 신호 파이프라인 DB 전체 요약(뉴스/클러스터/분류 건수, strength 분포 등).
+    관리자 페이지의 "뉴스 분석 현황"이 사용한다. NewsTrader.stats()를 그대로 반환한다."""
+    trader = container.news_trader_factory(auto_update=False)
+    try:
+        return trader.stats()
+    finally:
+        trader.close()
+
+
+@router.get("/news/clusters")
+def get_news_clusters(start: date, end: date, container: Container = Depends(get_container)) -> list[dict[str, Any]]:
+    """기간 내 뉴스 클러스터 목록(대표제목/최초발생일/strength/뉴스건수).
+
+    NewsTrader.clusters()는 저장된 시각(예: "2026-07-28 14:25:15")과 문자열로 직접 비교하므로,
+    날짜만(예: "2026-07-28") 넘기면 그날 자정 이후 데이터가 상한에 걸려 누락된다(실 서버 검증
+    중 발견) — /backtest/{id}/news/all과 동일하게 하루 전체([00:00:00, 23:59:59])로 넓혀서 넘긴다.
+    """
+    trader = container.news_trader_factory(auto_update=False)
+    try:
+        return trader.clusters(
+            datetime.combine(start, time.min).strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.combine(end, time.max).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+    finally:
+        trader.close()

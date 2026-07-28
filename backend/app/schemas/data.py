@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -49,6 +50,21 @@ class PublicDisclosureIngestRequest(BaseModel):
     symbols: list[str]
     start: date
     end: date
+
+
+class ClassifiedNewsItemIn(BaseModel):
+    """외부 AI가 이미 분류(Depth 1/2/3)한 뉴스 1건. app/nodes/data/news_signal.py(11개 노드,
+    koscom_nemonemo fork 포트, DESIGN.md §0-6)가 쓰는 news_signals 테이블에 적재된다."""
+
+    title: str = ""
+    body: str = ""
+    published_at: datetime
+    symbol: str | None = None
+    classification: dict[str, Any]  # {"depth_1": {...}, "depth_2": {...}, "depth_3": {...}}
+
+
+class ClassifiedNewsIngestRequest(BaseModel):
+    items: list[ClassifiedNewsItemIn] = Field(default_factory=list)
 
 
 class NewsUpdateRequest(BaseModel):

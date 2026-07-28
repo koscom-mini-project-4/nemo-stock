@@ -37,6 +37,11 @@ const router = createRouter({
       name: 'ai-generate',
       component: () => import('@/views/AIGenerateView.vue'),
     },
+    {
+      path: '/admin',
+      name: 'admin',
+      component: () => import('@/views/AdminView.vue'),
+    },
   ],
 })
 

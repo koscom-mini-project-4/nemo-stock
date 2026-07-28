@@ -554,6 +554,145 @@ news_trader_factory`가 만든 `NewsTrader`(빈 `backend/newsstock.db`)로 조�
 안 잡힘). Playwright 등으로 실제 화면(캔버스에서 axis/pass_when 프리셋 편집, 디버그 패널 판단
 표시)까지 재확인하는 건 다음 세션 후속 작업으로 남긴다.
 
+## 2026-07-28 후속 작업 3: OpenAI 연결 확인 + 실제 뉴스 크롤링 + 백테스트 시점 인식/AI 호출량 제한
+
+사용자 요청: (1) `ai.news_signal`이 실제 OpenAI에 연결되어 있는지 확인, (2) 실제 뉴스를
+크롤링해서 채워둘 것, (3) 백테스트에서 AI를 너무 많이 거치지 않도록 기간을 최대 4일로 제한.
+
+**OpenAI 연결**: `backend/.env`에 이미 실제 `OPENAI_API_KEY`/`OPENAI_MODEL=gpt-5.6-luna`가
+있고, `Container.news_trader_factory`가 이를 그대로 재사용하도록 배선되어 있어(§0-5) 추가
+코드 변경 없이 이미 연결되어 있었다. 확인만 하고 다음 항목으로 진행.
+
+**백테스트 시점 인식 버그 발견 및 수정**: 크롤링을 실제로 트리거하기 전, "백테스트에 이 노드를
+쓰면 어떻게 동작하나"를 점검하다가 `ai.news_signal`이 `NewsTrader.stock/sector/macro()`에
+`start`를 넘기지 않아 **항상 "실제 오늘" 기준으로 조회**한다는 걸 발견했다 — 다른 지표 노드
+(`indicator.sma` 등)는 전부 `context.timestamp`를 쓰는데 이 노드만 빠져 있었다. 그대로 두면
+백테스트의 모든 거래일이 동일한(가장 최근) 뉴스 판정을 받아 사실상 의미가 없었을 것.
+`context.timestamp.date().isoformat()`을 `start`로 넘기도록 수정(DESIGN.md §0-5).
+
+**백테스트 AI 호출량 제한**: 위 수정으로 거래일마다 실제로 다른 조회 = 다른 OpenAI 호출이
+일어나게 되므로, 사용자 요청대로 `ai.news_signal`이 포함된 워크플로의 백테스트는 기간을 최대
+4일로 제한하도록 `POST /backtest`에 검증을 추가했다(초과 시 400,
+`app/api/routers/backtest.py::NEWS_SIGNAL_BACKTEST_MAX_DAYS`).
+
+**세션 중 발견한 사고**: 실제 크롤링을 curl로 트리거했다가 5분 넘게 끝나지 않아(크롤러가
+기사당 1.2~2.2초 지연 + 최대 100건 순차 AI 분류를 하므로 원래 수분 이상 걸림) 강제 종료하는
+과정에서, `lsof -ti:8000 | xargs kill`로 검증용 서버를 내리다가 **사용자가 그날 11:14부터
+3시간 넘게 띄워두고 있던 기존 백엔드 프로세스(다른 dev 세션)를 실수로 같이 죽인 것**을
+뒤늦게 발견했다(포트는 이미 풀렸고 프로세스만 좀비로 남아 있었음). 사용자에게 즉시 알리고
+확인을 거쳐 좀비 프로세스를 정리(kill -9)했다 — **교훈: 다음부터 포트를 정리하기 전에
+`lsof -ti:PORT -sTCP:LISTEN`로 어떤 프로세스가 떠 있는지, 언제 시작됐는지 먼저 확인하고, 내가
+직접 띄운 것이 아니면 함부로 죽이지 않는다.**
+
+**테스트**: `test_query_start_date_follows_context_timestamp_for_backtest_replay`(시점 인식),
+`test_api_backtest_news_signal_cap.py` 2개(4일 초과 거부/이내 통과) 추가. `FakeNewsTrader`가
+`start`도 기록하도록 `ai_test_doubles.py` 보강. 백엔드 pytest **156→159개 전부 통과**.
+
+**실제 크롤링 실행**: `POST /data/news/update`(force=true, 기본 설정 — 1일치 목록 최대 5페이지,
+최대 100건 분류)을 백그라운드로 실행 — **83건 수집, 83건 AI 분류 완료**(`{"skipped": false,
+"collected": 83, "classified": 83, "pending": 0, "purged_clusters": 0}`). 실제 OPENAI_API_KEY로
+크롤링→분류 전체 경로가 정상 동작함을 확인. 소요 시간은 순차 크롤링(당시 코드) 기준 수분.
+
+## 2026-07-28 후속 작업 4: 뉴스 크롤러 병렬 fetch (connection pool 여러 개)
+
+사용자 질문("여러 connection pool을 만들어서 병렬로 빠르게 하는 방법 등도 시도했어?")에 대한
+답으로, 시도하지 않았던 이유(원본 크롤러가 기사당 1.2~2.2초 지연을 두는 정중함 정책을 그대로
+따름)를 설명하고 트레이드오프(네이버/OpenAI 레이트리밋 위험 vs 속도)를 안내한 뒤, 사용자가
+"현재 크롤링은 끝까지 기다리고, 코드는 병렬화해서 수정해 두라"고 확정해 구현했다.
+
+**구현**(`backend/app/vendor/news_classifier/crawler.py`): `crawl(workers=N)` 파라미터
+추가(기본 `CRAWL_WORKERS=4`, env로 조정 가능, `workers=1`이면 원본과 동일한 순차 동작).
+한 페이지 안의 새 기사 URL들을 `ThreadPoolExecutor`로 동시에 fetch하되, 스레드마다
+`threading.local()`로 별도 `requests.Session`(=별도 connection pool)을 만들어 재사용한다
+(`_thread_session`). 지연(`CRAWL_DELAY`)은 워커별로 각자 넣으므로 초당 요청수 제한이라는
+원래 의도는 유지하면서 총 처리량은 워커 수만큼 늘어난다. `_fetch_page_articles()`가
+순차/병렬 두 경로를 `_fetch_one()` 하나로 공유해 로직이 갈라지지 않게 했다. 목록 페이지
+조회(페이지당 1회뿐이라 병렬화 실익 적음)와 AI 분류(`pipeline.classify_many` — "오래된
+뉴스부터 처리해야 클러스터가 올바르게 쌓인다"는 순차 의존성이 문서화되어 있어 병렬화 시
+클러스터 중복 생성 위험)는 의도적으로 병렬화하지 않았다. `Settings.crawl_workers`/
+`NewsTrader.update()`까지 배선.
+
+**테스트**: `test_vendor_news_classifier.py`에 2개 추가 — `_list_page`/`_article`을 스텁하고
+`time.sleep`을 무력화해 실제 네트워크/지연 없이 (1) workers=4일 때 실제로 여러 스레드가
+fetch에 참여하는지(`threading.get_ident()` 수집), (2) 순차(workers=1)와 병렬(workers=4)이
+동일한 URL 집합을 모으는지 검증. 백엔드 pytest **159→161개 전부 통과**.
+
+**세션 중 발생한 사고 기록**(교훈, 위 "후속 작업 3"에서 이미 한 번 기록한 것과 같은 유형):
+크롤링을 curl로 트리거했다가 5분 넘게 끝나지 않아 `lsof -ti:8000 | xargs kill`로 서버를
+내리는 과정에서 사용자가 별도로 3시간 넘게 띄워두고 있던 기존 백엔드 프로세스를 실수로 같이
+죽였다. 사용자에게 즉시 알리고 확인 후 정리(kill -9)했다 — **포트를 정리하기 전에는 항상
+`lsof -ti:PORT -sTCP:LISTEN`로 어떤 프로세스가, 언제부터 떠 있는지 먼저 확인할 것.**
+
+## 2026-07-28 후속 작업 5: 뉴스 신호 완성도 작업 묶음 (Part 1~6, DESIGN.md §0-6)
+
+실 백테스트(`ai.news_signal` 포함 워크플로)를 사용자가 직접 돌려보다가 연쇄적으로 여러 이슈를
+발견/요청했고, 조사 과정에서 fork(`koscom_nemonemo`)에 지표 노드 12종 포트 이후 완전히 별도인
+"뉴스 신호 파이프라인"(AI 라벨링→충격량/시계열 집계→조건 내장 노드 11종)이 통째로 빠져있었던
+것도 확인해 전부 하나의 계획(`/Users/2p31/.claude/plans/keen-skipping-melody.md`)으로
+묶어 처리했다.
+
+**Part 1 — `ai.news_signal` 파라미터 확장**: `threshold`/`decay_base`/`include_zero`/
+`decay_from`을 노드에서 조절 가능하도록 `param_schema`+`execute()`+
+`_build_news_trader_factory()` 보강.
+
+**Part 2 — 백테스트 뉴스 마커 버그 수정**: `/backtest/{id}/news/{used,all}`이 구 파이프라인
+(`data.news`/`NewsRepository`)만 알고 `ai.news_signal`이 쓰는 `newsstock.db`를 전혀 몰라
+마커가 하나도 안 뜨던 버그. 신규 `GET /backtest/{id}/news/signal` 추가(워크플로 그래프에서
+`ai.news_signal` 노드를 찾아 axis/key로 조회 → `NewsMarkerOut(source="newsstock")` 매핑).
+프론트 `BacktestChart.vue`에서 병합 표시(보라 세모, 출처 구분).
+
+**Part 3 — 뉴스 노드 포함 시 기본 백테스트 기간 자동 4일**: `BacktestResultView.vue`에
+`recentTradingDayRange()`/`applyNewsSignalDefaultRange()` + `watch(workflowId)` 추가.
+사용자가 직접 수정하면 자동설정은 유지되지 않음. 상한은 기존 7일(`NEWS_SIGNAL_BACKTEST_MAX_DAYS`,
+사용자 요청으로 4→7일 이미 상향됨) 그대로.
+
+**Part 4 — 백테스트 차트 시간봉 지원**: `GET /backtest/{id}/prices?interval=`에
+`minute60` 추가(`intraday_price_bar_repo` 조회, 없으면 일봉 폴백). 프론트는
+`intradayMode` + `dayPrefix()`/`buildDayAlignedSeries()`/`lastLabelForDay()`로 매매/뉴스/AI
+설명 드래그선택 전부 "정확한 문자열"이 아니라 "그 날짜"로 매칭하도록 수정(datetime 라벨에서
+깨지던 버그 수정 포함).
+
+**주요 근거 토픽 노출**: `ai.news_signal`이 `클러스터` 중 절대값 점수가 가장 큰 것을
+`news_top_topic`/`news_top_topic_score`로 심볼 데이터에 포함하고, 판단 로그(`meta.decisions`)
+reason에 `"주요 근거: '{topic}' (기여점수 {score:+.4f})"`를 덧붙임.
+
+**Part 5 — 관리자 페이지**: 신규 `frontend/src/views/AdminView.vue`(`/admin`, nav에 링크
+추가). (5-1) 뉴스 분석 현황: `GET /data/news/stats`(`NewsTrader.stats()`), `GET
+/data/news/clusters?start=&end=`(날짜만 넘기면 문자열 비교 상한에 걸려 그날 데이터가
+누락되는 라이브러리 버그를 발견해 `datetime.combine(start, time.min)`~`time.max`로 우회 —
+실 서버에서 0→107건으로 검증), 수동 크롤링 트리거 버튼(`POST /data/news/update`). (5-2)
+사용량 통계: `AIUsageRecord`/`AIUsageRepository`(sqlite `ai_usage` 테이블) 신설,
+`OpenAIClient.complete_json(..., purpose=...)`이 매 호출 후 `response.usage`를 best-effort로
+기록, 벤더 `classifier.py::call_ai()`도 `set_usage_sink()` 콜백으로 동일하게 계측(두 개의
+독립된 OpenAI 호출 경로를 모두 커버). `GET /admin/metrics` = 백테스트 실행 수(
+`BacktestResultRepository.count()` 신규) + `app/admin/metrics.py::aggregate_usage()`(목적별/
+모델별 집계, 순수 함수로 분리해 유닛테스트).
+
+**Part 6 — fork 뉴스 신호 파이프라인 11종 포트**: `app/nodes/conditions.py`(큐레이션
+프리셋 — 직전 지표 노드 세션 때 "불필요"로 판단해 안 옮겼던 바로 그 모듈, 이번엔 11개 노드가
+전부 사용해 필요해짐), `app/news_signals/{sectors,themes,impact,aggregate,ingest}.py`,
+`app/ai/news_classify.py`(fork 그대로 + `purpose="news_classify"` 한 줄), `app/nodes/data/
+news_signal.py`(11개 노드: `sector_momentum`/`macro_risk`/`theme_zscore`/`sentiment_ratio`/
+`symbol_news_score`/`symbol_direct_impact`/`sector_linked_impact`/`macro_sentiment`/
+`sector_momentum_change`/`sector_buzz`/`event_density`)를 우리 아키텍처로 그대로 포트(동일
+`Node`/`NodeContext`/`register_node` 시그니처라 프론트 변경 불필요 — `group`/`hint`/
+`show_if` 등 파라미터 스키마 확장이 지표 노드 세션 때 이미 되어 있었음). `NewsSignalRecord`/
+`NewsSignalRepository`(sqlite+memory 양쪽 구현) 신설. `POST /data/ingest/news/classified`
+신규(이미 분류된 뉴스를 AI 호출 없이 바로 신호로 적재 — 외부 분류 파이프라인 연동용),
+`ingest_manual_news`도 AI 키가 있으면 best-effort로 즉석 분류→신호 저장하도록 확장.
+새 노드 타입이 기존 `data.price`/`data.news`/`data.disclosure`와 겹치지 않음을 확인.
+
+**검증**: 백엔드 pytest 161→233개 전부 통과(신규: `test_conditions.py`,
+`test_news_impact.py`/`_normalized.py`, `test_news_aggregate.py`/`_ext.py`,
+`test_news_classify.py`, `test_news_signal_nodes.py`, `test_api_news_signal_pipeline.py`(통합),
+`test_admin_metrics.py`, `test_api_admin_metrics.py`, `test_api_news_stats_clusters.py`,
+`test_api_backtest_intraday_prices.py`, `test_dao_sqlite.py` 확장). 프론트
+`npx vue-tsc -b` + `npm run build` 통과. 실 서버(`--reload`)에 curl로 `/data/news/clusters`
+날짜버그 수정을 라이브 검증(0→107건). `DESIGN.md` §0-6 + §3.2 노드 표(11개 행) 갱신 완료.
+
+**미착수(다음 작업으로 명시적으로 분리)**: "AI에 질의하여 노드를 수정할 때 전/후 비교 창"
+기능은 이번 계획 범위에 없었고 사용자가 별도로 요청한 것 — 별도 계획으로 다시 스코핑 필요.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

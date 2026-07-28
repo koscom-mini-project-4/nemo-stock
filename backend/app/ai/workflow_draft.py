@@ -65,7 +65,7 @@ def generate_workflow_draft(
 
     attempts: list[dict] = []
 
-    raw = ai_client.complete_json(system_prompt, user_prompt)
+    raw = ai_client.complete_json(system_prompt, user_prompt, purpose="workflow_draft")
     graph_dict = _coerce_graph_shape(raw)
     errors = WorkflowGraph.from_dict(graph_dict).validate()
     attempts.append({"raw": raw, "errors": errors})
@@ -78,7 +78,7 @@ def generate_workflow_draft(
         + "\n".join(f"- {e}" for e in errors)
         + f"\n\n이전 시도 JSON:\n{json.dumps(raw, ensure_ascii=False)}"
     )
-    raw2 = ai_client.complete_json(system_prompt, repair_prompt)
+    raw2 = ai_client.complete_json(system_prompt, repair_prompt, purpose="workflow_draft")
     graph_dict2 = _coerce_graph_shape(raw2)
     errors2 = WorkflowGraph.from_dict(graph_dict2).validate()
     attempts.append({"raw": raw2, "errors": errors2})

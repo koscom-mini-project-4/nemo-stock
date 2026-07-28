@@ -12,15 +12,28 @@
 
 한 페이지가 전부 이미 본 기사면 그 날짜는 더 볼 게 없다고 보고 다음 날짜로 넘어간다
 (네이버가 마지막 페이지를 계속 반복해서 보여주기 때문에 원본에도 있던 처리다).
+
+nemo-stock 통합 시 추가한 부분: 기사 본문 fetch가 건마다 지연(CRAWL_DELAY)을 두고 순차로
+돌아 시간이 오래 걸려서(실측 5분+), crawl(workers=N)로 페이지 안의 기사들을 스레드풀로
+동시에 가져올 수 있게 했다(기본 workers=1이면 기존과 동일한 순차 동작). 스레드마다 별도
+requests.Session(=별도 connection pool)을 쓴다(_thread_session, threading.local). 지연은
+스레드별로 각자 넣으므로 정중함(초당 요청 수 제한 의도)은 유지하되 처리량은 workers배로
+늘어난다. 목록 페이지 조회(_list_page)는 페이지당 1회뿐이라 병렬화 대상이 아니다. 분류
+단계(pipeline.classify_many)는 오래된 뉴스부터 순서대로 처리해야 클러스터가 올바르게
+쌓이는 순차 의존성이 있어(파일 docstring 참조) 병렬화하지 않았다.
 """
 import hashlib
 import random
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 from . import db
 from .config import (NAVER_LIST_URL, HTTP_HEADERS, CRAWL_DELAY, CRAWL_TIMEOUT,
-                     CRAWL_DAYS, CRAWL_MAX_PAGES, DATE_FMT)
+                     CRAWL_DAYS, CRAWL_MAX_PAGES, CRAWL_WORKERS, DATE_FMT)
+
+_thread_local = threading.local()
 
 LIST_SELECTOR = ".type06_headline dt a, .type06 dt a, .list_body dt a"
 TITLE_SELECTOR = "#title_area span, .media_end_head_title, h2#title_area"
@@ -61,6 +74,15 @@ def _session():
     except Exception:
         pass
     return s
+
+
+def _thread_session():
+    """스레드마다 별도 Session(=별도 connection pool)을 만들어 재사용한다."""
+    session = getattr(_thread_local, "session", None)
+    if session is None:
+        session = _session()
+        _thread_local.session = session
+    return session
 
 
 def _list_page(session, date_str: str, page: int) -> list:
@@ -111,12 +133,50 @@ def _article(session, url: str) -> dict:
     }
 
 
+def _fetch_one(url: str) -> tuple[str, dict | None, Exception | None]:
+    """스레드풀 워커 하나가 기사 하나를 가져온다. 지연은 워커별로 각자 넣는다."""
+    time.sleep(random.uniform(*CRAWL_DELAY))
+    try:
+        return url, _article(_thread_session(), url), None
+    except Exception as e:  # noqa: BLE001 - 개별 기사 실패는 나머지에 영향 없이 건너뛴다
+        return url, None, e
+
+
+def _fetch_page_articles(urls: list[str], workers: int, progress, collected_len: int) -> list[tuple[str, dict | None, bool]]:
+    """한 페이지의 새 기사 URL들을 가져온다. (url, item, error?) 튜플 리스트를 돌려준다.
+
+    workers<=1이면 메인 스레드에서 순차로(원본과 동일한 동작), 그 이상이면 스레드풀로
+    동시에 가져온다. 두 경우 모두 _fetch_one 하나를 공유해 로직이 갈라지지 않는다.
+    """
+    results: list[tuple[str, dict | None, bool]] = []
+
+    def _record(u: str, item: dict | None, err: Exception | None) -> None:
+        results.append((u, item, err is not None))
+        if progress:
+            if err is not None:
+                progress(collected_len + len(results), f"기사 실패: {err}")
+            elif item:
+                progress(collected_len + len(results), item["title"][:30])
+
+    if workers <= 1:
+        for u in urls:
+            _record(*_fetch_one(u))
+        return results
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_fetch_one, u) for u in urls]
+        for future in as_completed(futures):
+            _record(*future.result())
+    return results
+
+
 def crawl(conn, days: int = CRAWL_DAYS, max_pages: int = CRAWL_MAX_PAGES,
-          progress=None) -> list:
+          workers: int = CRAWL_WORKERS, progress=None) -> list:
     """새 기사만 수집해서 `crawled` 테이블에 넣고, 새로 받은 것만 돌려준다.
 
     days      : 오늘부터 며칠 전까지의 목록을 훑을지
     max_pages : 날짜당 최대 목록 페이지 수 (무한 루프 방지)
+    workers   : 기사 본문 fetch 동시 처리 수(스레드별 별도 connection pool). 1이면 순차(원본 동작).
     progress  : progress(수집수, 메시지) 콜백
     """
     seen = db.seen_hashes(conn)
@@ -145,13 +205,8 @@ def crawl(conn, days: int = CRAWL_DAYS, max_pages: int = CRAWL_MAX_PAGES,
                 break
 
             mark = len(collected)     # 이번 페이지에서 새로 담기 시작한 위치
-            for u in fresh:
-                time.sleep(random.uniform(*CRAWL_DELAY))
-                try:
-                    item = _article(session, u)
-                except Exception as e:
-                    if progress:
-                        progress(len(collected), f"기사 실패: {e}")
+            for u, item, error in _fetch_page_articles(fresh, workers, progress, len(collected)):
+                if error:
                     continue
                 if not item:
                     # 파싱 실패한 URL 도 seen 에 넣어야 다음 실행에서 또 시도하지 않는다
@@ -159,8 +214,6 @@ def crawl(conn, days: int = CRAWL_DAYS, max_pages: int = CRAWL_MAX_PAGES,
                     continue
                 seen.add(item["url_hash"])
                 collected.append(item)
-                if progress:
-                    progress(len(collected), item["title"][:30])
 
             # 페이지 단위로 커밋해야 중간에 죽어도 여기까지는 남는다
             db.mark_crawled(conn, collected[mark:])

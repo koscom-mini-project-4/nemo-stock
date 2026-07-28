@@ -23,7 +23,12 @@ class AIClient(ABC):
     def model_name(self) -> str: ...
 
     @abstractmethod
-    def complete_json(self, system_prompt: str, user_prompt: str, temperature: float = 0.2) -> dict:
+    def complete_json(
+        self, system_prompt: str, user_prompt: str, temperature: float = 0.2, purpose: str = "unknown"
+    ) -> dict:
         """system/user 프롬프트로 LLM을 호출하고 JSON으로 파싱된 dict를 반환한다.
         available이 False인 상태에서 호출하면 AIUnavailableError를 발생시킨다.
+
+        purpose: 어느 기능이 호출했는지 구분하는 자유 문자열(관리자 페이지 사용량 통계의
+        목적별 집계에 쓰인다). 생략하면 "unknown"으로 기록된다 — 필수 아님.
         """

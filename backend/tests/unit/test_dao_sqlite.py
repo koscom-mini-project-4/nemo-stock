@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy import text
 
 from app.dao.base import (
+    AIUsageRecord,
     BacktestResultRecord,
     IntradayPriceBarRecord,
     NewsRecord,
@@ -16,6 +17,7 @@ from app.dao.base import (
 )
 from app.dao.sqlite.database import init_db, make_engine, make_session_factory
 from app.dao.sqlite.repositories import (
+    SqliteAIUsageRepository,
     SqliteBacktestResultRepository,
     SqliteIntradayPriceBarRepository,
     SqliteNewsRepository,
@@ -233,3 +235,44 @@ def test_news_repository_get_and_list_range(tmp_path):
 
     ranged_full = repo.list_range("005930", datetime(2026, 6, 1), datetime(2026, 6, 30))
     assert [n.id for n in ranged_full] == ["n1", "n2"]
+
+
+def test_backtest_result_repository_count(tmp_path):
+    sf = _session_factory(tmp_path)
+    repo = SqliteBacktestResultRepository(sf)
+    assert repo.count() == 0
+
+    for i in range(3):
+        repo.save(
+            BacktestResultRecord(
+                id=f"bt{i}", workflow_id="wf1", start_date=datetime(2026, 6, 1).date(),
+                end_date=datetime(2026, 6, 2).date(), initial_capital=1_000_000.0, final_equity=1_050_000.0,
+                total_return_pct=5.0, cagr_pct=5.0, mdd_pct=0.0, volatility_pct=1.0, win_rate_pct=100.0,
+                profit_loss_ratio=None, trade_count=1, equity_curve=[], daily_runs=[], universe=["005930"], trades=[],
+            )
+        )
+    assert repo.count() == 3
+
+
+def test_ai_usage_repository_save_and_list_since(tmp_path):
+    sf = _session_factory(tmp_path)
+    repo = SqliteAIUsageRepository(sf)
+
+    repo.save(
+        AIUsageRecord(
+            id="u1", purpose="workflow_draft", model="gpt-5.6-luna",
+            prompt_tokens=100, completion_tokens=20, total_tokens=120, created_at=datetime(2026, 6, 1),
+        )
+    )
+    repo.save(
+        AIUsageRecord(
+            id="u2", purpose="newsstock_classify", model="gpt-4o-mini",
+            prompt_tokens=50, completion_tokens=10, total_tokens=60, created_at=datetime(2026, 6, 3),
+        )
+    )
+
+    all_records = repo.list_since(None)
+    assert [r.id for r in all_records] == ["u1", "u2"]
+
+    since_records = repo.list_since(datetime(2026, 6, 2))
+    assert [r.id for r in since_records] == ["u2"]

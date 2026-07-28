@@ -35,7 +35,7 @@ def get_or_compute_sentiment_score(
     if cached is not None:
         return cached.score_json
 
-    raw = ai_client.complete_json(_SENTIMENT_SYSTEM_PROMPT, text)
+    raw = ai_client.complete_json(_SENTIMENT_SYSTEM_PROMPT, text, purpose="sentiment_score")
     score_json = {
         "score": float(raw.get("score", 0)),
         "summary": str(raw.get("summary", "")),

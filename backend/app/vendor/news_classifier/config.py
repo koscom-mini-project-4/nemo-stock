@@ -21,8 +21,11 @@ CONTENT_MAX_CHARS = int(os.getenv("CONTENT_MAX_CHARS", "1500"))
 NAVER_LIST_URL = "https://news.naver.com/main/list.naver?mode=LSD&mid=sec&sid1=101"
 CRAWL_DAYS = int(os.getenv("CRAWL_DAYS", "1"))
 CRAWL_MAX_PAGES = int(os.getenv("CRAWL_MAX_PAGES", "5"))
-CRAWL_DELAY = (1.2, 2.2)          # 기사 사이 랜덤 대기 (초)
+CRAWL_DELAY = (1.2, 2.2)          # 기사 사이 랜덤 대기 (초, 워커별로 각자 적용)
 CRAWL_TIMEOUT = 10
+# nemo-stock 통합 시 추가: 기사 본문 fetch 동시 처리 수(스레드별 별도 connection pool).
+# 1이면 원본과 동일한 순차 크롤링. crawler.py 상단 docstring 참조.
+CRAWL_WORKERS = int(os.getenv("CRAWL_WORKERS", "4"))
 CRAWLED_RETENTION_DAYS = int(os.getenv("CRAWLED_RETENTION_DAYS", "90"))
 
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -93,6 +96,7 @@ class Settings:
     update_interval_min: int = 30       # 마지막 갱신 후 이 시간이 지나야 다시 돈다
     crawl_days: int = CRAWL_DAYS        # 며칠치 목록을 훑을지
     crawl_max_pages: int = CRAWL_MAX_PAGES
+    crawl_workers: int = CRAWL_WORKERS  # 기사 본문 fetch 동시 처리 수(1=순차)
     max_classify_per_update: int = 100  # 한 번 갱신에 분류할 최대 뉴스 수 (API 비용 상한)
 
     # --- 보관 ----------------------------------------------------------

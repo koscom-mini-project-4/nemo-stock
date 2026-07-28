@@ -79,6 +79,26 @@ fork 저장소를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit
 | Provider 배선 | `NewsTrader`는 스레드 세이프하지 않은 `sqlite3.Connection`을 내부에 물고 있어 `ai_client`처럼 공유 인스턴스 하나를 두면 `WorkerPool`의 여러 워커 스레드가 동시에 같은 연결을 건드릴 수 있다. 공유 인스턴스 대신 노드 실행마다 새 `NewsTrader`(새 sqlite 연결)를 만드는 **팩토리 콜러블**(`Container.news_trader_factory`)을 `node_providers()`로 주입한다. DB 파일은 `Settings.newsstock_db_path`(기본 `backend/newsstock.db`, `nemo_stock.db`와 별도)이고 API 키/모델은 기존 `openai_api_key`/`openai_model`을 재사용한다. |
 | 신규 노드 | `ai.news_signal`(§3.2) — `params.axis`(종목/섹터/거시경제)에 따라 `NewsTrader.stock`/`sector`/`macro`를 호출해 `symbols[code]`에 `news_verdict`/`news_score`/`news_cluster_count`/`news_true`(bool)를 채우고 `params.pass_when` 기준으로 필터링하는 조건 내장형 노드(§0-4의 필터형 노드 패턴을 그대로 따름). axis="종목"이고 `key`를 안 주면 `app/market_data/symbol_master.py`로 종목코드→한글명 자동 매핑. |
 | 다른 기능에서의 크롤링 트리거 | `ai.news_signal`은 `params.auto_update`(기본 true)로 실행 시점에 스스로 갱신을 트리거하지만(라이브러리 자체 30분 쓰로틀로 비용 제한), 이를 꺼둔 워크플로나 다른 기능(대시보드 등)이 독립적으로 트리거할 수 있도록 `POST /data/news/update`(§9) 엔드포인트를 추가해 `news_trader_factory`를 통한 수동 갱신을 노출한다. |
+| 백테스트 시점 인식 | `NewsTrader.stock/sector/macro()`는 `start`를 안 주면 항상 "실제 오늘"을 기준으로 계산하므로, 백테스트가 과거 날짜로 `context.timestamp`를 바꿔가며 노드를 반복 실행해도 매 거래일이 전부 동일한(가장 최근) 결과를 받는 문제가 있었다. `ai.news_signal`이 `start=context.timestamp.date()`를 명시적으로 넘기도록 수정해 백테스트의 각 거래일이 그 날짜 시점의 뉴스 창을 보게 했다. |
+| 백테스트 AI 호출량 제한 | 위 수정으로 백테스트 거래일마다 서로 다른 조회가 실제로 일어나게 되어, 기간이 길어질수록 OpenAI 호출(뉴스 분류)이 그만큼 늘어난다. 비용을 예측 가능한 범위로 묶기 위해 `ai.news_signal` 노드가 포함된 워크플로의 백테스트는 기간을 제한한다(`app/api/routers/backtest.py::NEWS_SIGNAL_BACKTEST_MAX_DAYS`, 초과 시 400. 최초 4일 → 2026-07-28 사용자 확인으로 **7일**로 상향). |
+| 크롤러 병렬 fetch | 실제 크롤링(`POST /data/news/update`)이 원본 순차 구현 기준 수분 이상 걸려, `crawler.py::crawl()`에 `workers` 파라미터(기본 `CRAWL_WORKERS=4`)를 추가해 페이지 안의 기사들을 `ThreadPoolExecutor`로 동시에 fetch하게 했다. 스레드마다 별도 `requests.Session`(별도 connection pool, `threading.local`)을 쓰고 지연은 워커별로 각자 넣어 정중함 정책은 유지한다. 목록 페이지 조회와 AI 분류(`pipeline.classify_many`, 오래된 뉴스부터 순서대로 처리해야 클러스터가 올바르게 쌓이는 순차 의존성)는 병렬화 대상에서 제외했다. |
+
+## 0-6. 추가 확정 사항 (2026-07-28 사용자 확인 — fork 뉴스 신호 파이프라인 포트 + 백테스트/관리자 UX)
+
+사용자가 실제로 백테스트를 돌려보며 발견한 문제(뉴스 마커가 안 뜸, 일봉만 나옴)와 fork
+(`koscom_nemonemo`)에 우리가 아직 안 옮긴 노드가 많다는 지적을 계기로 진행한 후속 작업 묶음.
+
+| 항목 | 결정 |
+| --- | --- |
+| `ai.news_signal` 파라미터 확장 | `NewsTrader`의 `threshold`/`decay_base`/`include_zero`/`decay_from`(전부 라이브러리 기본값과 동일한 기본값)을 노드 파라미터로 노출해 사용자가 직접 조절 가능하게 함(`Container.news_trader_factory`도 동일 kwargs를 받도록 확장). |
+| 백테스트 뉴스 마커 버그 수정 | `/backtest/{id}/news/{used,all}`이 `data.news`/`NewsRepository`(구 파이프라인)만 알고 `ai.news_signal`이 쓰는 `newsstock.db`는 몰라, 그 노드만 쓰는 워크플로는 마커가 항상 비어 있었다(§0-5 도입 시 놓쳤던 버그). `GET /backtest/{id}/news/signal` 신규 추가 — 워크플로의 `ai.news_signal` 노드 파라미터로 조회해 `클러스터` 목록을 마커로 변환. 프론트는 기존 "참고 뉴스"와 별개 시각(보라 삼각형)으로 병렬 표시. |
+| 백테스트 신규 폼 기본 기간 | `ai.news_signal` 노드가 포함된 워크플로를 선택하면 시작/종료일을 "최근 개장일 기준 4일"로 자동 설정(공휴일 캘린더 없이 주말만 건너뛰는 근사, 워크플로 변경 시에만 재적용). AI 호출량 상한(§0-5)과 별개로 UX 기본값만 다룬다. |
+| 백테스트 AI 호출량 상한 재조정 | 4일 → **7일**로 상향(`NEWS_SIGNAL_BACKTEST_MAX_DAYS`). |
+| 판정 근거의 "주요 주제" 노출 | `ai.news_signal`이 판정에 가장 큰 영향을 준 뉴스 클러스터(`|점수|` 최대)를 `news_top_topic`/`news_top_topic_score`로 symbols에 채우고 `meta.decisions`의 판단 사유 문구에도 포함 — true/false 판정의 근거를 사람이 바로 확인 가능. |
+| 백테스트 차트 시간봉 | `GET /backtest/{id}/prices`에 `interval`(기본 `day`, `minute60`) 파라미터를 추가해 기존 `intraday_price_bar_repo`를 노출. 프론트는 `minute60`을 먼저 시도하고 데이터가 있으면(§0-2 실측 한계로 최근 약 8거래일치만 존재) 그걸, 없으면 일봉으로 자동 폴백. 시간봉 모드에서는 매매/뉴스 마커·자산곡선을 "그 날짜의 마지막 봉"에 맞춰 매핑(라벨이 날짜+시각이라 기존 정확히-같은-문자열 매칭이 깨지므로). 백테스트 엔진 자체는 여전히 일봉 기준(§8-1 원칙 유지) — 이건 차트 표시 전용. |
+| 관리자 페이지 신설 | `/admin`(프론트 `AdminView.vue`) — (1) 뉴스 분석 현황: `NewsTrader.stats()`/`clusters()`를 그대로 노출(`GET /data/news/{stats,clusters}`) + 수동 갱신 버튼, (2) 사용량 통계: 백테스트 실행 수 + AI 호출 수/토큰 수(목적별·모델별). 단일 관리자 계정 구조라 별도 권한 분기 없음. |
+| AI 사용량 계측 | 신규 `AIUsageRecord`/`AIUsageRepository`(+sqlite 구현) — `OpenAIClient.complete_json()`에 `usage_repo`/`purpose` 파라미터 추가(둘 다 옵션, 하위호환), 응답의 `usage`(토큰수)를 저장한다. `app/vendor/news_classifier/classifier.py`(newsstock-lib 자체 OpenAI 호출 경로)도 `set_usage_sink()` 콜백으로 동일 로그에 남기도록 소폭 수정(VENDOR_NOTES.md 세 번째 항목). 기존 AI 호출부(workflow_draft/workflow_chat/scoring_cache/backtest_explain/news_classify)에 `purpose=` 라벨을 붙여 목적별 집계가 의미 있게 나오도록 함. `BacktestResultRepository.count()` 추가. |
+| fork "뉴스 신호" 파이프라인 11종 포트 | fork를 다시 조사해 지표 노드(§0-4) 포트 때는 놓쳤던 완전히 별도인 3계층 파이프라인(AI 라벨링 → 충격량/시계열 집계 → 조건 내장 노드)을 발견 — 사용자가 전부 포트하기로 확정. `app/nodes/conditions.py`(§0-4 때 "필요 없다"고 안 옮겼던 큐레이션 프리셋 시스템 — 이번엔 11개 노드가 전부 씀), `app/news_signals/{sectors,themes,impact,aggregate,ingest}.py`, `app/ai/news_classify.py`(Depth1/2/3 분류, 우리 `AIScoreCacheRepository` 재사용), `NewsSignalRecord`/`NewsSignalRepository`(+sqlite/in-memory 구현), 노드 11종(`app/nodes/data/news_signal.py`, §3.2), `POST /data/ingest/news/classified` 신규 + `ingest_manual_news` 확장(AI 키 있으면 best-effort 신호 저장). 우리 저장소가 fork와 동일한 `Node`/`NodeContext`/`AIClient` 기반이라 vendoring이 아니라 일반 포트로 진행했고, `conditions.py::apply_condition()`에 우리 컨벤션인 `meta.decisions` 기록을 추가한 것 외엔 원본 그대로다. 프론트 코드 변경 없이(기존 select/option_labels/show_if/subcategory 렌더링 재사용) 팔레트에 바로 노출됨을 확인. |
 
 ---
 
@@ -195,6 +215,11 @@ def register_node(cls: type[Node]) -> type[Node]:
 | data | `data.volume` | 거래량/거래대금 조회 |
 | data | `data.news` | 종목 관련 최근 뉴스 조회(sqlite 적재분) |
 | data | `data.disclosure` | 종목 관련 최근 공시 조회(OpenDART 적재분) |
+| data(조건 내장, §0-6) | `data.sector_momentum`/`data.sector_linked_impact`/`data.sector_momentum_change`/`data.sector_buzz` | 뉴스 신호 — 섹터 단위 지표(모멘텀/업종 연관 영향/모멘텀 가속도/버즈 Z-Score), fork 포트, `app/nodes/conditions.py` 프리셋 |
+| data(조건 내장, §0-6) | `data.macro_risk`/`data.macro_sentiment` | 뉴스 신호 — 매크로 공포지수/거시 심리지수(국내·해외) |
+| data(조건 내장, §0-6) | `data.theme_zscore` | 뉴스 신호 — 테마 쏠림 Z-Score |
+| data(조건 내장, §0-6) | `data.sentiment_ratio`/`data.event_density` | 뉴스 신호 — 감성 우위도(Bull-Bear)/이벤트 밀도(국면 탐지) |
+| data(조건 내장, §0-6) | `data.symbol_news_score`/`data.symbol_direct_impact` | 뉴스 신호 — 종목별 뉴스 점수/직접 영향도(정규화) |
 | indicator | `indicator.moving_average` | 이동평균 계산(값만 계산, 필터링 없음) |
 | indicator | `indicator.rsi` | RSI 계산(값만 계산, 필터링 없음) |
 | indicator | `indicator.momentum` | 모멘텀(N일 수익률) 계산(값만 계산, 필터링 없음) |

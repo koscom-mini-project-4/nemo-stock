@@ -114,7 +114,7 @@ def chat_about_workflow(
 
     attempts: list[dict] = []
 
-    raw = ai_client.complete_json(system_prompt, user_prompt)
+    raw = ai_client.complete_json(system_prompt, user_prompt, purpose="workflow_chat")
     if not raw.get("changed"):
         attempts.append({"raw": raw})
         return _unchanged_result(raw)
@@ -131,7 +131,7 @@ def chat_about_workflow(
         + "\n".join(f"- {e}" for e in errors)
         + f"\n\n이전 시도 JSON:\n{json.dumps(raw, ensure_ascii=False)}"
     )
-    raw2 = ai_client.complete_json(system_prompt, repair_prompt)
+    raw2 = ai_client.complete_json(system_prompt, repair_prompt, purpose="workflow_chat")
     if not raw2.get("changed"):
         attempts.append({"raw": raw2})
         return _unchanged_result(raw2)

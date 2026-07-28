@@ -213,3 +213,47 @@ export type BacktestExplainSelection =
 
 /** 응답 형태는 WorkflowChatResponse와 동일하다(백엔드 app/schemas/ai.py::BacktestExplainResponse 참조). */
 export type BacktestExplainResponse = WorkflowChatResponse
+
+// --- 관리자 페이지(GET /admin/metrics, /data/news/{stats,clusters,update}) ---
+
+export interface AIUsageByBreakdown {
+  purpose?: string
+  model?: string
+  calls: number
+  total_tokens: number
+}
+
+export interface AIUsageSummary {
+  total_calls: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  by_purpose: AIUsageByBreakdown[]
+  by_model: AIUsageByBreakdown[]
+}
+
+export interface AdminMetrics {
+  backtest_count: number
+  ai_usage: AIUsageSummary
+}
+
+/** NewsTrader.stats()/clusters()를 그대로 통과시키는 응답이라 키가 한글이다(라이브러리
+ * 원본 스키마, app/vendor/news_classifier). 고정 스키마를 강제하지 않고 느슨하게 받는다. */
+export type NewsStats = Record<string, unknown>
+
+export interface NewsCluster {
+  id: number
+  representative_title: string
+  first_seen_at: string
+  strength: number
+  news_count: number
+}
+
+export interface NewsUpdateResult {
+  skipped: boolean
+  collected?: number | null
+  classified?: number | null
+  pending?: number | null
+  purged_clusters?: number | null
+  minutes_since_last_update?: number | null
+}

@@ -6,6 +6,7 @@ FastAPI Depends는 이 컨테이너를 request.app.state.container에서 꺼내 
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -21,10 +22,13 @@ from app.broker.toss_adapter import TossInvestOrderExecutionProvider
 from app.config import Settings
 from app.dao.base import (
     AIScoreCacheRepository,
+    AIUsageRecord,
+    AIUsageRepository,
     BacktestResultRepository,
     DisclosureRepository,
     IntradayPriceBarRepository,
     NewsRepository,
+    NewsSignalRepository,
     NodeEventRepository,
     PortfolioRepository,
     PriceBarRepository,
@@ -36,10 +40,12 @@ from app.dao.base import (
 from app.dao.sqlite.database import init_db, make_engine, make_session_factory
 from app.dao.sqlite.repositories import (
     SqliteAIScoreCacheRepository,
+    SqliteAIUsageRepository,
     SqliteBacktestResultRepository,
     SqliteDisclosureRepository,
     SqliteIntradayPriceBarRepository,
     SqliteNewsRepository,
+    SqliteNewsSignalRepository,
     SqliteNodeEventRepository,
     SqlitePortfolioRepository,
     SqlitePriceBarRepository,
@@ -56,6 +62,7 @@ from app.trigger.queue import InMemoryTriggerQueue, TriggerQueue
 from app.trigger.scheduler_service import SchedulerService
 from app.trigger.worker_pool import WorkerPool
 from app.vendor.news_classifier import NewsTrader
+from app.vendor.news_classifier import classifier as newsstock_classifier
 from app.workflow.engine import WorkflowEngine
 from app.workflow.events import EventBus, InMemoryEventBus
 
@@ -73,7 +80,9 @@ class Container:
     backtest_result_repo: BacktestResultRepository
     disclosure_repo: DisclosureRepository
     news_repo: NewsRepository
+    news_signal_repo: NewsSignalRepository
     ai_score_cache_repo: AIScoreCacheRepository
+    ai_usage_repo: AIUsageRepository
     portfolio_repo: PortfolioRepository
     ai_client: AIClient
     news_trader_factory: Callable[..., NewsTrader]
@@ -91,6 +100,7 @@ class Container:
             "ai_client": self.ai_client,
             "ai_score_cache_repo": self.ai_score_cache_repo,
             "news_repo": self.news_repo,
+            "news_signal_repo": self.news_signal_repo,
             "disclosure_repo": self.disclosure_repo,
             "news_trader_factory": self.news_trader_factory,
         }
@@ -140,12 +150,22 @@ def _build_news_trader_factory(settings: Settings) -> Callable[..., NewsTrader]:
     워커 스레드에서 오류), ai_client처럼 공유 인스턴스 하나를 두지 않고 노드 실행마다 새
     인스턴스(=새 연결)를 만드는 팩토리로 제공한다(app/nodes/ai/news_signal.py가 소비)."""
 
-    def factory(auto_update: bool = True) -> NewsTrader:
+    def factory(
+        auto_update: bool = True,
+        threshold: float = 0.1,
+        decay_base: float = 0.3,
+        include_zero: bool = True,
+        decay_from: str = "end",
+    ) -> NewsTrader:
         return NewsTrader(
             db_path=settings.newsstock_db_path,
             api_key=settings.openai_api_key or "",
             model=settings.openai_model,
             auto_update=auto_update,
+            threshold=threshold,
+            decay_base=decay_base,
+            include_zero=include_zero,
+            decay_from=decay_from,
         )
 
     return factory
@@ -167,9 +187,23 @@ def build_container(settings: Settings) -> Container:
     backtest_result_repo = SqliteBacktestResultRepository(session_factory)
     disclosure_repo = SqliteDisclosureRepository(session_factory)
     news_repo = SqliteNewsRepository(session_factory)
+    news_signal_repo = SqliteNewsSignalRepository(session_factory)
     ai_score_cache_repo = SqliteAIScoreCacheRepository(session_factory)
+    ai_usage_repo = SqliteAIUsageRepository(session_factory)
     portfolio_repo = SqlitePortfolioRepository(session_factory)
-    ai_client: AIClient = OpenAIClient(settings.openai_api_key, settings.openai_model)
+    ai_client: AIClient = OpenAIClient(settings.openai_api_key, settings.openai_model, usage_repo=ai_usage_repo)
+
+    # newsstock-lib(vendored)의 자체 OpenAI 호출도 같은 사용량 로그에 남긴다 — 이 모듈은 별도
+    # DI 컨테이너가 없어 콜백 주입으로 연결한다(app/vendor/news_classifier/classifier.py 참조).
+    def _record_newsstock_usage(purpose: str, model: str, prompt_tokens: int, completion_tokens: int, total_tokens: int) -> None:
+        ai_usage_repo.save(
+            AIUsageRecord(
+                id=str(uuid.uuid4()), purpose=purpose, model=model,
+                prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total_tokens,
+            )
+        )
+
+    newsstock_classifier.set_usage_sink(_record_newsstock_usage)
 
     # 최초 기동 시 단일 관리자 계정 부트스트랩
     admin_id = "admin"
@@ -202,6 +236,7 @@ def build_container(settings: Settings) -> Container:
         "ai_client": ai_client,
         "ai_score_cache_repo": ai_score_cache_repo,
         "news_repo": news_repo,
+        "news_signal_repo": news_signal_repo,
         "disclosure_repo": disclosure_repo,
         "news_trader_factory": news_trader_factory,
     }
@@ -229,7 +264,9 @@ def build_container(settings: Settings) -> Container:
         backtest_result_repo=backtest_result_repo,
         disclosure_repo=disclosure_repo,
         news_repo=news_repo,
+        news_signal_repo=news_signal_repo,
         ai_score_cache_repo=ai_score_cache_repo,
+        ai_usage_repo=ai_usage_repo,
         portfolio_repo=portfolio_repo,
         ai_client=ai_client,
         news_trader_factory=news_trader_factory,

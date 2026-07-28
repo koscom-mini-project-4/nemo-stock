@@ -34,7 +34,7 @@ def test_stock_axis_auto_maps_symbol_to_korean_name():
     assert out.symbols["005930"]["news_true"] is True
     assert out.symbols["005930"]["news_verdict"] == "t"
     assert out.symbols["005930"]["news_score"] == 0.42
-    assert trader.calls == [("stock", "삼성전자", 7)]
+    assert trader.calls == [("stock", "삼성전자", "2026-07-28", 7)]
     assert factory.auto_update_calls == [True]
 
     decision = out.meta["decisions"]["news1"]["005930"]
@@ -73,8 +73,8 @@ def test_sector_and_macro_axis_use_explicit_key():
     out_macro = _run({"axis": "거시경제", "key": "증권", "pass_when": "중립 아님"}, factory, {"005930": {}})
     assert "005930" not in out_macro.symbols  # 중립(n)이므로 "중립 아님" 조건 불통과
 
-    assert ("sector", "반도체 및 반도체 장비", 7) in trader.calls
-    assert ("macro", "증권", 7) in trader.calls
+    assert ("sector", "반도체 및 반도체 장비", "2026-07-28", 7) in trader.calls
+    assert ("macro", "증권", "2026-07-28", 7) in trader.calls
 
 
 def test_pass_when_filters_correctly_for_all_three_options():
@@ -104,6 +104,38 @@ def test_trader_is_closed_after_execution():
     assert trader.closed is True
 
 
+def test_indicator_calc_params_are_forwarded_to_factory():
+    trader = FakeNewsTrader({"삼성전자": {"판정": "t", "평균": 0.1, "클러스터수": 1}})
+    factory = FakeNewsTraderFactory(trader)
+
+    _run(
+        {
+            "axis": "종목",
+            "threshold": 0.25,
+            "decay_base": 0.5,
+            "include_zero": False,
+            "decay_from": "start",
+        },
+        factory,
+        {"005930": {}},
+    )
+
+    assert factory.calls == [
+        {"auto_update": True, "threshold": 0.25, "decay_base": 0.5, "include_zero": False, "decay_from": "start"}
+    ]
+
+
+def test_indicator_calc_params_default_when_not_set():
+    trader = FakeNewsTrader({"삼성전자": {"판정": "t", "평균": 0.1, "클러스터수": 1}})
+    factory = FakeNewsTraderFactory(trader)
+
+    _run({"axis": "종목"}, factory, {"005930": {}})
+
+    assert factory.calls == [
+        {"auto_update": True, "threshold": 0.1, "decay_base": 0.3, "include_zero": True, "decay_from": "end"}
+    ]
+
+
 def test_missing_provider_raises_runtime_error():
     node = create_node("ai.news_signal", "news1", {"axis": "종목"})
     try:
@@ -111,3 +143,53 @@ def test_missing_provider_raises_runtime_error():
         raise AssertionError("expected RuntimeError")
     except RuntimeError as exc:
         assert "news_trader_factory" in str(exc)
+
+
+def test_query_start_date_follows_context_timestamp_for_backtest_replay():
+    """백테스트는 과거 날짜로 context.timestamp를 바꿔가며 같은 노드를 반복 실행한다 —
+    매번 실행 시점의 날짜를 start로 넘겨야 각 거래일이 서로 다른(그 날짜 기준) 뉴스 창을 본다."""
+    trader = FakeNewsTrader({"삼성전자": {"판정": "t", "평균": 0.1, "클러스터수": 1}})
+    factory = FakeNewsTraderFactory(trader)
+    node = create_node("ai.news_signal", "news1", {"axis": "종목"})
+
+    ctx = NodeContext(run_id="r1", mode="backtest", timestamp=datetime(2026, 6, 1))
+    ctx.symbols["005930"] = {}
+    node.execute(ctx, news_trader_factory=factory)
+
+    assert trader.calls == [("stock", "삼성전자", "2026-06-01", 7)]
+
+
+def test_top_topic_surfaces_the_largest_contributing_cluster():
+    """사용자 요청: true/false 판정에 어떤 주제가 가장 큰 영향을 미쳤는지 확인 가능해야 한다."""
+    trader = FakeNewsTrader({
+        "삼성전자": {
+            "판정": "f",
+            "평균": -0.27,
+            "클러스터수": 2,
+            "클러스터": [
+                {"클러스터id": 1, "대표제목": "삼성전자 신규 스마트폰 공개", "점수": 0.12},
+                {"클러스터id": 2, "대표제목": "코스피 서킷브레이커 발동", "점수": -0.99},
+            ],
+        }
+    })
+    factory = FakeNewsTraderFactory(trader)
+
+    # verdict="f"는 "중립 아님" 조건을 통과하므로 symbols[code]에도 필드가 남는다.
+    out = _run({"axis": "종목", "pass_when": "중립 아님"}, factory, {"005930": {}})
+
+    data = out.meta["decisions"]["news1"]["005930"]
+    assert data["metrics"]["top_topic"] == "코스피 서킷브레이커 발동"
+    assert data["metrics"]["top_topic_score"] == -0.99
+    assert "코스피 서킷브레이커 발동" in data["reason"]
+    assert out.symbols["005930"]["news_top_topic"] == "코스피 서킷브레이커 발동"
+    assert out.symbols["005930"]["news_top_topic_score"] == -0.99
+
+
+def test_top_topic_is_none_without_cluster_detail():
+    trader = FakeNewsTrader({"삼성전자": {"판정": "t", "평균": 0.1, "클러스터수": 1}})  # 클러스터 목록 없음
+    factory = FakeNewsTraderFactory(trader)
+
+    out = _run({"axis": "종목"}, factory, {"005930": {}})
+
+    assert out.symbols["005930"]["news_top_topic"] is None
+    assert out.symbols["005930"]["news_top_topic_score"] is None

@@ -5,12 +5,14 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.dao.base import (
     AIScoreCacheRecord,
     AIScoreCacheRepository,
+    AIUsageRecord,
+    AIUsageRepository,
     BacktestResultRecord,
     BacktestResultRepository,
     DisclosureRecord,
@@ -19,6 +21,8 @@ from app.dao.base import (
     IntradayPriceBarRepository,
     NewsRecord,
     NewsRepository,
+    NewsSignalRecord,
+    NewsSignalRepository,
     NodeEventRecord,
     NodeEventRepository,
     PortfolioRepository,
@@ -34,9 +38,11 @@ from app.dao.base import (
 )
 from app.dao.sqlite.models import (
     AIScoreCacheORM,
+    AIUsageORM,
     BacktestResultORM,
     DisclosureORM,
     NewsORM,
+    NewsSignalORM,
     NodeEventORM,
     PortfolioCashORM,
     PortfolioPositionORM,
@@ -416,6 +422,10 @@ class SqliteBacktestResultRepository(BacktestResultRepository):
             ).all()
             return [self._to_record(r) for r in rows]
 
+    def count(self) -> int:
+        with self._sf() as session:
+            return session.scalar(select(func.count()).select_from(BacktestResultORM)) or 0
+
     @staticmethod
     def _to_record(row: BacktestResultORM) -> BacktestResultRecord:
         return BacktestResultRecord(
@@ -537,6 +547,47 @@ class SqliteNewsRepository(NewsRepository):
             ]
 
 
+class SqliteNewsSignalRepository(NewsSignalRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def save_many(self, items: list[NewsSignalRecord]) -> None:
+        if not items:
+            return
+        with self._sf() as session:
+            for item in items:
+                existing = session.get(NewsSignalORM, item.id)
+                if existing is None:
+                    session.add(
+                        NewsSignalORM(
+                            id=item.id, symbol=item.symbol, sector=item.sector,
+                            direction=item.direction, event_type=item.event_type, themes=item.themes,
+                            base_impact=item.base_impact, sector_score=item.sector_score,
+                            domestic_score=item.domestic_score, overseas_score=item.overseas_score,
+                            published_at=item.published_at, source=item.source, created_at=item.created_at,
+                        )
+                    )
+            session.commit()
+
+    def list_since(self, cutoff: datetime) -> list[NewsSignalRecord]:
+        with self._sf() as session:
+            rows = session.scalars(
+                select(NewsSignalORM)
+                .where(NewsSignalORM.published_at >= cutoff)
+                .order_by(NewsSignalORM.published_at.asc())
+            ).all()
+            return [
+                NewsSignalRecord(
+                    id=r.id, symbol=r.symbol, sector=r.sector, direction=r.direction,
+                    event_type=r.event_type, themes=list(r.themes or []), base_impact=r.base_impact,
+                    sector_score=r.sector_score, domestic_score=r.domestic_score,
+                    overseas_score=r.overseas_score, published_at=r.published_at,
+                    source=r.source, created_at=r.created_at,
+                )
+                for r in rows
+            ]
+
+
 class SqliteAIScoreCacheRepository(AIScoreCacheRepository):
     def __init__(self, session_factory: sessionmaker[Session]):
         self._sf = session_factory
@@ -572,3 +623,38 @@ class SqliteAIScoreCacheRepository(AIScoreCacheRepository):
             row.score_json = record.score_json
             row.created_at = record.created_at
             session.commit()
+
+
+class SqliteAIUsageRepository(AIUsageRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def save(self, record: AIUsageRecord) -> None:
+        with self._sf() as session:
+            session.add(
+                AIUsageORM(
+                    id=record.id,
+                    purpose=record.purpose,
+                    model=record.model,
+                    prompt_tokens=record.prompt_tokens,
+                    completion_tokens=record.completion_tokens,
+                    total_tokens=record.total_tokens,
+                    created_at=record.created_at,
+                )
+            )
+            session.commit()
+
+    def list_since(self, since: datetime | None) -> list[AIUsageRecord]:
+        with self._sf() as session:
+            stmt = select(AIUsageORM)
+            if since is not None:
+                stmt = stmt.where(AIUsageORM.created_at >= since)
+            rows = session.scalars(stmt.order_by(AIUsageORM.created_at.asc())).all()
+            return [
+                AIUsageRecord(
+                    id=r.id, purpose=r.purpose, model=r.model,
+                    prompt_tokens=r.prompt_tokens, completion_tokens=r.completion_tokens,
+                    total_tokens=r.total_tokens, created_at=r.created_at,
+                )
+                for r in rows
+            ]
