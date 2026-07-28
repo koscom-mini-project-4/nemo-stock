@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from app.nodes import load_all_nodes
+from app.nodes.ai.news_signal import resolve_news_signal_clusters
 from app.nodes.base import NodeContext, create_node
+from app.workflow.graph import NodeDef
 
 from .ai_test_doubles import FakeNewsTrader, FakeNewsTraderFactory
 
@@ -193,3 +195,46 @@ def test_top_topic_is_none_without_cluster_detail():
 
     assert out.symbols["005930"]["news_top_topic"] is None
     assert out.symbols["005930"]["news_top_topic_score"] is None
+
+
+def test_resolve_news_signal_clusters_returns_cluster_list_for_matching_node():
+    """app/api/routers/backtest.py(마커)와 app/api/routers/ai.py(AI 설명 근거)가 공유하는
+    헬퍼. 워크플로의 ai.news_signal 노드 파라미터로 축/키를 결정해 클러스터 원본을 반환한다."""
+    trader = FakeNewsTrader({
+        "삼성전자": {
+            "판정": "t",
+            "평균": 0.3,
+            "클러스터수": 2,
+            "클러스터": [
+                {"클러스터id": 1, "대표제목": "삼성전자 신규 스마트폰 공개", "최초발생날짜": "2026-07-24"},
+                {"클러스터id": 2, "대표제목": "코스피 서킷브레이커 발동", "최초발생날짜": "2026-07-25"},
+            ],
+        }
+    })
+    factory = FakeNewsTraderFactory(trader)
+    node = NodeDef(id="n3", type="ai.news_signal", params={"axis": "종목"})
+
+    clusters = resolve_news_signal_clusters(node, "005930", date(2026, 7, 23), date(2026, 7, 28), factory)
+
+    assert [c["클러스터id"] for c in clusters] == [1, 2]
+    assert clusters[0]["대표제목"] == "삼성전자 신규 스마트폰 공개"
+
+
+def test_resolve_news_signal_clusters_returns_empty_for_non_news_signal_node():
+    trader = FakeNewsTrader()
+    factory = FakeNewsTraderFactory(trader)
+    node = NodeDef(id="n3", type="data.price", params={})
+
+    clusters = resolve_news_signal_clusters(node, "005930", date(2026, 7, 23), date(2026, 7, 28), factory)
+
+    assert clusters == []
+
+
+def test_resolve_news_signal_clusters_returns_empty_when_symbol_unmapped():
+    trader = FakeNewsTrader()
+    factory = FakeNewsTraderFactory(trader)
+    node = NodeDef(id="n3", type="ai.news_signal", params={"axis": "종목"})
+
+    clusters = resolve_news_signal_clusters(node, "UNMAPPED", date(2026, 7, 23), date(2026, 7, 28), factory)
+
+    assert clusters == []

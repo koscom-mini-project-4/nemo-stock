@@ -1009,6 +1009,35 @@ or set reasoning_effort to 'none'.`
 - **검증**: 회귀 테스트 추가(`test_complete_with_tools_retries_with_reasoning_effort_none_on_unsupported_value`).
   백엔드 pytest 336개 전부 통과.
 
+## 2026-07-28 후속 작업 17: 백테스트 매매 지점 클릭 → "왜 샀는지" 팝업 (DESIGN.md §0-14)
+
+사용자 요청: "매수/매도가 어떤 로직으로 발생했는지, 뉴스 노드가 true면 무슨 뉴스로
+종합적으로 그렇게 됐는지 보여줬으면 좋겠다. 그래프 지점 클릭 시 팝업으로 흐름이 시각적으로
+잘 보이면 좋겠고, AI api로 뉴스 이유도 요청해서 가져와도 된다." EnterPlanMode로 Part A-D
+계획 승인 후 진행.
+
+- 조사 결과 매매 마커 클릭 → 그래프 리플레이/DebugPanel, `POST /ai/backtest-explain` 인프라는
+  이미 있었지만 **AI-explain 프롬프트가 `meta.decisions`(판단 사유, ai.news_signal이면 참고
+  뉴스 제목까지 포함)를 전혀 안 실었고**, `used_news`는 구 파이프라인만 알아 `ai.news_signal`
+  기반 워크플로에서는 AI가 뉴스 근거를 볼 방법이 아예 없었다(§0-6에서 마커는 고쳤지만
+  AI-explain은 그때 놓친 사각지대) — 이번 작업의 핵심은 이 데이터 배관 보강.
+- Part A: `_summarize_day_events()`가 노드 타입 무관하게 `decisions`를 포함하도록 수정(한 줄
+  변경으로 모든 필터형 노드의 판단 사유가 AI 프롬프트에 자동 반영).
+- Part B: `get_backtest_news_signal()`의 클러스터 조회 로직을 `resolve_news_signal_clusters()`
+  로 추출해 마커 엔드포인트와 AI-explain selection(`news_signal_clusters`)이 공유하도록
+  리팩터링 — 동작 불변(기존 테스트로 확인).
+- Part C: `TradeExplainModal.vue` 신규(매매 마커 클릭 시 팝업). 즉시 표시되는 부분(그날의
+  decisions를 세로 타임라인으로, AI 호출 없이 무료·즉시)과 버튼 클릭 시에만 호출되는 "AI
+  종합 설명" 부분을 분리 — 매 클릭마다 AI 비용이 나가지 않게 함. `DebugPanel.vue`의 decisions
+  추출 로직을 `src/utils/decisions.ts`로 공유 유틸로 정리.
+- Part D: `BacktestChart.vue`에 `open-trade` emit 추가(기존 `select`/`select-day` emit은
+  안 건드림 — 비파괴적 추가), `BacktestResultView.vue`가 모달을 띄움.
+
+**검증**: 신규 단위/통합 테스트 포함 백엔드 pytest 336→340개 전부 통과, 리팩터링한 마커
+엔드포인트의 기존 테스트도 그대로 통과(동작 불변 확인). `vue-tsc -b` 통과. 브라우저 자동화
+도구가 이 환경에 없어 모달 실제 클릭/렌더링은 라이브 검증 불가 — 기존 검증된 컴포넌트 패턴
+(TestRunModal 모달 스타일, DebugPanel decisions 추출)을 그대로 재사용해 리스크를 낮췄다.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

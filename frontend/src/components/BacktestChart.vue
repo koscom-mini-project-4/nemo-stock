@@ -36,6 +36,7 @@ const props = defineProps<{ result: BacktestResultOut }>()
 const emit = defineEmits<{
   select: [selection: BacktestExplainSelection]
   'select-day': [date: string]
+  'open-trade': [trade: TradeOut]
 }>()
 
 const selectedSymbol = ref(props.result.universe[0] ?? '')
@@ -310,6 +311,7 @@ function onMouseDown(e: MouseEvent) {
     const trade = point.trade as TradeOut
     emit('select', { kind: 'point', symbol: selectedSymbol.value, date: trade.date })
     emit('select-day', trade.date)
+    emit('open-trade', trade)
     return
   }
   dragging = true

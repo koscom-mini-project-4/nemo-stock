@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { NodeDecision, NodeEventOut } from '@/api/types'
+import type { NodeEventOut } from '@/api/types'
+import { decisionsForEvent } from '@/utils/decisions'
 
 defineProps<{
   events: NodeEventOut[]
@@ -20,21 +21,8 @@ const STATUS_ICON: Record<string, string> = {
   skipped: '⏭️',
 }
 
-interface DecisionRow extends NodeDecision {
-  symbol: string
-}
-
-// 필터형 노드(logic.if_else/logic.rank/risk.stop_loss/조건 내장 지표 노드)가 남긴
-// 종목별 판단 근거를 output_snapshot.meta.decisions[node_id]에서 읽는다.
-function decisionsFor(evt: NodeEventOut): DecisionRow[] {
-  const meta = evt.output_snapshot?.meta as { decisions?: Record<string, Record<string, NodeDecision>> } | undefined
-  const raw = meta?.decisions?.[evt.node_id]
-  if (!raw) return []
-  return Object.entries(raw).map(([symbol, decision]) => ({ symbol, ...decision }))
-}
-
 function decisionSummary(evt: NodeEventOut): string | null {
-  const rows = decisionsFor(evt)
+  const rows = decisionsForEvent(evt)
   if (rows.length === 0) return null
   const passed = rows.filter((r) => r.pass).length
   return `통과 ${passed} · 탈락 ${rows.length - passed}`
@@ -64,12 +52,12 @@ defineExpose({ select })
 
     <div v-if="selectedIndex !== null && events[selectedIndex]" class="debug-detail">
       <div v-if="events[selectedIndex].error" class="error mono">{{ events[selectedIndex].error }}</div>
-      <div v-if="decisionsFor(events[selectedIndex]).length" class="detail-block">
+      <div v-if="decisionsForEvent(events[selectedIndex]).length" class="detail-block">
         <div class="text-muted">판단 결과</div>
         <table class="decision-table">
           <tbody>
             <tr
-              v-for="row in decisionsFor(events[selectedIndex])"
+              v-for="row in decisionsForEvent(events[selectedIndex])"
               :key="row.symbol"
               :class="row.pass ? 'decision-pass' : 'decision-fail'"
             >

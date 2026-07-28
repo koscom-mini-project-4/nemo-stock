@@ -411,6 +411,51 @@ Part 4(실제 5일+키워드 크롤 트리거)를 실행하기 직전, 사용자
   `httpx.MockTransport`로 구조/필드만 검증). 사용자가 `.env`에 앱키/시크릿/계좌번호를 채워
   넣은 뒤 실제 모의투자 계좌로 한 번 더 확인 권장.
 
+## 0-14. 백테스트 매매 지점 클릭 → "왜 샀는지" 팝업 (2026-07-28 사용자 요청)
+
+사용자 요청: "매수/매도가 어떤 로직으로 인해 발생했는지, 뉴스 노드가 true면 어떤 뉴스로
+종합적으로 그렇게 됐는지 보여줬으면 좋겠다. 그래프에서 특정 지점을 클릭하면 팝업으로 흐름이
+시각적으로 잘 보이면 좋겠고, AI api로 뉴스 이유를 요청해서 가져와도 된다."
+
+조사 결과 관련 인프라(매매 마커 클릭 → 그래프 리플레이/DebugPanel, `POST /ai/backtest-explain`)
+가 이미 있었지만 세 가지 사각지대가 있었다: (1) 팝업이 아니라 상시 패널이라 노드를 하나씩
+클릭해야 사유를 봄, (2) `_build_backtest_selection()`이 `meta.decisions`(판단 사유, `ai.
+news_signal`이면 참고 뉴스 제목까지 담김)를 AI 프롬프트에 전혀 안 실음, (3) `used_news`는
+`data.news`(구 파이프라인)만 알고 `ai.news_signal`이 쓰는 newsstock.db 클러스터는 몰라
+AI가 뉴스 근거를 볼 방법이 없었음(§0-6에서 마커 엔드포인트는 고쳤지만 AI-explain 쪽은 그때
+안 고쳤던 사각지대).
+
+- **Part A**: `app/api/routers/ai.py::_summarize_day_events()`가 이제 노드 타입과 무관하게
+  `meta.decisions[node_id]`를 각 노드 요약에 포함한다(기존엔 `logic.if_else`/`execution.
+  market_order`만 특수 처리). 이 한 줄로 `ai.news_signal`/`risk.stop_loss`/지표 조건 노드 등
+  모든 필터형 노드의 판단 사유(뉴스 근거 텍스트 포함)가 AI 프롬프트에 자동으로 실린다.
+- **Part B**: `get_backtest_news_signal()`(마커 엔드포인트, `backtest.py`)의 "워크플로의
+  `ai.news_signal` 노드 파라미터로 축/키 결정 → `news_trader_factory`로 클러스터 조회" 로직을
+  `app/nodes/ai/news_signal.py::resolve_news_signal_clusters()`로 추출해 `backtest.py`(마커)와
+  `ai.py::_build_backtest_selection()`(AI 설명 근거, `selection["news_signal_clusters"]`)가
+  공유하도록 리팩터링. `backtest_explain.py`의 시스템 프롬프트에도 이 필드를 명시해 AI가 실제
+  뉴스 제목을 인용하도록 안내.
+- **Part C**: `frontend/src/components/TradeExplainModal.vue` 신규 — 매매 마커 클릭 시 뜨는
+  팝업. 열리면 `fetchRun(workflowId, trade.run_id)`로 그날의 노드 실행 이벤트를 가져와
+  `trade.symbol`의 `decisions`를 순서대로 세로 스텝 타임라인(무료, AI 호출 없음, 즉시 표시)
+  으로 보여준다. `DebugPanel.vue`가 이미 쓰던 `output_snapshot.meta.decisions` 추출 로직을
+  `src/utils/decisions.ts`(`decisionsForEvent`/`decisionForSymbol`)로 공유 유틸로 뽑아 두
+  컴포넌트가 재사용. 하단 "AI 종합 설명 요청" 버튼을 눌러야만(호출 비용 발생 지점) 기존
+  `explainBacktest()`를 호출해 자연어 요약을 받아온다(Part A/B 덕분에 이제 실제 뉴스 근거를
+  인용 가능).
+- **Part D**: `BacktestChart.vue`에 `open-trade` emit 추가(매매 마커 클릭 시 기존 `select`/
+  `select-day` emit과 나란히 발행 — 사이드 AskPanel·그래프 리플레이는 그대로 유지, 비파괴적
+  추가). `BacktestResultView.vue`가 이를 받아 모달을 띄운다.
+
+**검증**: `app/nodes/ai/news_signal.py::resolve_news_signal_clusters` 단위 테스트 3개(
+`test_news_signal_node.py`) + `/ai/backtest-explain` 통합 테스트(`test_api_backtest_news_
+signal_cap.py`, `FakeAIClient`로 캡처한 프롬프트에 뉴스 제목/`decisions`/`news_signal_
+clusters`가 실제로 포함되는지 검증) 추가. 백엔드 pytest 336→340개 전부 통과, 리팩터링한
+`get_backtest_news_signal` 기존 테스트도 그대로 통과(동작 불변 확인). `vue-tsc -b` 통과.
+브라우저 자동화 도구가 이 환경에 없어 모달의 실제 클릭/렌더링은 라이브 검증 불가 — 기존
+검증된 패턴(TestRunModal 모달 CSS, DebugPanel decisions 추출 로직)을 그대로 재사용해 리스크를
+낮췄다.
+
 ---
 
 ## 1. 목표와 PoC 범위
