@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { generateDraft } from '@/api/services'
 import type { GenerateDraftResponse } from '@/api/types'
 import { useDraftStore } from '@/stores/draft'
+import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
 
 const idea = ref('')
 const universeText = ref('')
@@ -37,6 +38,40 @@ const IDEA_TEMPLATES: IdeaTemplate[] = [
     label: '공시 호재 반응 매매',
     idea: '실적 관련 공시가 긍정적으로 평가되는 종목을 매수하고 싶다',
     universe: '005930,000660',
+  },
+  {
+    label: '뉴스+AI 확신도 매수, 익절/손절/보유기간/포지션 관리',
+    idea:
+      '삼성전자와 SK하이닉스를 대상으로, 실적 관련 긍정적 뉴스가 나오고 AI 확신도가 0.7 이상이면 ' +
+      '매수해줘. 5% 오르면 익절, 3% 빠지면 손절하고, 최대 10일 보유. 종목당 자본의 5%씩 투입하고 ' +
+      '동시에 최대 5종목까지만 보유해. 전체 포트폴리오 손실이 15%를 넘으면 전략을 자동으로 멈춰줘.',
+    universe: '005930,000660',
+  },
+  {
+    label: 'RSI+이동평균 눌림목 매수, 비중 제한',
+    idea:
+      'RSI가 30 이하로 과매도이면서 20일 이동평균선이 여전히 상승 추세일 때 매수해줘. 종목당 최대 ' +
+      '비중은 전체 자산의 10%로 제한하고, 매수가 대비 7% 하락하면 손절해줘.',
+  },
+  {
+    label: '거래량 급증 + 공시 호재, 이동평균 이탈 시 청산',
+    idea:
+      '실적 공시가 긍정적으로 평가되고 거래량이 평소보다 2배 이상 터진 종목만 매수해줘. 매수 후 ' +
+      '20일 이동평균선 아래로 떨어지면 전량 매도하고, 매수가 대비 10% 상승하면 익절해줘.',
+  },
+  {
+    label: '섹터 모멘텀 + 거시 리스크 회피',
+    idea:
+      '반도체 섹터 모멘텀이 강할 때만 매수하고, 거시 리스크 지표가 위험 신호를 보내면 즉시 전량 ' +
+      '매도해줘. 매수 후 최대 15일 보유, 3% 손절·5% 익절 기준을 적용하고 한 번에 최대 3종목까지만 ' +
+      '보유해줘.',
+  },
+  {
+    label: '볼린저밴드 상단 돌파 + 거래량 급증',
+    idea:
+      '볼린저밴드 상단을 돌파하면서 거래량이 급증한 종목을 매수해줘. 매수가 대비 4% 상승하면 익절, ' +
+      '2% 하락하면 손절하고 종목당 자본의 8%씩 투입해줘. 전체 포트폴리오가 -10% 손실이면 신규 ' +
+      '매수를 멈춰줘.',
   },
 ]
 
@@ -128,7 +163,7 @@ function editOnCanvas() {
       </label>
       <label>
         대상 종목코드 (콤마 구분, 선택)
-        <input v-model="universeText" type="text" placeholder="005930,000660" />
+        <SymbolAutocomplete v-model="universeText" />
       </label>
       <button class="btn btn-primary" :disabled="loading || !idea.trim()" @click="submit">
         {{ loading ? '생성 중...' : '초안 생성' }}

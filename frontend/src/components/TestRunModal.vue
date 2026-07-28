@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -58,7 +59,7 @@ function submit() {
 
       <label>
         대상 종목코드 (콤마 구분)
-        <input v-model="universeText" type="text" placeholder="005930,000660" />
+        <SymbolAutocomplete v-model="universeText" />
       </label>
 
       <label>

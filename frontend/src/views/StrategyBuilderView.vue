@@ -294,7 +294,12 @@ async function toggleActivate() {
 }
 
 async function openTestRun() {
-  await ensureSaved()
+  try {
+    await ensureSaved()
+  } catch {
+    alert('전략을 저장하지 못해 테스트를 열 수 없습니다. 이름/그래프를 확인한 뒤 "저장" 버튼으로 다시 시도해주세요.')
+    return
+  }
   testRunModalVisible.value = true
 }
 
@@ -367,9 +372,15 @@ async function runNodeTest(nodeId: string) {
   }
 }
 
-function goBacktest() {
-  if (!workflowId.value) return
-  router.push({ path: '/backtests/new', query: { workflow_id: workflowId.value, universe: schedulerUniverse.value } })
+async function goBacktest() {
+  let id: string
+  try {
+    id = await ensureSaved()
+  } catch {
+    alert('전략을 저장하지 못해 백테스트를 열 수 없습니다. 이름/그래프를 확인한 뒤 "저장" 버튼으로 다시 시도해주세요.')
+    return
+  }
+  router.push({ path: '/backtests/new', query: { workflow_id: id, universe: schedulerUniverse.value } })
 }
 
 onMounted(load)

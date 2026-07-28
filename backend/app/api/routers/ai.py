@@ -13,6 +13,8 @@ from app.api.deps import get_ai_client, get_container
 from app.auth.security import get_current_username
 from app.dao.base import NodeEventRecord
 from app.dependencies import Container
+from app.nodes.ai.news_signal import resolve_news_signal_clusters
+from app.workflow.graph import WorkflowGraph
 from app.schemas.ai import (
     AIUsageDelta,
     BacktestExplainRequest,
@@ -116,6 +118,14 @@ def _summarize_day_events(events: list[NodeEventRecord]) -> dict[str, Any]:
             orders = event.output_json.get("meta", {}).get("orders", [])
             if orders:
                 entry["orders"] = orders
+        # 노드 타입과 무관하게(logic.if_else/risk.stop_loss/indicator.rsi_signal/
+        # ai.news_signal 등 모든 필터형 노드가 공통으로 씀) 종목별 통과/탈락 판단 사유를
+        # 담는다 — ai.news_signal은 여기에 실제 참고한 뉴스 제목/기여점수까지 텍스트로
+        # 담겨 있어(app/nodes/ai/news_signal.py), 이걸 안 실으면 AI가 "왜 샀는지" 설명할 때
+        # 뉴스 근거를 전혀 못 본다(이전까지의 누락).
+        decisions = event.output_json.get("meta", {}).get("decisions", {}).get(event.node_id)
+        if decisions:
+            entry["decisions"] = decisions
         nodes.append(entry)
     return {"nodes": nodes}
 
@@ -165,6 +175,22 @@ def _build_backtest_selection(payload: BacktestExplainRequest, container: Contai
             if news is not None:
                 used_news.append({"date": d["date"], "title": news.title, "published_at": news.published_at.isoformat()})
 
+    # used_news는 data.news(구 파이프라인)만 알고 ai.news_signal이 쓰는 newsstock.db 클러스터는
+    # 전혀 모른다(§0-6에서 마커 엔드포인트는 고쳤지만 여기는 그때 놓쳤던 사각지대) — 워크플로에
+    # ai.news_signal 노드가 있으면 같은 조회 로직(resolve_news_signal_clusters)을 공유해 실제
+    # 참고한 뉴스 클러스터 원문을 selection에 함께 싣는다.
+    news_signal_clusters: list[dict[str, Any]] = []
+    graph_obj = WorkflowGraph.from_dict(workflow.graph)
+    news_signal_node = next((n for n in graph_obj.nodes.values() if n.type == "ai.news_signal"), None)
+    if news_signal_node is not None:
+        news_signal_clusters = resolve_news_signal_clusters(
+            news_signal_node,
+            sel.symbol,
+            datetime.fromisoformat(start_date).date(),
+            datetime.fromisoformat(end_date).date(),
+            container.news_trader_factory,
+        )
+
     selection = {
         "kind": sel.kind,
         "symbol": sel.symbol,
@@ -174,6 +200,7 @@ def _build_backtest_selection(payload: BacktestExplainRequest, container: Contai
         "daily_summaries": daily_summaries,
         "price_series": price_series,
         "used_news": used_news,
+        "news_signal_clusters": news_signal_clusters,
     }
     return workflow.name, workflow.graph, selection
 

@@ -80,7 +80,7 @@ fork 저장소를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit
 | 신규 노드 | `ai.news_signal`(§3.2) — `params.axis`(종목/섹터/거시경제)에 따라 `NewsTrader.stock`/`sector`/`macro`를 호출해 `symbols[code]`에 `news_verdict`/`news_score`/`news_cluster_count`/`news_true`(bool)를 채우고 `params.pass_when` 기준으로 필터링하는 조건 내장형 노드(§0-4의 필터형 노드 패턴을 그대로 따름). axis="종목"이고 `key`를 안 주면 `app/market_data/symbol_master.py`로 종목코드→한글명 자동 매핑. |
 | 다른 기능에서의 크롤링 트리거 | `ai.news_signal`은 `params.auto_update`(기본 true)로 실행 시점에 스스로 갱신을 트리거하지만(라이브러리 자체 30분 쓰로틀로 비용 제한), 이를 꺼둔 워크플로나 다른 기능(대시보드 등)이 독립적으로 트리거할 수 있도록 `POST /data/news/update`(§9) 엔드포인트를 추가해 `news_trader_factory`를 통한 수동 갱신을 노출한다. |
 | 백테스트 시점 인식 | `NewsTrader.stock/sector/macro()`는 `start`를 안 주면 항상 "실제 오늘"을 기준으로 계산하므로, 백테스트가 과거 날짜로 `context.timestamp`를 바꿔가며 노드를 반복 실행해도 매 거래일이 전부 동일한(가장 최근) 결과를 받는 문제가 있었다. `ai.news_signal`이 `start=context.timestamp.date()`를 명시적으로 넘기도록 수정해 백테스트의 각 거래일이 그 날짜 시점의 뉴스 창을 보게 했다. |
-| 백테스트 AI 호출량 제한 | 위 수정으로 백테스트 거래일마다 서로 다른 조회가 실제로 일어나게 되어, 기간이 길어질수록 OpenAI 호출(뉴스 분류)이 그만큼 늘어난다. 비용을 예측 가능한 범위로 묶기 위해 `ai.news_signal` 노드가 포함된 워크플로의 백테스트는 기간을 제한한다(`app/api/routers/backtest.py::NEWS_SIGNAL_BACKTEST_MAX_DAYS`, 초과 시 400. 최초 4일 → 2026-07-28 사용자 확인으로 **7일**로 상향). |
+| 백테스트 AI 호출량 제한 | 위 수정으로 백테스트 거래일마다 서로 다른 조회가 실제로 일어나게 되어, 기간이 길어질수록 OpenAI 호출(뉴스 분류)이 그만큼 늘어난다. 비용을 예측 가능한 범위로 묶기 위해 `ai.news_signal` 노드가 포함된 워크플로의 백테스트는 기간을 제한한다(`app/api/routers/backtest.py::NEWS_SIGNAL_BACKTEST_MAX_DAYS`, 초과 시 400. 최초 4일 → 7일 → 2026-07-28 사용자 확인으로 **14일**로 상향). |
 | 크롤러 병렬 fetch | 실제 크롤링(`POST /data/news/update`)이 원본 순차 구현 기준 수분 이상 걸려, `crawler.py::crawl()`에 `workers` 파라미터(기본 `CRAWL_WORKERS=4`)를 추가해 페이지 안의 기사들을 `ThreadPoolExecutor`로 동시에 fetch하게 했다. 스레드마다 별도 `requests.Session`(별도 connection pool, `threading.local`)을 쓰고 지연은 워커별로 각자 넣어 정중함 정책은 유지한다. 목록 페이지 조회와 AI 분류(`pipeline.classify_many`, 오래된 뉴스부터 순서대로 처리해야 클러스터가 올바르게 쌓이는 순차 의존성)는 병렬화 대상에서 제외했다. |
 
 ## 0-6. 추가 확정 사항 (2026-07-28 사용자 확인 — fork 뉴스 신호 파이프라인 포트 + 백테스트/관리자 UX)
@@ -93,7 +93,7 @@ fork 저장소를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit
 | `ai.news_signal` 파라미터 확장 | `NewsTrader`의 `threshold`/`decay_base`/`include_zero`/`decay_from`(전부 라이브러리 기본값과 동일한 기본값)을 노드 파라미터로 노출해 사용자가 직접 조절 가능하게 함(`Container.news_trader_factory`도 동일 kwargs를 받도록 확장). |
 | 백테스트 뉴스 마커 버그 수정 | `/backtest/{id}/news/{used,all}`이 `data.news`/`NewsRepository`(구 파이프라인)만 알고 `ai.news_signal`이 쓰는 `newsstock.db`는 몰라, 그 노드만 쓰는 워크플로는 마커가 항상 비어 있었다(§0-5 도입 시 놓쳤던 버그). `GET /backtest/{id}/news/signal` 신규 추가 — 워크플로의 `ai.news_signal` 노드 파라미터로 조회해 `클러스터` 목록을 마커로 변환. 프론트는 기존 "참고 뉴스"와 별개 시각(보라 삼각형)으로 병렬 표시. |
 | 백테스트 신규 폼 기본 기간 | `ai.news_signal` 노드가 포함된 워크플로를 선택하면 시작/종료일을 "최근 개장일 기준 4일"로 자동 설정(공휴일 캘린더 없이 주말만 건너뛰는 근사, 워크플로 변경 시에만 재적용). AI 호출량 상한(§0-5)과 별개로 UX 기본값만 다룬다. |
-| 백테스트 AI 호출량 상한 재조정 | 4일 → **7일**로 상향(`NEWS_SIGNAL_BACKTEST_MAX_DAYS`). |
+| 백테스트 AI 호출량 상한 재조정 | 4일 → 7일 → **14일**로 상향(`NEWS_SIGNAL_BACKTEST_MAX_DAYS`, 2026-07-28 사용자 재확인). |
 | 판정 근거의 "주요 주제" 노출 | `ai.news_signal`이 판정에 가장 큰 영향을 준 뉴스 클러스터(`|점수|` 최대)를 `news_top_topic`/`news_top_topic_score`로 symbols에 채우고 `meta.decisions`의 판단 사유 문구에도 포함 — true/false 판정의 근거를 사람이 바로 확인 가능. |
 | 백테스트 차트 시간봉 | `GET /backtest/{id}/prices`에 `interval`(기본 `day`, `minute60`) 파라미터를 추가해 기존 `intraday_price_bar_repo`를 노출. 프론트는 `minute60`을 먼저 시도하고 데이터가 있으면(§0-2 실측 한계로 최근 약 8거래일치만 존재) 그걸, 없으면 일봉으로 자동 폴백. 시간봉 모드에서는 매매/뉴스 마커·자산곡선을 "그 날짜의 마지막 봉"에 맞춰 매핑(라벨이 날짜+시각이라 기존 정확히-같은-문자열 매칭이 깨지므로). 백테스트 엔진 자체는 여전히 일봉 기준(§8-1 원칙 유지) — 이건 차트 표시 전용. |
 | 관리자 페이지 신설 | `/admin`(프론트 `AdminView.vue`) — (1) 뉴스 분석 현황: `NewsTrader.stats()`/`clusters()`를 그대로 노출(`GET /data/news/{stats,clusters}`) + 수동 갱신 버튼, (2) 사용량 통계: 백테스트 실행 수 + AI 호출 수/토큰 수(목적별·모델별). 단일 관리자 계정 구조라 별도 권한 분기 없음. |
@@ -410,6 +410,99 @@ Part 4(실제 5일+키워드 크롤 트리거)를 실행하기 직전, 사용자
 - 실제 앱키 발급 전이라 실호출 검증은 못했다(`tests/unit/test_kis_adapter.py`가
   `httpx.MockTransport`로 구조/필드만 검증). 사용자가 `.env`에 앱키/시크릿/계좌번호를 채워
   넣은 뒤 실제 모의투자 계좌로 한 번 더 확인 권장.
+
+## 0-14. 백테스트 매매 지점 클릭 → "왜 샀는지" 팝업 (2026-07-28 사용자 요청)
+
+사용자 요청: "매수/매도가 어떤 로직으로 인해 발생했는지, 뉴스 노드가 true면 어떤 뉴스로
+종합적으로 그렇게 됐는지 보여줬으면 좋겠다. 그래프에서 특정 지점을 클릭하면 팝업으로 흐름이
+시각적으로 잘 보이면 좋겠고, AI api로 뉴스 이유를 요청해서 가져와도 된다."
+
+조사 결과 관련 인프라(매매 마커 클릭 → 그래프 리플레이/DebugPanel, `POST /ai/backtest-explain`)
+가 이미 있었지만 세 가지 사각지대가 있었다: (1) 팝업이 아니라 상시 패널이라 노드를 하나씩
+클릭해야 사유를 봄, (2) `_build_backtest_selection()`이 `meta.decisions`(판단 사유, `ai.
+news_signal`이면 참고 뉴스 제목까지 담김)를 AI 프롬프트에 전혀 안 실음, (3) `used_news`는
+`data.news`(구 파이프라인)만 알고 `ai.news_signal`이 쓰는 newsstock.db 클러스터는 몰라
+AI가 뉴스 근거를 볼 방법이 없었음(§0-6에서 마커 엔드포인트는 고쳤지만 AI-explain 쪽은 그때
+안 고쳤던 사각지대).
+
+- **Part A**: `app/api/routers/ai.py::_summarize_day_events()`가 이제 노드 타입과 무관하게
+  `meta.decisions[node_id]`를 각 노드 요약에 포함한다(기존엔 `logic.if_else`/`execution.
+  market_order`만 특수 처리). 이 한 줄로 `ai.news_signal`/`risk.stop_loss`/지표 조건 노드 등
+  모든 필터형 노드의 판단 사유(뉴스 근거 텍스트 포함)가 AI 프롬프트에 자동으로 실린다.
+- **Part B**: `get_backtest_news_signal()`(마커 엔드포인트, `backtest.py`)의 "워크플로의
+  `ai.news_signal` 노드 파라미터로 축/키 결정 → `news_trader_factory`로 클러스터 조회" 로직을
+  `app/nodes/ai/news_signal.py::resolve_news_signal_clusters()`로 추출해 `backtest.py`(마커)와
+  `ai.py::_build_backtest_selection()`(AI 설명 근거, `selection["news_signal_clusters"]`)가
+  공유하도록 리팩터링. `backtest_explain.py`의 시스템 프롬프트에도 이 필드를 명시해 AI가 실제
+  뉴스 제목을 인용하도록 안내.
+- **Part C**: `frontend/src/components/TradeExplainModal.vue` 신규 — 매매 마커 클릭 시 뜨는
+  팝업. 열리면 `fetchRun(workflowId, trade.run_id)`로 그날의 노드 실행 이벤트를 가져와
+  `trade.symbol`의 `decisions`를 순서대로 세로 스텝 타임라인(무료, AI 호출 없음, 즉시 표시)
+  으로 보여준다. `DebugPanel.vue`가 이미 쓰던 `output_snapshot.meta.decisions` 추출 로직을
+  `src/utils/decisions.ts`(`decisionsForEvent`/`decisionForSymbol`)로 공유 유틸로 뽑아 두
+  컴포넌트가 재사용. 하단 "AI 종합 설명 요청" 버튼을 눌러야만(호출 비용 발생 지점) 기존
+  `explainBacktest()`를 호출해 자연어 요약을 받아온다(Part A/B 덕분에 이제 실제 뉴스 근거를
+  인용 가능).
+- **Part D**: `BacktestChart.vue`에 `open-trade` emit 추가(매매 마커 클릭 시 기존 `select`/
+  `select-day` emit과 나란히 발행 — 사이드 AskPanel·그래프 리플레이는 그대로 유지, 비파괴적
+  추가). `BacktestResultView.vue`가 이를 받아 모달을 띄운다.
+
+**검증**: `app/nodes/ai/news_signal.py::resolve_news_signal_clusters` 단위 테스트 3개(
+`test_news_signal_node.py`) + `/ai/backtest-explain` 통합 테스트(`test_api_backtest_news_
+signal_cap.py`, `FakeAIClient`로 캡처한 프롬프트에 뉴스 제목/`decisions`/`news_signal_
+clusters`가 실제로 포함되는지 검증) 추가. 백엔드 pytest 336→340개 전부 통과, 리팩터링한
+`get_backtest_news_signal` 기존 테스트도 그대로 통과(동작 불변 확인). `vue-tsc -b` 통과.
+브라우저 자동화 도구가 이 환경에 없어 모달의 실제 클릭/렌더링은 라이브 검증 불가 — 기존
+검증된 패턴(TestRunModal 모달 CSS, DebugPanel decisions 추출 로직)을 그대로 재사용해 리스크를
+낮췄다.
+
+## 0-15. .env로 AI 제공자(OpenAI ↔ Claude) 선택 (2026-07-29 사용자 요청)
+
+사용자 요청: "`.env`를 사용해서 claude를 사용할지, openai를 사용할지 결정할 수 있도록 해
+주세요." 이 저장소는 이미 AI 호출을 `app/ai/base.py::AIClient`(ABC, `complete_json`/
+`complete_with_tools`)로 추상화해뒀고, 소비자(워크플로 초안/챗봇/백테스트 설명/`ai.free_
+prompt`/`ai.sentiment_score`)는 전부 인터페이스로만 의존해 `app/dependencies.py::
+build_container()`의 단 한 줄에서만 구체 구현을 생성한다 — `market_data_provider`/
+`order_provider`와 동일한 "provider 문자열 선택 + 팩토리 분기" 패턴을 그대로 적용했다.
+
+- `app/ai/claude_client.py`(신규): `ClaudeClient(AIClient)`. 엔드포인트/필드는 공식 문서
+  (`platform.claude.com/docs/en/api/messages`)를 직접 대조해 확인(추정 아님) — `model`/
+  `max_tokens`/`messages` 필수, `system`은 최상위 문자열 파라미터, 도구는
+  `{"name","description","input_schema"}` 형태(OpenAI의 `{"type":"function","function":
+  {...}}`와 달라 `_tool_to_anthropic()`으로 변환), 응답은 `content`(TextBlock/ToolUseBlock
+  배열) + `usage.input_tokens`/`output_tokens`(`prompt_tokens`/`completion_tokens`로 매핑해
+  기존 `AIUsageRecord`와 동일 계약 유지). `complete_json`은 Claude에 OpenAI의
+  `response_format=json_object` 같은 강제 JSON 모드가 없어 텍스트 블록을 모아 마크다운
+  코드펜스만 벗겨내고 `json.loads`. OpenAIClient의 temperature/reasoning_effort 특이
+  재시도 로직(§0-1, §0-16 이전 항목)은 이식하지 않음 — Claude 표준 API는 그런 제약이 없어
+  더 단순하게 유지.
+- `Settings.ai_provider`(기본 `"openai"`, `openai|claude`) + `anthropic_api_key`/
+  `anthropic_model`(기본 `"claude-sonnet-5"`) 추가. `app/dependencies.py::_build_ai_client()`
+  로 인라인 생성 코드를 추출(`_build_market_data_provider`/`_build_order_provider`와 동일
+  위치/패턴)해 `build_container()`가 호출. `.env`/`.env.example`에 `AI_PROVIDER=openai`,
+  `ANTHROPIC_API_KEY=`(빈 값, 사용자가 직접 채워 넣음), `ANTHROPIC_MODEL=claude-sonnet-5`
+  추가.
+- **범위 밖(명시적 결정)**: `app/vendor/news_classifier`(newsstock-lib, `ai.news_signal`
+  노드가 씀)는 자체 하드코딩된 OpenAI 클라이언트(`classifier.py::_client_once`/`call_ai`)를
+  갖는 완전히 별개의 vendored 파이프라인이라 이 토글의 영향을 받지 않는다 — vendored 코드
+  최소 수정 원칙(세션 전체에서 유지) + 사용량 로그만 콜백으로 같은 `ai_usage_repo`에 남기는
+  기존 구조를 그대로 둠.
+- **부수 발견/수정(테스트 인프라 버그)**: 전체 테스트 실행 중 `tests/conftest.py::app_client`
+  픽스처가 toss/koscom 자격증명만 빈 값으로 강제하고 `market_data_provider`/`order_provider`
+  선택 자체는 그대로 둬, 로컬 `.env`가 실사용을 위해 `koscom`/`kis` 등으로 설정돼 있으면
+  `build_container()`가 크리덴셜 누락 `RuntimeError`를 내며 거의 모든 통합 테스트가 fixture
+  단계에서 깨지는 문제를 실제로 겪고 발견 — `market_data_provider`/`order_provider`/
+  `ai_provider`/KIS·Anthropic 크리덴셜도 함께 강제로 되돌리도록 수정(이 픽스처의 기존 주석에
+  이미 명시된 "로컬 .env와 무관하게 결정적으로 동작해야 한다"는 의도를 완성한 것).
+
+**검증**: `tests/unit/test_claude_client.py`(신규, `test_openai_client.py`와 동일한 형태 —
+text/코드펜스 파싱, tool_use 라운드트립, max_rounds 폴백, 사용량 매핑, api_key 없을 때
+`AIUnavailableError`) + `test_provider_selection.py`에 `_build_ai_client` 케이스 3개 추가.
+백엔드 pytest 340→350개 전부 통과(`test_koscom_live.py`는 실 시장 상황에 따라 비결정적인
+기존 라이브 테스트라 제외 — §0-15와 무관). `vue-tsc -b` 통과(프론트 변경 없음, 관리자 페이지
+사용량 통계가 이미 provider 구분 없이 `model` 문자열 기준으로 집계해 그대로 동작). 실제
+Anthropic API 호출 검증은 못함(사용자가 이후 `ANTHROPIC_API_KEY`를 직접 채워 넣을 예정) —
+mock 기반 유닛 테스트로 구조/필드만 확인.
 
 ---
 

@@ -12,8 +12,7 @@ from app.dao.base import BacktestResultRecord, IntradayPriceBarRepository
 from app.data_ingestion.auto_ingest import ensure_price_data
 from app.data_ingestion.naver_price_client import NaverStockChartClient
 from app.dependencies import Container
-from app.market_data.symbol_master import get_symbol_name
-from app.nodes.ai.news_signal import AXIS_METHOD
+from app.nodes.ai.news_signal import resolve_news_signal_clusters
 from app.schemas.backtest import (
     BacktestRequest,
     BacktestResultOut,
@@ -30,10 +29,10 @@ router = APIRouter(prefix="/backtest", tags=["backtest"], dependencies=[Depends(
 # ai.news_signal(auto_update=true)은 거래일마다 AI 분류를 다시 트리거할 수 있어(뉴스가 실행
 # 시점 날짜 기준으로 조회되도록 바뀐 뒤로는 각 거래일이 서로 다른 조회를 만듦), 백테스트 기간이
 # 길어질수록 OpenAI 호출이 그만큼 늘어난다. 비용을 예측 가능한 범위로 묶기 위해 이 노드가 포함된
-# 백테스트는 기간을 제한한다(2026-07-28 사용자 확인: 4일 → 7일로 상향).
+# 백테스트는 기간을 제한한다(2026-07-28 사용자 확인: 4일 → 7일 → 14일로 상향).
 # ai.free_prompt(§0-9)도 심볼×거래일마다 실제 AI 호출이 나가고(도구 호출 모드는 라운드당
 # 추가 호출까지) 캐시가 없어 동일한 위험이 있으므로 같은 제한을 적용한다.
-NEWS_SIGNAL_BACKTEST_MAX_DAYS = 7
+NEWS_SIGNAL_BACKTEST_MAX_DAYS = 14
 _AI_COST_NODE_TYPES = {"ai.news_signal", "ai.free_prompt"}
 
 
@@ -275,37 +274,12 @@ def get_backtest_news_signal(
     if node is None:
         return []
 
-    axis = str(node.params.get("axis", "종목"))
-    key = str(node.params.get("key", "") or "")
-    if axis == "종목" and not key:
-        key = get_symbol_name(symbol) or ""
-    if not key:
-        return []
-
-    period_days = int(node.params.get("period_days", 7) or 7)
-    threshold = float(node.params.get("threshold", 0.1) or 0.1)
-    decay_base = float(node.params.get("decay_base", 0.3) or 0.3)
-    include_zero = bool(node.params.get("include_zero", True))
-    decay_from = str(node.params.get("decay_from", "end") or "end")
-    method_name = AXIS_METHOD.get(axis, "stock")
-
-    # 노드는 매 거래일 start=그날, period=period_days(그날부터 앞으로 period_days)로 조회한다.
-    # 백테스트 전체 표시 구간을 한 번에 커버하려면 start=백테스트 시작일, period=
-    # (백테스트 기간 + 노드의 조회기간)으로 넓혀서 조회하면 각 거래일이 봤을 구간의 합집합을
-    # 충분히 덮는다(경계 며칠 정도 더 넓게 잡히는 건 마커 표시 목적상 무해하다).
-    span_days = (record.end_date - record.start_date).days + period_days
-
-    trader = container.news_trader_factory(
-        auto_update=False, threshold=threshold, decay_base=decay_base,
-        include_zero=include_zero, decay_from=decay_from,
+    clusters = resolve_news_signal_clusters(
+        node, symbol, record.start_date, record.end_date, container.news_trader_factory
     )
-    try:
-        result = getattr(trader, method_name)(key, start=record.start_date.isoformat(), period=span_days)
-    finally:
-        trader.close()
 
     markers: list[NewsMarkerOut] = []
-    for cluster in result.get("클러스터", []) or []:
+    for cluster in clusters:
         first_seen = str(cluster.get("최초발생날짜", ""))
         markers.append(
             NewsMarkerOut(

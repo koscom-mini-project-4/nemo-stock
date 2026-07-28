@@ -9,12 +9,14 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import { fetchBacktest, fetchNodeTypes, fetchRun, fetchWorkflow, runBacktest } from '@/api/services'
 import { subscribeRunEvents } from '@/api/ws'
-import type { BacktestExplainSelection, BacktestResultOut, NodeEventOut, NodeTypeSchema } from '@/api/types'
+import type { BacktestExplainSelection, BacktestResultOut, NodeEventOut, NodeTypeSchema, TradeOut } from '@/api/types'
 import { graphToFlowElements, type FlowNodeData } from '@/utils/flowAdapter'
 import BacktestChart from '@/components/BacktestChart.vue'
 import BacktestAskPanel from '@/components/BacktestAskPanel.vue'
 import BacktestProgressPanel from '@/components/BacktestProgressPanel.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
+import TradeExplainModal from '@/components/TradeExplainModal.vue'
+import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
 
 const props = defineProps<{ id: string }>()
 
@@ -67,6 +69,16 @@ function onChartSelectDay(date: string) {
   }
 }
 
+// 매매 마커 클릭 시 뜨는 팝업(§ "왜 샀는지" 설명) — 위 select/select-day와는 별개로 추가된
+// emit이라 기존 사이드 AskPanel/그래프 리플레이 동작은 그대로 유지된다.
+const tradeModalTrade = ref<TradeOut | null>(null)
+const tradeModalVisible = ref(false)
+
+function onOpenTrade(trade: TradeOut) {
+  tradeModalTrade.value = trade
+  tradeModalVisible.value = true
+}
+
 function defaultEnd() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -103,7 +115,7 @@ function recentTradingDayRange(days: number): { start: string; end: string } {
 
 const NEWS_SIGNAL_DEFAULT_DAYS = 4
 // 백엔드 app/api/routers/backtest.py::NEWS_SIGNAL_BACKTEST_MAX_DAYS와 값을 맞춘다(안내 문구 전용).
-const NEWS_SIGNAL_MAX_DAYS = 7
+const NEWS_SIGNAL_MAX_DAYS = 14
 const newsRangeAppliedFor = ref('')
 
 async function applyNewsSignalDefaultRange(id: string) {
@@ -251,7 +263,7 @@ onUnmounted(() => {
       </label>
       <label>
         대상 종목코드 (콤마 구분)
-        <input v-model="universeText" type="text" placeholder="005930,000660" />
+        <SymbolAutocomplete v-model="universeText" />
       </label>
       <div class="row">
         <label>
@@ -326,7 +338,12 @@ onUnmounted(() => {
         <h2>매매 시점 · 시세 · 보조지표</h2>
         <div class="chart-ask-body">
           <div class="chart-pane">
-            <BacktestChart :result="result" @select="onChartSelect" @select-day="onChartSelectDay" />
+            <BacktestChart
+              :result="result"
+              @select="onChartSelect"
+              @select-day="onChartSelectDay"
+              @open-trade="onOpenTrade"
+            />
           </div>
           <div class="ask-pane">
             <BacktestAskPanel
@@ -375,6 +392,14 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+
+      <TradeExplainModal
+        :visible="tradeModalVisible"
+        :trade="tradeModalTrade"
+        :workflow-id="result.workflow_id"
+        :backtest-id="result.id"
+        @close="tradeModalVisible = false"
+      />
     </div>
   </div>
 </template>

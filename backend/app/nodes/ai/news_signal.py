@@ -9,13 +9,61 @@ t(호재)/n(중립)/f(악재) 판정을 돌려준다. 우리 NewsRepository/ai.s
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Callable
 
 from app.market_data.symbol_master import get_symbol_name
 from app.nodes.base import Node, NodeContext, NodeParam, register_node
 from app.vendor.news_classifier import NewsTrader
+from app.workflow.graph import NodeDef
 
 AXIS_METHOD = {"종목": "stock", "섹터": "sector", "거시경제": "macro"}
+
+
+def resolve_news_signal_clusters(
+    node: NodeDef, symbol: str, start_date: date, end_date: date, news_trader_factory: Callable[..., NewsTrader]
+) -> list[dict]:
+    """ai.news_signal 노드 파라미터로 축/키를 결정해 [start_date, end_date] 구간을 커버하는
+    뉴스 클러스터 원본 리스트(대표제목/최초발생날짜/클러스터id/count/strength 등)를 반환한다.
+
+    `app/api/routers/backtest.py`(차트 뉴스 마커)와 `app/api/routers/ai.py`(AI 설명 근거
+    selection)가 공유한다 — 둘 다 "이 워크플로가 실제로 어떤 뉴스를 참고했는가"를 같은 방식
+    으로 계산해야 하므로 분기하지 않는다. node가 ai.news_signal이 아니거나 키를 결정할 수
+    없으면 빈 리스트.
+    """
+    if node.type != "ai.news_signal":
+        return []
+
+    axis = str(node.params.get("axis", "종목"))
+    key = str(node.params.get("key", "") or "")
+    if axis == "종목" and not key:
+        key = get_symbol_name(symbol) or ""
+    if not key:
+        return []
+
+    period_days = int(node.params.get("period_days", 7) or 7)
+    threshold = float(node.params.get("threshold", 0.1) or 0.1)
+    decay_base = float(node.params.get("decay_base", 0.3) or 0.3)
+    include_zero = bool(node.params.get("include_zero", True))
+    decay_from = str(node.params.get("decay_from", "end") or "end")
+    method_name = AXIS_METHOD.get(axis, "stock")
+
+    # 노드는 매 거래일 start=그날, period=period_days(그날부터 앞으로 period_days)로 조회한다.
+    # [start_date, end_date] 전체를 한 번에 커버하려면 start=start_date, period=
+    # (구간 길이 + 노드의 조회기간)으로 넓혀서 조회하면 각 거래일이 봤을 구간의 합집합을
+    # 충분히 덮는다(경계 며칠 정도 더 넓게 잡히는 건 무해하다).
+    span_days = (end_date - start_date).days + period_days
+
+    trader = news_trader_factory(
+        auto_update=False, threshold=threshold, decay_base=decay_base,
+        include_zero=include_zero, decay_from=decay_from,
+    )
+    try:
+        result = getattr(trader, method_name)(key, start=start_date.isoformat(), period=span_days)
+    finally:
+        trader.close()
+
+    return result.get("클러스터", []) or []
 
 
 def _passes(pass_when: str, verdict: str) -> bool:
