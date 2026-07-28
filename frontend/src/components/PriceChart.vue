@@ -11,12 +11,13 @@ import {
   HistogramSeries,
   LineSeries,
   createChart,
+  type BusinessDay,
   type IChartApi,
   type ISeriesApi,
   type Time,
-  type UTCTimestamp,
 } from 'lightweight-charts'
 import type { PricePointOut } from '@/api/types'
+import { formatKrw } from '@/utils/format'
 
 const props = withDefaults(
   defineProps<{
@@ -31,11 +32,20 @@ const props = withDefaults(
 const MA_PERIODS = [5, 20] as const
 const MA_COLORS: Record<number, string> = { 5: '#f5a623', 20: '#4f7df3' }
 
+// PricePointOut.date는 항상 date-only 문자열("YYYY-MM-DD", 거래일)이다. lightweight-charts에
+// 이 형식을 그대로 넘기면 "business day"로 취급해 타임존 변환 없이 그 날짜 그대로 그려진다 —
+// 만에 하나 datetime 문자열이 섞여 들어와도(방어적으로) UTC epoch로 변환하지 않고 날짜만 뽑아
+// 쓴다(시:분까지 Date로 파싱하면 브라우저 로컬 타임존에 좌우되어 날짜가 하루 밀릴 수 있다).
 function toChartTime(dateStr: string): Time {
-  if (dateStr.includes('T')) {
-    return Math.floor(new Date(dateStr).getTime() / 1000) as UTCTimestamp
+  return dateStr.slice(0, 10) as Time
+}
+
+function formatBusinessDay(time: Time): string {
+  if (typeof time === 'object' && 'year' in time) {
+    const bd = time as BusinessDay
+    return `${bd.year}-${String(bd.month).padStart(2, '0')}-${String(bd.day).padStart(2, '0')}`
   }
-  return dateStr as Time
+  return String(time)
 }
 
 /** 단순 이동평균. 앞쪽 (period-1)개는 계산 불가하므로 null. */
@@ -74,9 +84,22 @@ function buildChart() {
     layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor, fontSize: 11 },
     grid: { vertLines: { color: borderColor }, horzLines: { color: borderColor } },
     rightPriceScale: { borderColor },
-    timeScale: { borderColor, timeVisible: true },
+    timeScale: {
+      borderColor,
+      // 일봉(day) 데이터라 시:분은 없다 — timeVisible:true를 켜면 business day를 시각까지
+      // 있는 것처럼 취급해 브라우저 로컬 타임존에 따라 날짜가 흔들려 보이는 문제가 있었다.
+      timeVisible: false,
+      tickMarkFormatter: formatBusinessDay,
+    },
+    localization: { timeFormatter: formatBusinessDay },
     autoSize: true,
   })
+
+  const priceFormat = {
+    type: 'custom' as const,
+    formatter: (price: number) => formatKrw(price),
+    minMove: 1,
+  }
 
   priceSeries =
     props.mode === 'candlestick'
@@ -86,8 +109,9 @@ function buildChart() {
           borderVisible: false,
           wickUpColor: '#dc2626',
           wickDownColor: '#4f46e5',
+          priceFormat,
         })
-      : chart.addSeries(LineSeries, { color: '#4f46e5', lineWidth: 2 })
+      : chart.addSeries(LineSeries, { color: '#4f46e5', lineWidth: 2, priceFormat })
   priceSeries.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.3 } })
 
   volumeSeries = chart.addSeries(HistogramSeries, {
@@ -138,6 +162,7 @@ function renderData() {
         lineWidth: 1,
         priceLineVisible: false,
         lastValueVisible: false,
+        priceFormat: { type: 'custom', formatter: (price: number) => formatKrw(price), minMove: 1 },
       })
       maSeries.set(period, series)
     }

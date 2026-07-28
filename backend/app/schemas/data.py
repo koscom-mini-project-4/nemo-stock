@@ -29,6 +29,11 @@ class IngestResponse(BaseModel):
     ingested: int
 
 
+class SymbolOut(BaseModel):
+    symbol: str
+    name: str
+
+
 class NewsItemIn(BaseModel):
     title: str
     body: str

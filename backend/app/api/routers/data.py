@@ -21,6 +21,7 @@ from app.data_ingestion.naver_price_client import NaverStockChartClient
 from app.data_ingestion.opendart_client import OpenDartAPIError, OpenDartClient
 from app.data_ingestion.public_data_price import PublicDataAPIError, PublicDataPriceClient
 from app.dependencies import Container
+from app.market_data.symbol_master import search_symbols
 from app.schemas.backtest import PricePointOut
 from app.schemas.data import (
     IngestResponse,
@@ -28,9 +29,20 @@ from app.schemas.data import (
     ManualPriceIngestRequest,
     PublicDisclosureIngestRequest,
     PublicPriceIngestRequest,
+    SymbolOut,
 )
 
 router = APIRouter(prefix="/data", tags=["data"], dependencies=[Depends(get_current_username)])
+
+
+@router.get("/symbols", response_model=list[SymbolOut])
+def get_symbols(q: str = "") -> list[SymbolOut]:
+    """종목코드/한글 종목명으로 검색한다(부분 일치). q가 비어 있으면 전체 목록.
+
+    정적 매핑(app/market_data/symbol_master.py)만 검색 대상이다 — 매핑에 없는 임의
+    종목코드는 워크플로에서 여전히 자유롭게 쓸 수 있지만 이 검색에는 나타나지 않는다.
+    """
+    return [SymbolOut(symbol=s.symbol, name=s.name) for s in search_symbols(q)]
 
 
 @router.get("/prices/{symbol}", response_model=list[PricePointOut])

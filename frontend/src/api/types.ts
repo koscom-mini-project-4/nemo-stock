@@ -150,6 +150,11 @@ export interface AccountSummaryOut {
   positions: PositionOut[]
 }
 
+export interface SymbolOut {
+  symbol: string
+  name: string
+}
+
 export interface WorkflowTemplateOut {
   id: string
   name: string

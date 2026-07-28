@@ -10,6 +10,7 @@ import type {
   NodeTypeSchema,
   PricePointOut,
   RunResultOut,
+  SymbolOut,
   ValidationResult,
   WorkflowChatLastRun,
   WorkflowChatResponse,
@@ -26,6 +27,11 @@ export async function fetchAccountSummary(): Promise<AccountSummaryOut> {
 
 export async function fetchPrices(symbol: string, days = 90): Promise<PricePointOut[]> {
   const { data } = await apiClient.get(`/data/prices/${symbol}`, { params: { days } })
+  return data
+}
+
+export async function fetchSymbols(q = ''): Promise<SymbolOut[]> {
+  const { data } = await apiClient.get('/data/symbols', { params: q ? { q } : undefined })
   return data
 }
 

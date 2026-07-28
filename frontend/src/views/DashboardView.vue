@@ -11,6 +11,8 @@ import {
 } from '@/api/services'
 import type { AccountSummaryOut, PricePointOut, WorkflowOut, WorkflowTemplateOut } from '@/api/types'
 import { useDraftStore } from '@/stores/draft'
+import { useSymbolMasterStore } from '@/stores/symbolMaster'
+import { formatDateTimeKst, formatKrw } from '@/utils/format'
 import PriceChart from '@/components/PriceChart.vue'
 
 const workflows = ref<WorkflowOut[]>([])
@@ -20,6 +22,7 @@ const priceSeries = ref<Record<string, PricePointOut[]>>({})
 const loading = ref(true)
 const router = useRouter()
 const draftStore = useDraftStore()
+const symbolMaster = useSymbolMasterStore()
 
 async function load() {
   loading.value = true
@@ -28,7 +31,8 @@ async function load() {
       fetchWorkflows(),
       fetchAccountSummary().catch(() => null),
       fetchWorkflowTemplates().catch(() => []),
-    ])
+      symbolMaster.ensureLoaded().then(() => undefined),
+    ] as const)
     workflows.value = wf
     account.value = acc
     templates.value = tpl
@@ -81,10 +85,6 @@ function statusLabel(status: string) {
   return { draft: '초안', active: '실행 중', inactive: '중지' }[status] || status
 }
 
-function formatMoney(value: number) {
-  return Math.round(value).toLocaleString()
-}
-
 onMounted(load)
 </script>
 
@@ -108,11 +108,11 @@ onMounted(load)
         </div>
         <div class="card kpi-card">
           <div class="kpi-label">계좌 현금</div>
-          <div class="kpi-value">{{ account ? formatMoney(account.cash) : '—' }}</div>
+          <div class="kpi-value">{{ account ? formatKrw(account.cash) : '—' }}</div>
         </div>
         <div class="card kpi-card">
           <div class="kpi-label">평가자산(equity)</div>
-          <div class="kpi-value">{{ account ? formatMoney(account.equity) : '—' }}</div>
+          <div class="kpi-value">{{ account ? formatKrw(account.equity) : '—' }}</div>
         </div>
         <div class="card kpi-card">
           <div class="kpi-label">보유 종목 수</div>
@@ -125,8 +125,8 @@ onMounted(load)
         <div class="price-grid">
           <div v-for="pos in account.positions" :key="pos.symbol" class="card price-card">
             <div class="price-card-head">
-              <span class="price-card-symbol">{{ pos.symbol }}</span>
-              <span class="text-muted">{{ pos.qty }}주 · 평단가 {{ formatMoney(pos.avg_price) }}</span>
+              <span class="price-card-symbol">{{ symbolMaster.displayName(pos.symbol) }}</span>
+              <span class="text-muted">{{ pos.qty }}주 · 평단가 {{ formatKrw(pos.avg_price) }}</span>
             </div>
             <PriceChart :bars="priceSeries[pos.symbol] ?? []" mode="candlestick" :height="200" />
           </div>
@@ -158,7 +158,7 @@ onMounted(load)
               <span :class="['badge', `badge-${wf.status}`]">{{ statusLabel(wf.status) }}</span>
             </div>
             <p class="text-muted">
-              노드 {{ wf.graph.nodes.length }}개 · 주기 {{ wf.schedule_interval_sec }}초 · 수정 {{ new Date(wf.updated_at).toLocaleString() }}
+              노드 {{ wf.graph.nodes.length }}개 · 주기 {{ wf.schedule_interval_sec }}초 · 수정 {{ formatDateTimeKst(wf.updated_at) }}
             </p>
             <div class="workflow-card-actions">
               <button class="btn" @click="router.push(`/strategies/${wf.id}`)">편집</button>
