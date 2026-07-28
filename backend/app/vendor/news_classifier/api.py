@@ -58,10 +58,13 @@ class NewsTrader:
         self.close()
 
     # ------------------------------------------------------------ 갱신
-    def update(self, force: bool = False, progress=None) -> dict:
+    def update(self, force: bool = False, progress=None,
+               days: int = None, keywords: list = None) -> dict:
         """크롤링 -> 분류 -> 정리. 실제로 한 일을 요약해서 돌려준다.
 
         force=False 면 마지막 갱신 후 update_interval_min 이 안 지났을 때 건너뛴다.
+        days/keywords(§0-12): 주어지면 이번 호출 1회만 Settings 기본값을 오버라이드한다
+        (전역 설정은 그대로 — 1회성 트리거용, 예: "최근 N일치만, 특정 키워드만").
         """
         s = self.settings
         since = crawler.minutes_since_last_crawl(self.conn)
@@ -69,8 +72,12 @@ class NewsTrader:
             return {"건너뜀": True, "마지막갱신후_분": round(since, 1),
                     "수집": 0, "분류": 0, "삭제클러스터": 0}
 
-        crawled = crawler.crawl(self.conn, days=s.crawl_days,
-                                max_pages=s.crawl_max_pages, workers=s.crawl_workers, progress=progress)
+        crawled = crawler.crawl(
+            self.conn,
+            days=days if days is not None else s.crawl_days,
+            max_pages=s.crawl_max_pages, workers=s.crawl_workers, progress=progress,
+            keywords=keywords if keywords is not None else s.crawl_keywords,
+        )
 
         pending = db.pending_news(self.conn, limit=s.max_classify_per_update)
         classified = []
@@ -160,6 +167,17 @@ class NewsTrader:
 
     def clusters(self, start: str, end: str) -> list:
         return db.cluster_stats(self.conn, start, end)
+
+    def pending_news(self, limit: int = 100) -> list:
+        """아직 AI 분류가 안 된 기사 목록(§0-12, 관리자 페이지 "미분석 뉴스")."""
+        return db.pending_news(self.conn, limit=limit)
+
+    def pending_count(self) -> int:
+        return db.count_pending(self.conn)
+
+    def analyzed_news(self, limit: int = 100) -> list:
+        """이미 AI 분류된 기사 목록(§0-12, 관리자 페이지 "분석된 뉴스"). 최신순."""
+        return db.list_analyzed_news(self.conn, limit=limit)
 
     def clusters_for_key(self, group: str, key: str, start: str, end: str) -> list:
         """특정 종목/섹터/거시지표 키에 연결된 클러스터 목록(기간 내) — "종목/섹터/거시로부터

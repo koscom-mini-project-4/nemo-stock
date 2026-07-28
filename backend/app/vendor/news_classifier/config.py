@@ -97,6 +97,9 @@ class Settings:
     crawl_days: int = CRAWL_DAYS        # 며칠치 목록을 훑을지
     crawl_max_pages: int = CRAWL_MAX_PAGES
     crawl_workers: int = CRAWL_WORKERS  # 기사 본문 fetch 동시 처리 수(1=순차)
+    # nemo-stock 통합 시 추가(§0-12): 헤드라인이 이 중 하나라도 포함해야 본문을 가져온다.
+    # None/빈 리스트면 필터 없이 전부(원본 동작).
+    crawl_keywords: list[str] | None = None
     max_classify_per_update: int = 100  # 한 번 갱신에 분류할 최대 뉴스 수 (API 비용 상한)
 
     # --- 보관 ----------------------------------------------------------

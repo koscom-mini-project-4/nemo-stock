@@ -312,6 +312,40 @@ def pending_news(conn, limit: int = None) -> list:
     return [dict(r) for r in conn.execute(sql)]
 
 
+def count_pending(conn) -> int:
+    """아직 분류 안 된 기사 전체 개수(§0-12, 관리자 페이지 "미분석 뉴스" 배지용)."""
+    return conn.execute("SELECT COUNT(*) FROM crawled WHERE classified = 0").fetchone()[0]
+
+
+def list_analyzed_news(conn, limit: int = 100) -> list:
+    """이미 분류된 기사 목록(§0-12, 관리자 페이지 "분석된 뉴스"용). 최신순.
+
+    classifications 테이블을 url_hash로 접는다 — 한 기사(url_hash)의 모든 분류 행은
+    같은 date/strength/cluster_id/representative_title을 공유하고(pipeline.py::
+    classify_news 참조, 종목/섹터/거시만 레코드마다 다름) 종목/섹터/거시만 여러 개일 수
+    있어 GROUP_CONCAT(DISTINCT ...)으로 합친다.
+    """
+    rows = conn.execute(
+        "SELECT url_hash, title, date, cluster_id, representative_title, strength, "
+        "       GROUP_CONCAT(DISTINCT stock) AS stocks, "
+        "       GROUP_CONCAT(DISTINCT sector) AS sectors, "
+        "       GROUP_CONCAT(DISTINCT macro) AS macros "
+        "FROM classifications "
+        "GROUP BY url_hash "
+        "ORDER BY date DESC "
+        "LIMIT ?",
+        (limit,),
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["stocks"] = d["stocks"].split(",") if d["stocks"] else []
+        d["sectors"] = d["sectors"].split(",") if d["sectors"] else []
+        d["macros"] = d["macros"].split(",") if d["macros"] else []
+        out.append(d)
+    return out
+
+
 def mark_classified(conn, url_hashes: list) -> None:
     if not url_hashes:
         return

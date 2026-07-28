@@ -289,7 +289,7 @@ def update_news_signal(payload: NewsUpdateRequest, container: Container = Depend
     독립적으로 크롤링을 트리거하고 싶을 때 이 엔드포인트를 쓴다."""
     trader = container.news_trader_factory(auto_update=False)
     try:
-        result = trader.update(force=payload.force)
+        result = trader.update(force=payload.force, days=payload.days, keywords=payload.keywords)
     finally:
         trader.close()
     return NewsUpdateResponse.model_validate(result)
@@ -320,6 +320,29 @@ def get_news_clusters(start: date, end: date, container: Container = Depends(get
             datetime.combine(start, time.min).strftime("%Y-%m-%d %H:%M:%S"),
             datetime.combine(end, time.max).strftime("%Y-%m-%d %H:%M:%S"),
         )
+    finally:
+        trader.close()
+
+
+@router.get("/news/pending")
+def get_news_pending(limit: int = 100, container: Container = Depends(get_container)) -> dict[str, Any]:
+    """아직 AI 분류가 안 된 기사 목록(§0-12) — 관리자 페이지 "미분석 뉴스" 섹션.
+
+    count는 limit과 무관한 전체 미분석 건수, items는 그중 오래된 것부터 최대 limit건.
+    """
+    trader = container.news_trader_factory(auto_update=False)
+    try:
+        return {"count": trader.pending_count(), "items": trader.pending_news(limit=limit)}
+    finally:
+        trader.close()
+
+
+@router.get("/news/analyzed")
+def get_news_analyzed(limit: int = 100, container: Container = Depends(get_container)) -> list[dict[str, Any]]:
+    """이미 AI 분류된 기사 목록(§0-12) — 관리자 페이지 "분석된 뉴스" 섹션. 최신순."""
+    trader = container.news_trader_factory(auto_update=False)
+    try:
+        return trader.analyzed_news(limit=limit)
     finally:
         trader.close()
 
