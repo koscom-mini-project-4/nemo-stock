@@ -48,15 +48,16 @@ naver_economy_news.json (92,229건)
 | `depth2` | 긍/중/부정 방향 | `긍정` / `중립` / `부정` |
 | `depth3` | 세부 이벤트 유형 | 자유 텍스트 (예: 실적이익, 소송, 공급계약) |
 | `scope_type` | 주요 영향 범위 | `종목직접` / `업종전반` / `시장전체` |
-| `related_tickers` | 직접 관련 종목 | 문자열 배열 |
+| `ticker_impacts` | **종목별** 방향/등급 (§2.2) | 객체 배열 |
 | `related_industries` | 관련 업종 | 문자열 배열 |
-| `impact_grade` | 영향력 등급 | 정수 1~9 (§2.1) |
+| `impact_grade` | 영향력 등급 (시장 전체 관점) | 정수 1~9 (§2.1) |
 | `time_horizon` | 예상 영향 기간 | `단기` / `중기` / `장기` |
 | `confidence` | 분류 신뢰도 | `확실` / `보통` / `불확실` |
 | `reasoning` | 분류 근거 | 자유 텍스트 1문장 |
 
 `sentiment`(+1/0/-1)와 `magnitude`(0.2~1.8)는 각각 `depth2`/`impact_grade`로부터 **파생 계산**되며
-별도 AI 호출이 필요 없다(`schemas.py`의 `@property`).
+별도 AI 호출이 필요 없다(`schemas.py`의 `@property`). `related_tickers`는 `ticker_impacts`에서
+종목명만 뽑아내는 파생 프로퍼티로, 클러스터링/필터링 쪽 기존 인터페이스를 그대로 유지한다.
 
 ### 2.1 impact_grade — 9단계 고정 앵커 (2026-07-22 도입)
 
@@ -79,6 +80,35 @@ naver_economy_news.json (92,229건)
 `magnitude = impact_grade / 5.0` (등급 5 = 1.0을 기준으로 선형 스케일, 범위 0.2~1.8).
 스키마 자체가 바뀌었으므로 `PROMPT_VERSION`을 `v2`→`v3`로 올려 이전 캐시를 자동 무효화했다
 (§5 캐시 무효화 원칙 참조).
+
+### 2.2 ticker_impacts — 종목별 영향도 (2026-07-28 도입)
+
+기존에는 `related_tickers`가 종목명 배열이라, 하나의 뉴스가 A·B·C를 함께 다루면 **세 종목 모두
+같은 strength**를 받았다. 그러나 같은 사건이라도 종목마다 방향과 크기가 다르다(예: "A사 공장
+화재" → A는 부정·고등급, 반사이익을 얻는 경쟁사 B는 긍정·중등급, 비교군으로 이름만 나온 C는
+영향 없음). 이를 반영해 종목별 판단을 기사 단위 판단과 분리했다.
+
+```json
+"ticker_impacts": [
+  {"ticker": "A", "direction": "부정", "grade": 7, "reason": "당사 공장 화재로 생산 차질"},
+  {"ticker": "B", "direction": "긍정", "grade": 5, "reason": "경쟁사 차질에 따른 반사이익"},
+  {"ticker": "C", "direction": null,   "grade": null, "reason": "비교군으로 언급만 됨"}
+]
+```
+
+- `depth2` / `impact_grade` = **시장 전체 관점**의 사건 방향·크기 (§2.1, 그대로 유지).
+- `direction` / `grade` = **그 종목 하나**에 대한 방향·크기. 등급 기준은 `scoring.py`의
+  `_TICKER_GRADE_TABLE`(1등급 "이름만 스치듯 언급" ~ 9등급 "파산·주력사업 전면 중단")에 종목
+  관점 예시를 고정 앵커로 명시해, impact_grade와 마찬가지로 AI가 기준을 자체 판단하지 않게 했다.
+- **null의 의미**: 이름은 등장하지만 영향을 판단할 수 없으면 `direction`/`grade` 모두 `null`.
+  이때 `strength_for(종목)`도 `None`이 되어 **집계의 분모에서 제외**된다. 0점으로 넣으면 다른
+  이벤트 점수를 희석시키기 때문에 의도적으로 구분한다.
+- `strength_for(ticker) = direction(+1/0/-1) * (grade / 5.0)`, 미판단 시 `None`.
+
+스키마가 바뀌었으므로 `PROMPT_VERSION`을 `v3`→`v4`로 올렸다. 구 캐시(JSON의 `related_tickers`
+문자열 배열, SQLite의 `related_tickers_json` 컬럼)는 읽기 단계에서 `direction`/`grade`가 `None`인
+`TickerImpact`로 자동 복원되고(SQLite는 `ticker_impacts_json` 컬럼을 추가하는 마이그레이션 수행),
+종목별 판단이 필요하면 `PROMPT_VERSION` 상향에 따라 재채점한다.
 
 ## 3. 이벤트 클러스터링 (`clustering.py`, `embeddings.py`)
 
@@ -149,16 +179,19 @@ naver_economy_news.json (92,229건)
 ## 6. 최종 점수 계산 (`aggregate.py`)
 
 ```python
-strength = sentiment(+1/0/-1) * magnitude(0.2~1.8)          # 뉴스 1건의 영향도
+strength(종목) = direction(+1/0/-1) * magnitude(grade / 5.0)  # 뉴스 1건이 '그 종목'에 주는 영향도
 decay(d) = 1 / (d + 1)                                       # d = 이벤트 최초 보도일로부터 경과일
 count_factor = 1 + 0.3 * log(source_count)                   # source_count = 같은 이벤트를 다룬 뉴스 수
-event_score = strength * decay(d) * count_factor
+event_score(종목) = strength(종목) * decay(d) * count_factor
 종목 점수 = 그 종목에 관련된 모든 이벤트의 event_score 합산 -> 평균 -> tanh로 [-1, 1] 정규화
 ```
 
-- `strength`는 클러스터(이벤트) 소속 뉴스들의 개별 `strength` 평균으로 계산(`cluster_strength`).
+- **strength는 종목마다 다르다**(§2.2). `cluster_strength(cluster, vars, company)`는 클러스터
+  소속 뉴스들의 **그 종목에 대한** strength 평균이며, 해당 종목 판단이 하나도 없으면 `None`을
+  돌려 집계에서 빠진다. 따라서 같은 클러스터라도 A는 음수, B는 양수, C는 0점이 나올 수 있다.
 - `d`는 이벤트의 최초 보도일(`first_published_at`)과 조회 기준일(`as_of`)의 차이. 아직 일어나지
-  않은 미래 이벤트(`d < 0`)는 점수에 반영하지 않는다.
+  않은 미래 이벤트(`d < 0`)는 `None`을 돌려 **평균의 분모에서도 제외**한다(as_of 시점에 알 수
+  없는 뉴스를 0점으로 넣으면 미래참조이자 다른 이벤트를 희석시키므로).
 - `source_count`는 해당 클러스터의 멤버 뉴스 수(`ClusterInfo.source_count`).
 - 최종 정규화는 `math.tanh`로 무한 발산을 방지해 [-1, 1] 범위를 보장한다.
 

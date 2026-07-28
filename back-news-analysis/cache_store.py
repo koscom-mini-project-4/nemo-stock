@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from config import JSON_CACHE_PATH, SQLITE_CACHE_PATH
-from schemas import ClusterInfo, NewsVariables
+from schemas import ClusterInfo, NewsVariables, TickerImpact
 
 
 class CacheStore(ABC):
@@ -36,6 +36,32 @@ class CacheStore(ABC):
     def save_clusters(self, clusters: list[ClusterInfo]) -> None: ...
 
 
+def _impacts_to_list(impacts: list[TickerImpact]) -> list[dict]:
+    return [
+        {"ticker": t.ticker, "direction": t.direction, "grade": t.grade, "reason": t.reason} for t in impacts
+    ]
+
+
+def _impacts_from_raw(raw: object) -> list[TickerImpact]:
+    """ticker_impacts를 복원한다. 구 스키마(related_tickers = 문자열 배열)도 읽어준다."""
+    if not raw:
+        return []
+    impacts: list[TickerImpact] = []
+    for item in raw:
+        if isinstance(item, str):  # 구 스키마: 종목명만 있고 종목별 판단이 없음
+            impacts.append(TickerImpact(ticker=item, direction=None, grade=None))
+        else:
+            impacts.append(
+                TickerImpact(
+                    ticker=item["ticker"],
+                    direction=item.get("direction"),
+                    grade=item.get("grade"),
+                    reason=item.get("reason", ""),
+                )
+            )
+    return impacts
+
+
 def _variables_to_dict(v: NewsVariables) -> dict:
     return {
         "url_hash": v.url_hash,
@@ -44,7 +70,7 @@ def _variables_to_dict(v: NewsVariables) -> dict:
         "depth2": v.depth2,
         "depth3": v.depth3,
         "scope_type": v.scope_type,
-        "related_tickers": v.related_tickers,
+        "ticker_impacts": _impacts_to_list(v.ticker_impacts),
         "related_industries": v.related_industries,
         "impact_grade": v.impact_grade,
         "time_horizon": v.time_horizon,
@@ -64,7 +90,7 @@ def _variables_from_dict(d: dict) -> NewsVariables:
         depth2=d.get("depth2", "중립"),
         depth3=d.get("depth3", ""),
         scope_type=d.get("scope_type", "시장전체"),
-        related_tickers=d.get("related_tickers", []),
+        ticker_impacts=_impacts_from_raw(d.get("ticker_impacts") or d.get("related_tickers")),
         related_industries=d.get("related_industries", []),
         impact_grade=d.get("impact_grade", 5),
         time_horizon=d.get("time_horizon", "단기"),
@@ -154,7 +180,7 @@ class SQLiteCacheStore(CacheStore):
                 depth2 TEXT,
                 depth3 TEXT,
                 scope_type TEXT,
-                related_tickers_json TEXT NOT NULL,
+                ticker_impacts_json TEXT NOT NULL,
                 related_industries_json TEXT NOT NULL,
                 impact_grade INTEGER,
                 time_horizon TEXT,
@@ -180,10 +206,23 @@ class SQLiteCacheStore(CacheStore):
             )
             """
         )
+        self._migrate_ticker_impacts()
         self._conn.commit()
 
+    def _migrate_ticker_impacts(self) -> None:
+        """구 스키마(related_tickers_json = 종목명 배열)로 만들어진 DB를 종목별 영향 스키마로 옮긴다.
+
+        구 데이터에는 종목별 방향/등급 판단이 없으므로 값은 그대로 옮기고(_impacts_from_raw가
+        direction/grade=None으로 복원), 재채점은 PROMPT_VERSION 상향으로 유도한다.
+        """
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(news_variables)")}
+        if "ticker_impacts_json" in columns or "related_tickers_json" not in columns:
+            return
+        self._conn.execute("ALTER TABLE news_variables ADD COLUMN ticker_impacts_json TEXT NOT NULL DEFAULT '[]'")
+        self._conn.execute("UPDATE news_variables SET ticker_impacts_json = related_tickers_json")
+
     _VARIABLE_COLUMNS = (
-        "url_hash, published_at, depth1, depth2, depth3, scope_type, related_tickers_json, "
+        "url_hash, published_at, depth1, depth2, depth3, scope_type, ticker_impacts_json, "
         "related_industries_json, impact_grade, time_horizon, confidence, reasoning, "
         "cluster_id, model, prompt_version"
     )
@@ -196,7 +235,7 @@ class SQLiteCacheStore(CacheStore):
             depth2=row[3] or "중립",
             depth3=row[4] or "",
             scope_type=row[5] or "시장전체",
-            related_tickers=json.loads(row[6]),
+            ticker_impacts=_impacts_from_raw(json.loads(row[6])),
             related_industries=json.loads(row[7]),
             impact_grade=row[8] if row[8] is not None else 5,
             time_horizon=row[9] or "단기",
@@ -217,14 +256,14 @@ class SQLiteCacheStore(CacheStore):
         self._conn.execute(
             """
             INSERT INTO news_variables
-                (url_hash, published_at, depth1, depth2, depth3, scope_type, related_tickers_json,
+                (url_hash, published_at, depth1, depth2, depth3, scope_type, ticker_impacts_json,
                  related_industries_json, impact_grade, time_horizon, confidence, reasoning,
                  cluster_id, model, prompt_version)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(url_hash) DO UPDATE SET
                 published_at=excluded.published_at, depth1=excluded.depth1, depth2=excluded.depth2,
                 depth3=excluded.depth3, scope_type=excluded.scope_type,
-                related_tickers_json=excluded.related_tickers_json,
+                ticker_impacts_json=excluded.ticker_impacts_json,
                 related_industries_json=excluded.related_industries_json,
                 impact_grade=excluded.impact_grade, time_horizon=excluded.time_horizon,
                 confidence=excluded.confidence, reasoning=excluded.reasoning,
@@ -237,7 +276,7 @@ class SQLiteCacheStore(CacheStore):
                 variables.depth2,
                 variables.depth3,
                 variables.scope_type,
-                json.dumps(variables.related_tickers, ensure_ascii=False),
+                json.dumps(_impacts_to_list(variables.ticker_impacts), ensure_ascii=False),
                 json.dumps(variables.related_industries, ensure_ascii=False),
                 variables.impact_grade,
                 variables.time_horizon,

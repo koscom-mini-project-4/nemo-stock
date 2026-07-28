@@ -13,16 +13,19 @@
 
 1. **기사 단위 AI 라벨링** (`scoring.py`): 뉴스 1건마다 AI(`gpt-5.6-luna`, 백엔드와 동일 모델)가
    `depth1`(상위분류)/`depth2`(긍정·중립·부정)/`depth3`(세부 이벤트 유형)/`scope_type`(종목직접·
-   업종전반·시장전체)/`related_tickers`/`related_industries`/`impact_grade`(1~9, 예시 앵커
-   포함 — DESIGN.md §2.1)/`time_horizon`/`confidence`/`reasoning`을 고정 스키마 JSON으로 추출.
-   `sentiment`/`magnitude`는 `depth2`/`impact_grade`로부터 파생 계산(추가 AI 호출 없음).
+   업종전반·시장전체)/`ticker_impacts`(종목별 방향·등급)/`related_industries`/`impact_grade`(1~9,
+   예시 앵커 포함 — DESIGN.md §2.1)/`time_horizon`/`confidence`/`reasoning`을 고정 스키마 JSON으로
+   추출. `sentiment`/`magnitude`는 `depth2`/`impact_grade`로부터 파생 계산(추가 AI 호출 없음).
 2. **이벤트 클러스터링** (`clustering.py`): 뉴스 임베딩(`text-embedding-3-small`)의 코사인
    유사도로, 기존 클러스터 대표(centroid)와 임계값(기본 0.62) 이상 유사하면 같은 이벤트로 편입.
-3. **strength(영향도)**: `strength = sentiment * magnitude`.
+3. **strength(영향도) — 종목별**: `strength(종목) = direction * (grade / 5.0)`. 같은 뉴스라도
+   종목마다 방향/등급이 다르며(예: A사 화재 → A 부정7, 경쟁사 B 긍정5, 언급만 된 C는 null),
+   등급 기준은 종목 관점 예시 앵커표로 고정한다(DESIGN.md §2.2). null이면 집계에서 제외.
 4. **decay**: `decay(d) = 1 / (d + 1)` (d = 이벤트 최초 보도일로부터 경과일).
 5. **뉴스개수 가중**: `count_factor = 1 + 0.3 * log(source_count)`.
-6. **최종 종목 점수** (`aggregate.py`): `event_score = strength * decay(d) * count_factor`. 특정
-   종목에 관련된 모든 이벤트의 `event_score`를 합산 -> 평균 -> `tanh`로 [-1, 1] 정규화.
+6. **최종 종목 점수** (`aggregate.py`): `event_score(종목) = strength(종목) * decay(d) *
+   count_factor`. 특정 종목에 관련된 모든 이벤트의 `event_score`를 합산 -> 평균 -> `tanh`로
+   [-1, 1] 정규화.
 
 ## AI 풀(캐시) — JSON / SQLite 둘 다 지원
 
@@ -68,8 +71,8 @@ back-news-analysis/
   cache_store.py           JSON/SQLite 이중 캐시 (CacheStore 인터페이스)
   embeddings.py            클러스터링용 임베딩 (Batch API + 동기 1건)
   clustering.py            임베딩 코사인 유사도 기반 이벤트 클러스터링 (기존 클러스터 누적)
-  scoring.py               AI 라벨링 10필드 추출 — 9단계 impact_grade 앵커 포함 (Batch API + 동기)
-  aggregate.py             decay/count_factor/최종 종목 점수 계산
+  scoring.py               AI 라벨링 고정 스키마 추출 — impact_grade/종목별 9단계 앵커 포함 (Batch API + 동기)
+  aggregate.py             종목별 strength/decay/count_factor/최종 종목 점수 계산
   build_pool.py            AI 풀(캐시) 빌더 CLI (--limit 또는 --all, --submit/--poll)
   extract_variables.py     캐시미스 온디맨드 보강 (종목명 사전 필터 + 동기 AI 호출)
   score_stock.py           데모 CLI (종목·기준일 점수 조회)

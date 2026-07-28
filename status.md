@@ -439,6 +439,35 @@ OpenAI 키로 Playwright 골든 패스 전체 검증: 합성 시세(상승 5일-
 if_else 필터링 원인을 정확히 짚고 수정 그래프 제안 → "전략 빌더에서 열기" 클릭 시 캔버스에
 반영 확인 → "전체 뉴스 표시" 체크박스 토글 정상 → 콘솔 에러 0건.
 
+## 2026-07-28 후속 작업: 뉴스 strength를 종목별로 분리 (back-news-analysis)
+
+사용자 지적: 지금까지는 하나의 뉴스가 A·B·C 종목에 걸리면 **세 종목 모두 같은 strength**를
+받았다(`related_tickers`가 종목명 배열뿐이라 종목별 판단이 없었고, `aggregate.event_score`도
+company를 인자로 받지 않았음). 그러나 같은 뉴스라도 개별 종목에 미치는 영향과 시장 전체에
+미치는 영향은 다르므로, 뉴스 저장 시점에 종목별 strength를 각각 뽑고 해당 없으면 null로 두도록
+변경. 종목별 등급도 AI가 자체 기준을 세우지 않게 예시 앵커표를 추가(상세: `back-news-analysis/
+DESIGN.md` §2.2).
+
+- `schemas.py`: `TickerImpact`(ticker/direction/grade/reason) 신설. `NewsVariables.ticker_impacts`가
+  `related_tickers`(문자열 배열)를 대체하고, `related_tickers`는 종목명만 뽑는 파생 프로퍼티로
+  남겨 클러스터링/필터링 기존 인터페이스를 유지. `strength_for(ticker)`는 미판단 시 `None`.
+- `scoring.py`: 시스템 프롬프트를 [1] 시장 전체 관점 `impact_grade` + [2] 종목별 `ticker_impacts`
+  2단으로 분리하고, 종목 관점 9단계 예시표(`_TICKER_GRADE_TABLE`, 1등급 "이름만 스치듯 언급" ~
+  9등급 "파산·주력사업 전면 중단")를 앵커로 제시. "A사 화재 → A 부정 / 반사이익 경쟁사 B 긍정 /
+  비교군 C는 null" 예시를 명시해 impact_grade 복사를 금지.
+- `aggregate.py`: `cluster_strength`/`event_score`가 `company`를 인자로 받아 종목별 strength로
+  계산. 판단 없는 이벤트와 미래 이벤트(d<0)는 0이 아닌 `None`을 돌려 **평균의 분모에서 제외**
+  (기존에는 미래 이벤트가 0점으로 들어가 다른 이벤트를 희석시켰음 — 미래참조 겸 희석 버그 수정).
+- `cache_store.py`: JSON은 `ticker_impacts` 키, SQLite는 `ticker_impacts_json` 컬럼으로 저장.
+  구 스키마(문자열 배열 / `related_tickers_json` 컬럼)는 읽기 시 direction/grade=None으로 자동
+  복원되며, SQLite는 컬럼 추가 마이그레이션(`_migrate_ticker_impacts`)을 수행.
+- `config.py`: `PROMPT_VERSION` v3 → v4 (스키마 변경분 캐시 자동 무효화).
+
+**검증**: AI 호출 없는 스모크 테스트로 7개 항목 전부 통과 — 종목별 파싱(A −1.4 / B +1.0 /
+C None), 구 스키마 폴백, 같은 클러스터에서 A/B/C 점수가 갈리는지(A −0.4355, B +0.3215, C 0.0),
+미래 이벤트 분모 제외, JSON·SQLite 캐시 왕복, 구 SQLite DB 마이그레이션, 프롬프트 앵커 포함.
+백엔드/프론트는 이 모듈을 참조하지 않아(grep 확인) 영향 없음.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

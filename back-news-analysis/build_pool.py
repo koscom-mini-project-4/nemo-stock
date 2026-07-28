@@ -59,9 +59,10 @@ def run_sync(limit: int, stores: list[str]) -> None:
         v = scoring.score_one(record)
         vecs[record.url_hash] = embeddings.embed_one(record)
         variables.append(v)
+        impacts = ", ".join(f"{t.ticker}:{t.direction or '?'}{t.grade if t.grade is not None else '?'}" for t in v.ticker_impacts)
         print(
             f"  [{i}/{len(records)}] {record.title[:40]}... -> depth1={v.depth1} depth2={v.depth2} "
-            f"depth3={v.depth3} scope={v.scope_type} impact_grade={v.impact_grade} tickers={v.related_tickers}"
+            f"depth3={v.depth3} scope={v.scope_type} impact_grade={v.impact_grade} tickers=[{impacts}]"
         )
 
     existing_clusters = get_store(stores[0]).get_clusters()

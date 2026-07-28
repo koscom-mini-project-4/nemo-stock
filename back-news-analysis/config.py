@@ -26,7 +26,9 @@ CHAT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
 # 클러스터링용 임베딩 모델. 별도 env로 재정의 가능.
 EMBEDDING_MODEL = os.environ.get("NEWS_ANALYSIS_EMBEDDING_MODEL", "text-embedding-3-small")
 
-PROMPT_VERSION = "v3"  # impact_strength(3단계) -> impact_grade(예시 앵커 포함 1~9단계) 전환, 캐시 자동 무효화
+# v3: impact_strength(3단계) -> impact_grade(예시 앵커 포함 1~9단계) 전환
+# v4: related_tickers(이름만) -> ticker_impacts(종목별 direction/grade, 예시 앵커 포함) 전환
+PROMPT_VERSION = "v4"
 
 # 클러스터링: 신규 뉴스 임베딩과 기존 클러스터 대표(centroid) 임베딩의 코사인 유사도가
 # 이 값 이상이면 같은 이벤트로 판단, 아니면 새 클러스터 생성.

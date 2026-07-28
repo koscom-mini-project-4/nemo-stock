@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime
 
-from aggregate import stock_score
+from aggregate import cluster_strength, stock_score
 from cache_store import get_store
 from extract_variables import candidate_url_hashes, ensure_variables
 from news_loader import load_news
@@ -56,7 +56,12 @@ def main() -> None:
     relevant_clusters = [c for c in clusters if company in c.related_tickers]
     print(f"[score_stock] 관련 이벤트 클러스터 {len(relevant_clusters)}건")
     for c in relevant_clusters:
-        print(f"  - {c.cluster_id}: {c.representative_title[:50]} (뉴스 {c.source_count}건, 최초보도 {c.first_published_at})")
+        strength = cluster_strength(c, variables_by_hash, company)
+        strength_text = f"{strength:+.2f}" if strength is not None else "판단없음"
+        print(
+            f"  - {c.cluster_id}: {c.representative_title[:50]} (뉴스 {c.source_count}건, "
+            f"최초보도 {c.first_published_at}, {company} strength={strength_text})"
+        )
 
     print(f"\n[score_stock] {company} 기준일 {as_of} 최종 점수(정규화, -1~1): {score:.4f}")
 
