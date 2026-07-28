@@ -431,7 +431,14 @@ onMounted(load)
           />
           <ValidationPanel v-else-if="activeTab === 'validation'" :result="validationResult" :loading="validating" />
           <DebugPanel v-else-if="activeTab === 'debug'" :events="debugEvents" :playing="playingAnimation" />
-          <ChatPanel v-else :name="name" :graph="currentGraph" :last-run="chatLastRun" @apply-graph="applyChatGraph" />
+          <ChatPanel
+            v-else
+            :name="name"
+            :graph="currentGraph"
+            :last-run="chatLastRun"
+            :node-types="nodeTypes"
+            @apply-graph="applyChatGraph"
+          />
         </div>
       </div>
     </div>

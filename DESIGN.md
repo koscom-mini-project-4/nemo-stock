@@ -124,6 +124,36 @@ fork 저장소를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit
   목록을 반환, `/data/news/clusters`의 클러스터가 실제 종목 태그를 포함, `/data/news/topics/
   clusters?group=stock&key=삼성전자`가 해당 종목이 언급된 실제 클러스터 7건을 정확히 반환.
 
+## 0-8. AI 챗봇 노드 수정 제안: 전/후 비교 창 (2026-07-28 사용자 요청)
+
+캔버스의 AI 챗봇(`ChatPanel.vue`)이 그래프 수정을 제안하면 지금까지는 "노드 N개, 엣지 N개"
+요약과 적용/취소 버튼만 있어 실제로 뭐가 바뀌는지 알 수 없었다. 사용자 요청으로 전/후 비교
+창을 추가하고, 그 안에서 다시 수정을 요청하거나 확정/확정취소할 수 있게 했다. 백엔드 변경
+없음 — `app/ai/workflow_chat.py::chat_about_workflow()`가 이미 `graph` 인자를 그대로 받아
+"현재 그래프"로 취급하므로, 프론트가 무엇을 넘기느냐만으로 이번 기능이 성립한다.
+
+- `frontend/src/utils/graphDiff.ts` 신규 — 순수 함수 `diffGraphs(before, after)`. 노드는 id로
+  매칭해 추가/삭제/변경(타입 또는 파라미터 중 하나라도 다르면 변경, 파라미터별로 이전/이후
+  값 목록 포함)으로 분류하고, 엣지는 `from->to[:branch]` 키로 추가/삭제만 분류한다.
+- `frontend/src/components/GraphDiffModal.vue` 신규 — `diffGraphs()` 결과를 노드별
+  추가(초록)/삭제(빨강)/변경(노랑) 배지로, 엣지 변경은 별도 목록으로 보여준다. 노드 타입은
+  `NodeTypeSchema.display_name`으로, 파라미터 키는 `param_schema[].label`로 사람이 읽는
+  이름으로 표시(둘 다 프론트에 이미 있던 스키마 재사용, 신규 API 없음). 하단에 "다시 수정
+  요청" 입력창 + "확정"/"확정 취소" 버튼.
+- `frontend/src/components/ChatPanel.vue`: 기존 인라인 적용/취소 버튼을 "비교 검토"
+  버튼(→ 모달 오픈)으로 교체. **"다시 수정" 시 핵심은 AI에게 넘기는 `graph`를 캔버스의
+  현재 상태(`props.graph`)가 아니라 지금 검토 중인 제안(`pendingGraph`)으로 바꿔치기하는
+  것** — 그래야 AI가 직전 제안 위에 이어서 고치지, 원래 캔버스 기준으로 처음부터 다시
+  제안하지 않는다. 비교 창의 "before"는 항상 실제 캔버스 그래프로 고정해, 여러 번 "다시
+  수정"을 거쳐도 최종 제안과 현재 캔버스의 전체 누적 차이를 계속 보여준다. AI가 그래프
+  변경 없이 순수 답변만 한 경우(changed=false) 비교 창이 깨지지 않도록 기존 제안을 유지하고
+  안내 문구만 띄운다.
+- `frontend/src/views/StrategyBuilderView.vue`: 이미 보유 중이던 `nodeTypes`를
+  `ChatPanel`에 prop으로 전달(라벨 표시용, 신규 fetch 없음).
+- 검증: `vue-tsc -b` + `npm run build` 통과, 사용자 dev 서버(HMR)로 신규/변경 파일이 컴파일
+  에러 없이 서빙됨을 curl로 확인. 이번 세션도 브라우저 자동화 도구가 없어 실제 클릭 동작은
+  사용자가 `npm run dev`로 직접 확인 필요.
+
 ---
 
 ## 1. 목표와 PoC 범위
