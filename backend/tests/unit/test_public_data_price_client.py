@@ -127,6 +127,101 @@ def test_fetch_daily_prices_filters_out_mismatched_symbols_from_server():
     assert bars[0].close == 70500.0
 
 
+def test_fetch_market_snapshot_dedupes_by_symbol_and_extracts_name_market():
+    def handler(request: httpx.Request) -> httpx.Response:
+        items = [
+            {"basDt": "20250102", "srtnCd": "005930", "itmsNm": "삼성전자", "mrktCtg": "KOSPI",
+             "mkp": "1", "hipr": "1", "lopr": "1", "clpr": "1", "trqu": "1"},
+            {"basDt": "20250102", "srtnCd": "000660", "itmsNm": "SK하이닉스", "mrktCtg": "KOSPI",
+             "mkp": "1", "hipr": "1", "lopr": "1", "clpr": "1", "trqu": "1"},
+            # 같은 종목코드가 중복으로 와도(우선주/실수 등) 1건으로 합쳐져야 한다
+            {"basDt": "20250102", "srtnCd": "005930", "itmsNm": "삼성전자", "mrktCtg": "KOSPI",
+             "mkp": "1", "hipr": "1", "lopr": "1", "clpr": "1", "trqu": "1"},
+        ]
+        return httpx.Response(
+            200,
+            json={
+                "response": {
+                    "header": {"resultCode": "00"},
+                    "body": {"numOfRows": 500, "pageNo": 1, "totalCount": 3, "items": {"item": items}},
+                }
+            },
+        )
+
+    with _make_client(handler) as client:
+        as_of, symbols = client.fetch_market_snapshot(date(2025, 1, 2))
+
+    assert as_of == date(2025, 1, 2)
+    by_symbol = {s["symbol"]: s for s in symbols}
+    assert len(by_symbol) == 2
+    assert by_symbol["005930"] == {"symbol": "005930", "name": "삼성전자", "market": "KOSPI"}
+    assert by_symbol["000660"]["name"] == "SK하이닉스"
+
+
+def test_fetch_market_snapshot_skips_rows_missing_name_or_symbol():
+    def handler(request: httpx.Request) -> httpx.Response:
+        items = [
+            {"basDt": "20250102", "srtnCd": "005930", "itmsNm": "삼성전자",
+             "mkp": "1", "hipr": "1", "lopr": "1", "clpr": "1", "trqu": "1"},
+            {"basDt": "20250102", "srtnCd": "", "itmsNm": "이름만있음",
+             "mkp": "1", "hipr": "1", "lopr": "1", "clpr": "1", "trqu": "1"},
+            {"basDt": "20250102", "srtnCd": "000660",
+             "mkp": "1", "hipr": "1", "lopr": "1", "clpr": "1", "trqu": "1"},  # itmsNm 없음
+        ]
+        return httpx.Response(
+            200,
+            json={
+                "response": {
+                    "header": {"resultCode": "00"},
+                    "body": {"numOfRows": 500, "pageNo": 1, "totalCount": 3, "items": {"item": items}},
+                }
+            },
+        )
+
+    with _make_client(handler) as client:
+        _as_of, symbols = client.fetch_market_snapshot(date(2025, 1, 2))
+
+    assert [s["symbol"] for s in symbols] == ["005930"]
+
+
+def test_fetch_market_snapshot_retries_earlier_dates_when_empty():
+    """주말/공휴일 등 그날 데이터가 없으면 이전 영업일로 물러나며 재시도한다."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bas_dt = request.url.params["beginBasDt"]
+        calls.append(bas_dt)
+        if bas_dt == "20250104":  # 토요일 - 데이터 없음
+            body = {"totalCount": 0, "items": ""}
+        else:
+            body = {
+                "numOfRows": 500, "pageNo": 1, "totalCount": 1,
+                "items": {"item": [{"basDt": bas_dt, "srtnCd": "005930", "itmsNm": "삼성전자",
+                                     "mkp": "1", "hipr": "1", "lopr": "1", "clpr": "1", "trqu": "1"}]},
+            }
+        return httpx.Response(200, json={"response": {"header": {"resultCode": "00"}, "body": body}})
+
+    with _make_client(handler) as client:
+        as_of, symbols = client.fetch_market_snapshot(date(2025, 1, 4), max_days_back=3)
+
+    assert as_of == date(2025, 1, 3)
+    assert calls == ["20250104", "20250103"]
+    assert len(symbols) == 1
+
+
+def test_fetch_market_snapshot_gives_up_after_max_days_back():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"response": {"header": {"resultCode": "00"}, "body": {"totalCount": 0, "items": ""}}}
+        )
+
+    with _make_client(handler) as client:
+        as_of, symbols = client.fetch_market_snapshot(date(2025, 1, 4), max_days_back=2)
+
+    assert as_of == date(2025, 1, 4)
+    assert symbols == []
+
+
 def test_fetch_daily_prices_empty_result():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

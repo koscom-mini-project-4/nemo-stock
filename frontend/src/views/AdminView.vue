@@ -6,6 +6,8 @@ import {
   fetchNewsStats,
   fetchNewsTopicClusters,
   fetchNewsTopicKeys,
+  fetchSymbolStats,
+  syncSymbols,
   triggerNewsUpdate,
 } from '@/api/services'
 import type {
@@ -15,11 +17,19 @@ import type {
   NewsTopicCluster,
   NewsTopicGroup,
   NewsUpdateResult,
+  SymbolStats,
 } from '@/api/types'
 
 const metrics = ref<AdminMetrics | null>(null)
 const metricsLoading = ref(false)
 const metricsError = ref('')
+
+const symbolStats = ref<SymbolStats | null>(null)
+const symbolStatsLoading = ref(false)
+const symbolStatsError = ref('')
+const symbolSyncing = ref(false)
+const symbolSyncMessage = ref('')
+const symbolSyncError = ref('')
 
 const newsStats = ref<NewsStats | null>(null)
 const newsStatsLoading = ref(false)
@@ -69,6 +79,34 @@ async function loadMetrics() {
     metricsError.value = '사용량 통계를 불러오지 못했습니다.'
   } finally {
     metricsLoading.value = false
+  }
+}
+
+async function loadSymbolStats() {
+  symbolStatsLoading.value = true
+  symbolStatsError.value = ''
+  try {
+    symbolStats.value = await fetchSymbolStats()
+  } catch {
+    symbolStatsError.value = '종목 마스터 현황을 불러오지 못했습니다.'
+  } finally {
+    symbolStatsLoading.value = false
+  }
+}
+
+async function runSymbolSync() {
+  symbolSyncing.value = true
+  symbolSyncError.value = ''
+  symbolSyncMessage.value = ''
+  try {
+    const result = await syncSymbols()
+    symbolSyncMessage.value = `${result.as_of} 기준 ${result.synced.toLocaleString()}개 종목 동기화 완료`
+    await loadSymbolStats()
+  } catch (err) {
+    const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    symbolSyncError.value = detail || '종목 마스터 동기화에 실패했습니다.'
+  } finally {
+    symbolSyncing.value = false
   }
 }
 
@@ -158,6 +196,7 @@ async function runUpdate(force: boolean) {
 
 onMounted(() => {
   loadMetrics()
+  loadSymbolStats()
   loadNewsStats()
   loadClusters()
   loadTopicKeys()
@@ -226,6 +265,35 @@ onMounted(() => {
           </div>
         </div>
       </template>
+    </div>
+
+    <div class="card">
+      <div class="section-header">
+        <h2>종목 마스터</h2>
+        <button class="btn" :disabled="symbolSyncing" @click="runSymbolSync">
+          {{ symbolSyncing ? '동기화 중...' : '지금 동기화' }}
+        </button>
+      </div>
+      <p class="text-muted hint">
+        공공데이터포털(금융위원회_주식시세정보)로 KOSPI/KOSDAQ 전 종목의 코드/종목명을
+        가져와 캐시를 채웁니다. 동기화 전에는 대표 종목 8개만 사용됩니다(수 초~수십 초 소요될
+        수 있음). 이 캐시가 채워지면 `ai.news_signal`/`ai.free_prompt` 노드의 종목코드→종목명
+        자동 매핑이 위 뉴스 분석 현황 검색과 같은 기준으로 훨씬 많은 종목에서 동작합니다.
+      </p>
+      <p v-if="symbolSyncError" class="error">{{ symbolSyncError }}</p>
+      <p v-else-if="symbolSyncMessage" class="text-muted">{{ symbolSyncMessage }}</p>
+      <p v-if="symbolStatsError" class="error">{{ symbolStatsError }}</p>
+      <p v-else-if="symbolStatsLoading" class="text-muted">불러오는 중...</p>
+      <div v-else-if="symbolStats" class="metric-grid">
+        <div class="metric">
+          <div class="text-muted">현재 캐시(조회용)</div>
+          <div class="metric-value">{{ symbolStats.count.toLocaleString() }}</div>
+        </div>
+        <div class="metric">
+          <div class="text-muted">DB 저장(직전 동기화)</div>
+          <div class="metric-value">{{ symbolStats.db_count.toLocaleString() }}</div>
+        </div>
+      </div>
     </div>
 
     <div class="card">

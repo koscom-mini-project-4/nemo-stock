@@ -299,6 +299,32 @@ class NewsSignalRepository(ABC):
 
 
 @dataclass
+class SymbolMasterRecord:
+    """종목코드 -> 종목명/시장구분 매핑 1건(§0-10, 공공데이터포털 금융위원회_주식시세정보로
+    동기화). `app/market_data/symbol_master.py`의 정적 8개 하드코딩 목록을 대체하는 durable
+    캐시 — 이 레코드들이 부팅 시 in-memory 캐시로 로드된다."""
+
+    symbol: str
+    name: str
+    market: str | None = None
+    updated_at: datetime = field(default_factory=datetime.now)
+
+
+class SymbolMasterRepository(ABC):
+    @abstractmethod
+    def upsert_many(self, items: list[SymbolMasterRecord]) -> None: ...
+
+    @abstractmethod
+    def list_all(self) -> list[SymbolMasterRecord]: ...
+
+    @abstractmethod
+    def get(self, symbol: str) -> SymbolMasterRecord | None: ...
+
+    @abstractmethod
+    def count(self) -> int: ...
+
+
+@dataclass
 class AIScoreCacheRecord:
     id: str
     subject_type: str  # "disclosure" | "news"

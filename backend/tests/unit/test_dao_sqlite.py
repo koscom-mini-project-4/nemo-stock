@@ -13,6 +13,7 @@ from app.dao.base import (
     NewsSignalRecord,
     NodeEventRecord,
     RunRecord,
+    SymbolMasterRecord,
     UserRecord,
     WorkflowRecord,
 )
@@ -26,6 +27,7 @@ from app.dao.sqlite.repositories import (
     SqliteNodeEventRepository,
     SqlitePortfolioRepository,
     SqliteRunRepository,
+    SqliteSymbolMasterRepository,
     SqliteUserRepository,
     SqliteWorkflowRepository,
 )
@@ -304,3 +306,27 @@ def test_news_signal_repository_roundtrip_preserves_title(tmp_path):
     by_id = {r.id: r for r in records}
     assert by_id["s1"].title == "삼성전자 HBM 대규모 수주"
     assert by_id["s2"].title is None
+
+
+def test_symbol_master_repository_upsert_and_update(tmp_path):
+    """§0-10: 동기화를 여러 번 돌려도(같은 종목코드 재조회) 중복 없이 최신 값으로 갱신돼야 한다."""
+    sf = _session_factory(tmp_path)
+    repo = SqliteSymbolMasterRepository(sf)
+
+    repo.upsert_many(
+        [
+            SymbolMasterRecord(symbol="005930", name="삼성전자", market="KOSPI", updated_at=datetime(2026, 6, 1)),
+            SymbolMasterRecord(symbol="000660", name="SK하이닉스", market="KOSPI", updated_at=datetime(2026, 6, 1)),
+        ]
+    )
+    assert repo.count() == 2
+    assert repo.get("005930").name == "삼성전자"
+
+    # 재동기화 시 이름/시장구분이 바뀌었다고 가정 — upsert로 덮어써야지 새 행이 추가되면 안 된다.
+    repo.upsert_many(
+        [SymbolMasterRecord(symbol="005930", name="삼성전자보통주", market="KOSPI", updated_at=datetime(2026, 6, 2))]
+    )
+    assert repo.count() == 2
+    assert repo.get("005930").name == "삼성전자보통주"
+    assert repo.get("999999") is None
+    assert [r.symbol for r in repo.list_all()] == ["000660", "005930"]

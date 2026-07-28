@@ -176,6 +176,17 @@ class NewsSignalORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
+class SymbolMasterORM(Base):
+    """종목코드 -> 종목명/시장구분 캐시(§0-10). app.dao.base.SymbolMasterRecord."""
+
+    __tablename__ = "symbol_master"
+
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), index=True)
+    market: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class AIScoreCacheORM(Base):
     __tablename__ = "ai_score_cache"
     __table_args__ = (

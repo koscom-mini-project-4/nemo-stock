@@ -26,6 +26,8 @@ from app.dao.base import (
     PriceBarRepository,
     RunRecord,
     RunRepository,
+    SymbolMasterRecord,
+    SymbolMasterRepository,
     UserRecord,
     UserRepository,
     WorkflowRecord,
@@ -195,6 +197,24 @@ class InMemoryNewsSignalRepository(NewsSignalRepository):
         items = [s for s in self._store.values() if s.published_at >= cutoff]
         items.sort(key=lambda s: s.published_at)
         return items
+
+
+class InMemorySymbolMasterRepository(SymbolMasterRepository):
+    def __init__(self) -> None:
+        self._store: dict[str, SymbolMasterRecord] = {}
+
+    def upsert_many(self, items: list[SymbolMasterRecord]) -> None:
+        for item in items:
+            self._store[item.symbol] = item
+
+    def list_all(self) -> list[SymbolMasterRecord]:
+        return sorted(self._store.values(), key=lambda r: r.symbol)
+
+    def get(self, symbol: str) -> SymbolMasterRecord | None:
+        return self._store.get(symbol)
+
+    def count(self) -> int:
+        return len(self._store)
 
 
 class InMemoryAIScoreCacheRepository(AIScoreCacheRepository):
