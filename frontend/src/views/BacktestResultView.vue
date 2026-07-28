@@ -15,6 +15,7 @@ import BacktestChart from '@/components/BacktestChart.vue'
 import BacktestAskPanel from '@/components/BacktestAskPanel.vue'
 import BacktestProgressPanel from '@/components/BacktestProgressPanel.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
+import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
 
 const props = defineProps<{ id: string }>()
 
@@ -103,7 +104,7 @@ function recentTradingDayRange(days: number): { start: string; end: string } {
 
 const NEWS_SIGNAL_DEFAULT_DAYS = 4
 // 백엔드 app/api/routers/backtest.py::NEWS_SIGNAL_BACKTEST_MAX_DAYS와 값을 맞춘다(안내 문구 전용).
-const NEWS_SIGNAL_MAX_DAYS = 7
+const NEWS_SIGNAL_MAX_DAYS = 14
 const newsRangeAppliedFor = ref('')
 
 async function applyNewsSignalDefaultRange(id: string) {
@@ -251,7 +252,7 @@ onUnmounted(() => {
       </label>
       <label>
         대상 종목코드 (콤마 구분)
-        <input v-model="universeText" type="text" placeholder="005930,000660" />
+        <SymbolAutocomplete v-model="universeText" />
       </label>
       <div class="row">
         <label>

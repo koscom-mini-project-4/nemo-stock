@@ -30,10 +30,10 @@ router = APIRouter(prefix="/backtest", tags=["backtest"], dependencies=[Depends(
 # ai.news_signal(auto_update=true)은 거래일마다 AI 분류를 다시 트리거할 수 있어(뉴스가 실행
 # 시점 날짜 기준으로 조회되도록 바뀐 뒤로는 각 거래일이 서로 다른 조회를 만듦), 백테스트 기간이
 # 길어질수록 OpenAI 호출이 그만큼 늘어난다. 비용을 예측 가능한 범위로 묶기 위해 이 노드가 포함된
-# 백테스트는 기간을 제한한다(2026-07-28 사용자 확인: 4일 → 7일로 상향).
+# 백테스트는 기간을 제한한다(2026-07-28 사용자 확인: 4일 → 7일 → 14일로 상향).
 # ai.free_prompt(§0-9)도 심볼×거래일마다 실제 AI 호출이 나가고(도구 호출 모드는 라운드당
 # 추가 호출까지) 캐시가 없어 동일한 위험이 있으므로 같은 제한을 적용한다.
-NEWS_SIGNAL_BACKTEST_MAX_DAYS = 7
+NEWS_SIGNAL_BACKTEST_MAX_DAYS = 14
 _AI_COST_NODE_TYPES = {"ai.news_signal", "ai.free_prompt"}
 
 

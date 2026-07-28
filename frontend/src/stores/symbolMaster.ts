@@ -29,5 +29,19 @@ export const useSymbolMasterStore = defineStore('symbolMaster', {
       const name = state.byCode[symbol]
       return name ? `${name}(${symbol})` : symbol
     },
+    /** 종목코드/한글 종목명 부분일치 검색(대소문자 무시, 자동완성용). ensureLoaded 후 사용. */
+    search: (state) => (query: string, limit = 8) => {
+      const q = query.trim()
+      if (!q) return []
+      const qLower = q.toLowerCase()
+      const out: { symbol: string; name: string }[] = []
+      for (const [symbol, name] of Object.entries(state.byCode)) {
+        if (symbol.includes(q) || name.toLowerCase().includes(qLower)) {
+          out.push({ symbol, name })
+          if (out.length >= limit) break
+        }
+      }
+      return out
+    },
   },
 })
