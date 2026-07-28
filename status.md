@@ -495,6 +495,65 @@ example/group/hint 포함) 확인 → 스케줄러→시세→`indicator.sma`(�
 Playwright(또는 수동 브라우저)로 팔레트 2차 그룹핑·조건 프리셋 인라인 편집·판단 결과 UI를
 실제 화면으로 재확인할 것을 후속 작업으로 남긴다.
 
+## 2026-07-28 후속 작업 2: newsstock-lib 통합 — 뉴스(종목/섹터/거시) true/false 신호 노드
 
+사용자 요청: 팀이 만든 별도 저장소 `koscom-mini-project-4/newsstock-lib`를 포함시키거나 살짝
+수정해서, 뉴스 기반으로 종목/섹터/거시경제 각각에 대해 true/false를 내어주는 노드를 추가할
+것. 다른 기능에서도 필요하면 크롤링을 트리거할 수 있게 할 것.
+
+**라이브러리 조사**: clone해서 확인한 결과 `news_classifier` 패키지(`NewsTrader` 파사드)가
+이미 원하는 기능을 거의 그대로 제공했다 — `trader.stock/sector/macro(name)`가 종목/섹터/거시
+3축의 t(호재)/n(중립)/f(악재) 판정+점수를 돌려주고, 조회 시점에 스스로 크롤링(네이버 경제뉴스)
+→AI 분류(OpenAI)→클러스터 반영을 수행한다(내부 30분 쓰로틀로 비용 제한, `auto_update=False`로
+끄고 수동 `update()`도 가능). 자체 SQLite DB를 갖고 있어 기존 `NewsRepository`/
+`ai.sentiment_score` 파이프라인과는 완전히 독립적이다.
+
+**vendoring + 필요한 수정 1건**: `backend/app/vendor/news_classifier/`에 패키지를 그대로
+복사(`VENDOR_NOTES.md`에 출처/수정사항 기록). 유일하게 고친 부분은 `classifier.py::call_ai`의
+`temperature=0` 하드코딩 — 메인 모델 `gpt-5.6-luna`(reasoning 계열)와 충돌하는 문제라
+`app/ai/openai_client.py`와 동일한 "BadRequestError(param=temperature) 시 재시도" 패턴을
+적용했다(DESIGN.md §0-5).
+
+**Provider 배선**: `NewsTrader`가 스레드 세이프하지 않은 sqlite 연결을 물고 있어 `ai_client`
+처럼 공유 인스턴스를 두면 `WorkerPool`의 여러 스레드가 충돌할 수 있음을 확인 → 공유 인스턴스
+대신 노드 실행마다 새 인스턴스를 만드는 **팩토리 콜러블**(`Container.news_trader_factory`)을
+`node_providers()`로 주입하는 방식을 택함(`app/config.py`에 `newsstock_db_path` 1개 필드만
+추가, API 키/모델은 기존 설정 재사용).
+
+**신규 노드 `ai.news_signal`**(`backend/app/nodes/ai/news_signal.py`): axis(종목/섹터/거시경제)
++ key + period_days + auto_update + pass_when(호재(t)/악재(f)/중립 아님) 파라미터로 조건 내장
+필터형 노드(지난 작업의 조건 내장 노드 패턴과 동일)를 구현. `symbols[code]`에 `news_verdict`/
+`news_score`/`news_cluster_count`/**`news_true`(bool, 요청한 true/false 출력)**를 채우고
+`meta.decisions`에 판단 근거를 기록한다. axis="종목"이고 key 미지정 시
+`app/market_data/symbol_master.py`로 종목코드→한글명 자동 매핑(매핑 실패는 "판정 불가"로
+탈락, 트레이더 조회 자체를 하지 않음).
+
+**다른 기능의 크롤링 트리거**: `POST /data/news/update`(`app/api/routers/data.py`) 신규
+추가 — `news_trader_factory(auto_update=False)`로 만든 트레이더의 `update(force=...)`를
+호출해 결과를 반환한다. `ai.news_signal`의 `auto_update=false`로 실행 중 네트워크/AI 호출을
+막은 워크플로나, 대시보드 등 다른 기능이 필요할 때 독립적으로 갱신을 트리거할 수 있다.
+
+**테스트**: `ai_test_doubles.py`에 `FakeNewsTrader`/`FakeNewsTraderFactory` 추가(실제
+크롤링/OpenAI 없이 결정적 테스트). 신규 유닛 `test_news_signal_node.py`(7개, 종목 자동 매핑/
+매핑 실패/섹터·거시 key/pass_when 3종/auto_update 전달/close 호출/provider 누락 오류),
+`test_vendor_news_classifier.py`(2개, temperature 재시도 회귀). 신규 통합
+`test_api_news_signal_update.py`(2개) — 작성 중 FastAPI `response_model`이 기본적으로
+pydantic alias(Korean 필드명)로 직렬화한다는 걸 놓쳐 응답 JSON에 `skipped` 키가 없어 테스트가
+실패했던 걸 발견, 라우터에 `response_model_by_alias=False`를 추가해 수정. 백엔드 pytest
+**145→156개 전부 통과**(신규 11개). `beautifulsoup4`/`requests`를 `pyproject.toml`에 추가.
+프론트 `vue-tsc -b` 통과(이번 작업은 새 param_schema만 쓰므로 프론트 코드 변경 불필요).
+
+**검증**: 이번 세션도 브라우저 자동화 도구가 없어(이전 후속 작업과 동일한 한계) 실 서버 curl로
+검증했다. `GET /nodes`로 `ai.news_signal` 스키마 노출 확인 → 스케줄러(005930 + 매핑에 없는
+가짜 코드 999999) → `ai.news_signal`(axis=종목, auto_update=false, pass_when=중립 아님)
+워크플로를 생성해 `POST /workflows/{id}/run`(테스트 모드) 실행 → 실제 `Container.
+news_trader_factory`가 만든 `NewsTrader`(빈 `backend/newsstock.db`)로 조회되어 005930은
+"판정=n 점수=0.0(클러스터 0건) → 탈락", 999999는 "종목명 매핑 없음 → 판정 불가"(트레이더 조회
+자체를 하지 않음)로 정확히 기록됨을 확인(실행 8.67ms, `auto_update=false`라 네트워크/OpenAI
+호출 없음). 실행 후 `backend/newsstock.db`가 gitignore 대상으로 남는지도 확인(`git status`에
+안 잡힘). Playwright 등으로 실제 화면(캔버스에서 axis/pass_when 프리셋 편집, 디버그 패널 판단
+표시)까지 재확인하는 건 다음 세션 후속 작업으로 남긴다.
+
+## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.6-luna"
     ai_prompt_version: str = "v1"
 
+    # 뉴스 기반 매매 판단(newsstock-lib vendored, app/vendor/news_classifier). 자체 SQLite DB를
+    # 쓰므로 nemo_stock.db와 별도 파일로 둔다. API 키/모델은 openai_api_key/openai_model 재사용.
+    newsstock_db_path: str = str(BACKEND_DIR / "newsstock.db")
+
     # External public data
     data_go_kr_service_key: str | None = None
     dart_api_key: str | None = None

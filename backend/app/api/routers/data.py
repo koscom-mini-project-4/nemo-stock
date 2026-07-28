@@ -27,6 +27,8 @@ from app.schemas.data import (
     IngestResponse,
     ManualNewsIngestRequest,
     ManualPriceIngestRequest,
+    NewsUpdateRequest,
+    NewsUpdateResponse,
     PublicDisclosureIngestRequest,
     PublicPriceIngestRequest,
     SymbolOut,
@@ -149,3 +151,18 @@ def ingest_public_disclosures(
     ]
     container.disclosure_repo.save_many(records)
     return IngestResponse(ingested=len(records))
+
+
+@router.post("/news/update", response_model=NewsUpdateResponse, response_model_by_alias=False)
+def update_news_signal(payload: NewsUpdateRequest, container: Container = Depends(get_container)) -> NewsUpdateResponse:
+    """뉴스 신호 파이프라인(ai.news_signal 노드가 쓰는 app/vendor/news_classifier)의 크롤링+AI
+    분류를 명시적으로 트리거한다. ai.news_signal 노드는 params.auto_update=true면 실행 시점에
+    스스로 이 갱신을 수행하지만(내부적으로 30분 쓰로틀), auto_update=false로 꺼둔 워크플로(예:
+    백테스트처럼 실행 중 네트워크/AI 호출을 원치 않는 경우)나 다른 기능(대시보드 새로고침 등)이
+    독립적으로 크롤링을 트리거하고 싶을 때 이 엔드포인트를 쓴다."""
+    trader = container.news_trader_factory(auto_update=False)
+    try:
+        result = trader.update(force=payload.force)
+    finally:
+        trader.close()
+    return NewsUpdateResponse.model_validate(result)

@@ -66,6 +66,20 @@ fork 저장소를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit
 | `logic.if_else` 처리 | **유지**(fork처럼 팔레트에서 숨기지 않음). 복합조건/OR 로직 등 프리셋으로 커버되지 않는 경우에 여전히 필요하기 때문. |
 | 판단(judgment) 로그 | 모든 필터형 노드(`logic.if_else`/`logic.rank`/`risk.stop_loss`/조건 내장 지표 노드 12종)가 종목별 통과/탈락 근거를 `context.meta.decisions[node_id][symbol] = {"pass": bool, "reason": str, "metrics"?: dict}` 형태로 공통 기록(§3.1). 기존 `meta.filtered_out`(탈락 종목 코드 목록만 기록, `app/api/routers/ai.py`의 챗봇 컨텍스트가 참조)은 하위호환을 위해 그대로 유지하고 신규 필드만 추가. 프론트 `DebugPanel.vue`가 "테스트 실행" 시 이 값을 종목별 판단 테이블로 렌더링한다. |
 
+## 0-5. 추가 확정 사항 (2026-07-28 사용자 확인 — newsstock-lib 통합)
+
+사용자 요청: 팀이 만든 별도 저장소 `koscom-mini-project-4/newsstock-lib`(뉴스 기반 종목/섹터/
+거시경제 매매 판단 라이브러리)를 포함시키거나 살짝 수정해서, 뉴스 기반 true/false 신호를
+내는 노드를 추가할 것. 다른 기능에서도 필요하면 크롤링을 트리거할 수 있게 할 것.
+
+| 항목 | 결정 |
+| --- | --- |
+| 통합 방식 | **vendoring**. `newsstock-lib`의 `news_classifier` 패키지(`NewsTrader` 파사드 — 조회 시 스스로 크롤링(네이버 경제뉴스)→AI 분류→클러스터 반영을 수행하고 종목/섹터/거시 3축의 t(호재)/n(중립)/f(악재) 판정을 계산하는 자체완결 라이브러리)를 `backend/app/vendor/news_classifier/`에 그대로 복사. 우리 `NewsRepository`/`ai.sentiment_score`(기존 뉴스 파이프라인)와는 독립된 별개 경로다. |
+| 수정한 부분("혹은 살짝 수정해서") | `classifier.py::call_ai`가 OpenAI 호출 시 `temperature=0`을 하드코딩하는데, 우리 메인 모델 `gpt-5.6-luna`(reasoning 계열)는 기본값(1) 외의 temperature를 거부한다(§0-1, `app/ai/openai_client.py`와 동일 문제). `OpenAIClient.complete_json`과 동일한 "BadRequestError(param=temperature) 감지 시 temperature 없이 1회 재시도" 패턴을 적용. 그 외 파일은 원본 그대로. |
+| Provider 배선 | `NewsTrader`는 스레드 세이프하지 않은 `sqlite3.Connection`을 내부에 물고 있어 `ai_client`처럼 공유 인스턴스 하나를 두면 `WorkerPool`의 여러 워커 스레드가 동시에 같은 연결을 건드릴 수 있다. 공유 인스턴스 대신 노드 실행마다 새 `NewsTrader`(새 sqlite 연결)를 만드는 **팩토리 콜러블**(`Container.news_trader_factory`)을 `node_providers()`로 주입한다. DB 파일은 `Settings.newsstock_db_path`(기본 `backend/newsstock.db`, `nemo_stock.db`와 별도)이고 API 키/모델은 기존 `openai_api_key`/`openai_model`을 재사용한다. |
+| 신규 노드 | `ai.news_signal`(§3.2) — `params.axis`(종목/섹터/거시경제)에 따라 `NewsTrader.stock`/`sector`/`macro`를 호출해 `symbols[code]`에 `news_verdict`/`news_score`/`news_cluster_count`/`news_true`(bool)를 채우고 `params.pass_when` 기준으로 필터링하는 조건 내장형 노드(§0-4의 필터형 노드 패턴을 그대로 따름). axis="종목"이고 `key`를 안 주면 `app/market_data/symbol_master.py`로 종목코드→한글명 자동 매핑. |
+| 다른 기능에서의 크롤링 트리거 | `ai.news_signal`은 `params.auto_update`(기본 true)로 실행 시점에 스스로 갱신을 트리거하지만(라이브러리 자체 30분 쓰로틀로 비용 제한), 이를 꺼둔 워크플로나 다른 기능(대시보드 등)이 독립적으로 트리거할 수 있도록 `POST /data/news/update`(§9) 엔드포인트를 추가해 `news_trader_factory`를 통한 수동 갱신을 노출한다. |
+
 ---
 
 ## 1. 목표와 PoC 범위
@@ -193,6 +207,7 @@ def register_node(cls: type[Node]) -> type[Node]:
 | indicator(조건 내장, §0-4) | `indicator.volume_ratio`/`indicator.volume_zscore` | 거래량 — 위와 동일한 필터형 노드 |
 | ai | `ai.sentiment_score` | 뉴스/공시 텍스트 감성 점수화(캐시 적용) |
 | ai | `ai.regime` | 시장 국면 판단(상승/하락/횡보) — 보조 판단용 |
+| ai(조건 내장, §0-5) | `ai.news_signal` | 뉴스 신호(종목/섹터/거시경제) — `koscom-mini-project-4/newsstock-lib`(vendored) 기반, t/n/f 판정을 필터링(logic.if_else 내장) + news_true(bool) 출력 |
 | logic | `logic.if_else` | 조건식 분기 (True 경로만 컨텍스트 전달) |
 | logic | `logic.filter` | 종목 목록 필터링 |
 | logic | `logic.rank` | 조건별 상위 N 랭킹 |

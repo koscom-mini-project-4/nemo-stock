@@ -7,7 +7,7 @@ FastAPI Depends는 이 컨테이너를 request.app.state.container에서 꺼내 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy.orm import sessionmaker
 
@@ -55,6 +55,7 @@ from app.nodes import load_all_nodes
 from app.trigger.queue import InMemoryTriggerQueue, TriggerQueue
 from app.trigger.scheduler_service import SchedulerService
 from app.trigger.worker_pool import WorkerPool
+from app.vendor.news_classifier import NewsTrader
 from app.workflow.engine import WorkflowEngine
 from app.workflow.events import EventBus, InMemoryEventBus
 
@@ -75,6 +76,7 @@ class Container:
     ai_score_cache_repo: AIScoreCacheRepository
     portfolio_repo: PortfolioRepository
     ai_client: AIClient
+    news_trader_factory: Callable[..., NewsTrader]
     event_bus: EventBus
     market_data: MarketDataProvider
     broker: OrderExecutionProvider
@@ -90,6 +92,7 @@ class Container:
             "ai_score_cache_repo": self.ai_score_cache_repo,
             "news_repo": self.news_repo,
             "disclosure_repo": self.disclosure_repo,
+            "news_trader_factory": self.news_trader_factory,
         }
 
 
@@ -130,6 +133,22 @@ def _build_order_provider(
             portfolio_repo, user_id, default_initial_cash=settings.initial_portfolio_cash
         )
     return DummyOrderExecutionProvider(initial_cash=settings.initial_portfolio_cash)
+
+
+def _build_news_trader_factory(settings: Settings) -> Callable[..., NewsTrader]:
+    """NewsTrader는 내부에 스레드-세이프하지 않은 sqlite3.Connection을 물고 있어(공유 시 다른
+    워커 스레드에서 오류), ai_client처럼 공유 인스턴스 하나를 두지 않고 노드 실행마다 새
+    인스턴스(=새 연결)를 만드는 팩토리로 제공한다(app/nodes/ai/news_signal.py가 소비)."""
+
+    def factory(auto_update: bool = True) -> NewsTrader:
+        return NewsTrader(
+            db_path=settings.newsstock_db_path,
+            api_key=settings.openai_api_key or "",
+            model=settings.openai_model,
+            auto_update=auto_update,
+        )
+
+    return factory
 
 
 def build_container(settings: Settings) -> Container:
@@ -178,11 +197,13 @@ def build_container(settings: Settings) -> Container:
         trigger_queue=trigger_queue,
         tick_seconds=settings.scheduler_tick_seconds,
     )
+    news_trader_factory = _build_news_trader_factory(settings)
     node_providers = {
         "ai_client": ai_client,
         "ai_score_cache_repo": ai_score_cache_repo,
         "news_repo": news_repo,
         "disclosure_repo": disclosure_repo,
+        "news_trader_factory": news_trader_factory,
     }
     worker_pool = WorkerPool(
         trigger_queue=trigger_queue,
@@ -211,6 +232,7 @@ def build_container(settings: Settings) -> Container:
         ai_score_cache_repo=ai_score_cache_repo,
         portfolio_repo=portfolio_repo,
         ai_client=ai_client,
+        news_trader_factory=news_trader_factory,
         event_bus=event_bus,
         market_data=market_data,
         broker=broker,
