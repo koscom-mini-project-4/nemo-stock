@@ -110,17 +110,25 @@ class OpenAIClient(AIClient):
         return json.loads(content)
 
     def _create(self, messages: list[dict], temperature: float, **kwargs: Any):
+        payload: dict[str, Any] = {"model": self._model, "temperature": temperature, "messages": messages, **kwargs}
         try:
-            return self._client.chat.completions.create(
-                model=self._model, temperature=temperature, messages=messages, **kwargs
-            )
+            return self._client.chat.completions.create(**payload)
         except BadRequestError as exc:
-            # gpt-5 계열 reasoning 모델(gpt-5*, gpt-5.6-sol/terra/luna 등)은 기본값(1)
-            # 외의 temperature를 지원하지 않는다. 해당 오류일 때만 temperature 없이 재시도한다.
             body = exc.body if isinstance(exc.body, dict) else {}
-            if body.get("param") != "temperature":
+            param = body.get("param")
+            if param == "temperature":
+                # gpt-5 계열 reasoning 모델(gpt-5*, gpt-5.6-sol/terra/luna 등)은 기본값(1)
+                # 외의 temperature를 지원하지 않는다. 해당 오류일 때만 temperature 없이 재시도한다.
+                payload.pop("temperature")
+            elif param == "reasoning_effort":
+                # 같은 계열 reasoning 모델은 tools(함수 호출)와 함께 쓸 때 chat.completions
+                # 엔드포인트에서 reasoning_effort를 명시적으로 "none"으로 지정해야 한다
+                # (미지정 시 계정 기본값이 걸려 400). ai.free_prompt의 도구 호출 모드에서
+                # 실제로 이 오류를 만나 회귀 테스트를 추가했다.
+                payload["reasoning_effort"] = "none"
+            else:
                 raise
-            return self._client.chat.completions.create(model=self._model, messages=messages, **kwargs)
+            return self._client.chat.completions.create(**payload)
 
     def _record_usage(self, response: object, purpose: str) -> None:
         """관리자 페이지 사용량 통계용 호출 기록. usage_repo가 없거나 기록 실패해도 AI 응답

@@ -991,6 +991,24 @@ open-trading-api 여기 참고하세요" + "주문 수량을 주문 가능수량
 참조해 추가 수정 불필요). `vue-tsc -b` 통과. 브라우저 자동화 도구가 없어 자동완성 컴포넌트의
 라이브 클릭 검증은 못했다.
 
+## 2026-07-28 후속 작업 16: AI 호출 오류 — tools(함수 호출)에 reasoning_effort 미지정 시 400
+
+사용자가 실사용 중 에러 메시지를 그대로 보고: `Function tools with reasoning_effort are not
+supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses
+or set reasoning_effort to 'none'.`
+
+- **원인**: `OpenAIClient.complete_with_tools()`(`ai.free_prompt` 노드의 도구 호출 모드가
+  사용)가 `tools=`를 넘겨 `chat.completions.create()`를 호출하는데, gpt-5.6-luna 같은
+  reasoning 모델은 tools와 함께 쓸 때 `reasoning_effort`를 명시적으로 "none"으로 지정하지
+  않으면 400을 낸다. 기존 코드는 이 파라미터를 아예 안 보내고 있었다(계정 기본값이 걸림).
+- **수정**: `_create()`의 기존 "temperature 미지원 시 재시도" 패턴(§0-1)을 확장 —
+  `BadRequestError.body.param`이 `"reasoning_effort"`이면 `reasoning_effort="none"`을 추가해
+  1회 재시도(param이 `"temperature"`/`"reasoning_effort"` 둘 다 아니면 기존처럼 그대로
+  re-raise). `app/vendor/news_classifier/classifier.py::call_ai`는 tools를 안 써서 이 문제와
+  무관 — 수정 불필요.
+- **검증**: 회귀 테스트 추가(`test_complete_with_tools_retries_with_reasoning_effort_none_on_unsupported_value`).
+  백엔드 pytest 336개 전부 통과.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

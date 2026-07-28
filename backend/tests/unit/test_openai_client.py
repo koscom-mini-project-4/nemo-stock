@@ -41,6 +41,24 @@ def _temperature_error() -> BadRequestError:
     )
 
 
+def _reasoning_effort_error() -> BadRequestError:
+    response = httpx.Response(status_code=400, request=httpx.Request("POST", "https://api.openai.com/v1/x"))
+    return BadRequestError(
+        "reasoning_effort unsupported with tools",
+        response=response,
+        body={
+            "message": (
+                "Function tools with reasoning_effort are not supported for gpt-5.6-luna in "
+                "/v1/chat/completions. To use function tools, use /v1/responses or set "
+                "reasoning_effort to 'none'."
+            ),
+            "type": "invalid_request_error",
+            "param": "reasoning_effort",
+            "code": None,
+        },
+    )
+
+
 def _fake_openai_response(content: str, usage: MagicMock | None = None) -> MagicMock:
     resp = MagicMock()
     resp.choices = [MagicMock(message=MagicMock(content=content))]
@@ -194,6 +212,24 @@ def test_complete_with_tools_retries_without_temperature_on_unsupported_value():
 
     assert result == {"pass": True}
     assert "temperature" not in create_mock.call_args_list[1].kwargs
+
+
+def test_complete_with_tools_retries_with_reasoning_effort_none_on_unsupported_value():
+    """실사용 중 만난 회귀: gpt-5.6-luna로 tools(함수 호출)를 쓰면 reasoning_effort를 명시
+    "none"으로 안 주면 400이 난다("Function tools with reasoning_effort are not supported...").
+    이 오류를 만나면 reasoning_effort="none"을 추가해 1회 재시도해야 한다."""
+    client = OpenAIClient(api_key="sk-test", model="gpt-5.6-luna")
+    create_mock = MagicMock(
+        side_effect=[_reasoning_effort_error(), _fake_tool_round_response([], content='{"pass": true}')]
+    )
+    client._client.chat.completions.create = create_mock  # type: ignore[union-attr]
+
+    result = client.complete_with_tools("system", "user", tools=[{"type": "function"}], tool_executor=lambda n, a: {})
+
+    assert result == {"pass": True}
+    assert create_mock.call_count == 2
+    assert "reasoning_effort" not in create_mock.call_args_list[0].kwargs
+    assert create_mock.call_args_list[1].kwargs["reasoning_effort"] == "none"
 
 
 def test_usage_save_failure_does_not_break_ai_response():
