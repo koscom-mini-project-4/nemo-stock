@@ -10,6 +10,7 @@ from app.dao.base import (
     BacktestResultRecord,
     IntradayPriceBarRecord,
     NewsRecord,
+    NewsSignalRecord,
     NodeEventRecord,
     RunRecord,
     UserRecord,
@@ -21,6 +22,7 @@ from app.dao.sqlite.repositories import (
     SqliteBacktestResultRepository,
     SqliteIntradayPriceBarRepository,
     SqliteNewsRepository,
+    SqliteNewsSignalRepository,
     SqliteNodeEventRepository,
     SqlitePortfolioRepository,
     SqliteRunRepository,
@@ -276,3 +278,29 @@ def test_ai_usage_repository_save_and_list_since(tmp_path):
 
     since_records = repo.list_since(datetime(2026, 6, 2))
     assert [r.id for r in since_records] == ["u2"]
+
+
+def test_news_signal_repository_roundtrip_preserves_title(tmp_path):
+    """§0-9: title 필드가 sqlite 저장/조회를 거쳐도 보존되는지(뉴스신호 근거 표시용)."""
+    sf = _session_factory(tmp_path)
+    repo = SqliteNewsSignalRepository(sf)
+
+    repo.save_many(
+        [
+            NewsSignalRecord(
+                id="s1", symbol="005930", sector="반도체", direction=1, event_type="Earnings_Contract",
+                themes=["HBM"], base_impact=0.8, sector_score=0.5, domestic_score=0.2, overseas_score=0.0,
+                published_at=datetime(2026, 6, 1), source="manual", title="삼성전자 HBM 대규모 수주",
+            ),
+            NewsSignalRecord(
+                id="s2", symbol=None, sector="반도체", direction=-1, event_type="Macro_Indicator",
+                themes=[], base_impact=-0.3, sector_score=-0.2, domestic_score=-0.1, overseas_score=0.0,
+                published_at=datetime(2026, 6, 2), source="manual", title=None,
+            ),
+        ]
+    )
+
+    records = repo.list_since(datetime(2026, 5, 1))
+    by_id = {r.id: r for r in records}
+    assert by_id["s1"].title == "삼성전자 HBM 대규모 수주"
+    assert by_id["s2"].title is None

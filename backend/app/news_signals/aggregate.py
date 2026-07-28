@@ -249,3 +249,28 @@ def macro_risk_density(
     event_density의 큐레이션된 특수 케이스(Geopolitical_Risk + Macro_Indicator).
     """
     return event_density(signals, as_of, RISK_EVENT_TYPES, window_days)
+
+
+# ---------------------------------------------------------------------------
+# 근거(§0-9) — "이 지표 점수를 만든 뉴스가 뭐였는지"
+# ---------------------------------------------------------------------------
+
+
+def top_contributor(
+    signals: list[NewsSignalRecord],
+    as_of: datetime,
+    window_days: int,
+    predicate: Callable[[NewsSignalRecord], bool],
+    score_fn: Callable[[NewsSignalRecord], float] = lambda s: s.base_impact,
+) -> NewsSignalRecord | None:
+    """조건(predicate)에 맞는 신호 중 |score_fn| 절대값이 최대인 1건을 찾는다.
+
+    각 지표 함수(sector_momentum 등)가 내부적으로 쓰는 것과 같은 윈도우/필터를 그대로 넘겨
+    받아, "이 지표 점수를 만든 가장 큰 근거 뉴스"를 노드 출력에 보여줄 때 쓴다
+    (app/nodes/ai/news_signal.py의 top_topic과 동일한 목적 — 그쪽은 클러스터 단위,
+    이쪽은 개별 뉴스 단위). 일치하는 신호가 없으면 None.
+    """
+    rows = [s for s in _in_window(signals, as_of, window_days) if predicate(s)]
+    if not rows:
+        return None
+    return max(rows, key=lambda s: abs(score_fn(s)))

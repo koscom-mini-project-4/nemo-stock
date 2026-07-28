@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Callable
 
 from app.ai.news_classify import EVENT_TYPES
 from app.dao.base import NewsSignalRepository
@@ -31,6 +32,7 @@ _SECTOR_OPTIONAL: NodeParam = {
     "group": "calc", "hint": "비우면(전체) 시장 전체",
 }
 from app.news_signals.aggregate import (
+    RISK_EVENT_TYPES,
     buzz_zscore,
     event_density,
     macro_risk_density,
@@ -42,9 +44,27 @@ from app.news_signals.aggregate import (
     symbol_direct_impact,
     symbol_news_stats,
     theme_zscore,
+    top_contributor,
 )
 from app.nodes.base import Node, NodeContext, NodeParam, register_node
 from app.nodes.conditions import PASS_PRESET, Preset, apply_condition, condition_params
+
+
+def _top_note(title: str | None, score: float | None) -> str | None:
+    """apply_condition(note_fn=...)에 넘길 근거 문구(§0-9) — ai.news_signal의 topic_note와
+    동일한 스타일. 근거 뉴스가 없으면 None(reason에 아무것도 안 덧붙음)."""
+    if not title:
+        return None
+    return f"주요 근거: '{title}' (기여점수 {score:+.4f})" if score is not None else f"주요 근거: '{title}'"
+
+
+def _note_fn(field: str) -> Callable[[dict], str | None]:
+    """<field>_top_title/<field>_top_score로 stamp된 근거를 reason에 붙이는 note_fn 팩토리."""
+
+    def fn(data: dict) -> str | None:
+        return _top_note(data.get(f"{field}_top_title"), data.get(f"{field}_top_score"))
+
+    return fn
 
 
 def _repo(providers: dict) -> NewsSignalRepository:
@@ -91,7 +111,10 @@ class SectorMomentumNode(Node):
         out = context.clone()
         signals = repo.list_since(out.timestamp - timedelta(days=window))
         _stamp(out, "sector_momentum", sector_momentum(signals, sector, out.timestamp, window_days=window))
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+        top = top_contributor(signals, out.timestamp, window, lambda s: s.sector == sector, lambda s: s.sector_score)
+        _stamp(out, "sector_momentum_top_title", top.title if top else None)
+        _stamp(out, "sector_momentum_top_score", top.sector_score if top else None)
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("sector_momentum"))
         return out
 
 
@@ -122,7 +145,12 @@ class MacroRiskNode(Node):
         out = context.clone()
         signals = repo.list_since(out.timestamp - timedelta(days=window))
         _stamp(out, "macro_risk_density", macro_risk_density(signals, out.timestamp, window_days=window))
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+        top = top_contributor(
+            signals, out.timestamp, window, lambda s: s.event_type in RISK_EVENT_TYPES, lambda s: s.base_impact
+        )
+        _stamp(out, "macro_risk_density_top_title", top.title if top else None)
+        _stamp(out, "macro_risk_density_top_score", top.base_impact if top else None)
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("macro_risk_density"))
         return out
 
 
@@ -158,7 +186,12 @@ class ThemeZScoreNode(Node):
         _stamp(out, "theme_mentions_today", sum(
             1 for s in signals if s.published_at.date() == out.timestamp.date() and theme in (s.themes or [])
         ))
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+        top = top_contributor(
+            signals, out.timestamp, lookback, lambda s: theme in (s.themes or []), lambda s: s.base_impact
+        )
+        _stamp(out, "theme_zscore_top_title", top.title if top else None)
+        _stamp(out, "theme_zscore_top_score", top.base_impact if top else None)
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("theme_zscore"))
         return out
 
 
@@ -191,7 +224,11 @@ class SentimentRatioNode(Node):
         out = context.clone()
         signals = repo.list_since(out.timestamp - timedelta(days=window))
         _stamp(out, "sentiment_ratio", sentiment_ratio(signals, out.timestamp, sector, window))
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+        predicate = (lambda s: True) if sector is None else (lambda s: s.sector == sector)
+        top = top_contributor(signals, out.timestamp, window, predicate, lambda s: s.base_impact)
+        _stamp(out, "sentiment_ratio_top_title", top.title if top else None)
+        _stamp(out, "sentiment_ratio_top_score", top.base_impact if top else None)
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("sentiment_ratio"))
         return out
 
 
@@ -225,7 +262,10 @@ class SymbolNewsScoreNode(Node):
             score, count = symbol_news_stats(signals, symbol, out.timestamp, window_days=window)
             data["symbol_news_score"] = score
             data["symbol_news_count"] = count
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+            top = top_contributor(signals, out.timestamp, window, lambda s, sym=symbol: s.symbol == sym, lambda s: s.base_impact)
+            data["symbol_news_score_top_title"] = top.title if top else None
+            data["symbol_news_score_top_score"] = top.base_impact if top else None
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("symbol_news_score"))
         return out
 
 
@@ -263,7 +303,10 @@ class SymbolDirectImpactNode(Node):
             data["symbol_direct_impact"] = symbol_direct_impact(
                 signals, symbol, out.timestamp, window_days=window
             )
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+            top = top_contributor(signals, out.timestamp, window, lambda s, sym=symbol: s.symbol == sym, lambda s: s.base_impact)
+            data["symbol_direct_impact_top_title"] = top.title if top else None
+            data["symbol_direct_impact_top_score"] = top.base_impact if top else None
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("symbol_direct_impact"))
         return out
 
 
@@ -301,7 +344,13 @@ class SectorLinkedImpactNode(Node):
         signals = repo.list_since(out.timestamp - timedelta(days=window))
         _stamp(out, "sector_linked_impact",
                sector_linked_impact(signals, sector, out.timestamp, window_days=window))
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+        top = top_contributor(
+            signals, out.timestamp, window,
+            lambda s: s.sector == sector and s.sector_score != 0.0, lambda s: s.sector_score,
+        )
+        _stamp(out, "sector_linked_impact_top_title", top.title if top else None)
+        _stamp(out, "sector_linked_impact_top_score", top.sector_score if top else None)
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("sector_linked_impact"))
         return out
 
 
@@ -333,7 +382,23 @@ class MacroSentimentNode(Node):
         signals = repo.list_since(out.timestamp - timedelta(days=window))
         _stamp(out, "domestic_macro_index", macro_sentiment_index(signals, out.timestamp, "domestic", window))
         _stamp(out, "overseas_macro_index", macro_sentiment_index(signals, out.timestamp, "overseas", window))
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+        dom_top = top_contributor(signals, out.timestamp, window, lambda s: True, lambda s: s.domestic_score)
+        ovs_top = top_contributor(signals, out.timestamp, window, lambda s: True, lambda s: s.overseas_score)
+        _stamp(out, "domestic_macro_index_top_title", dom_top.title if dom_top else None)
+        _stamp(out, "domestic_macro_index_top_score", dom_top.domestic_score if dom_top else None)
+        _stamp(out, "overseas_macro_index_top_title", ovs_top.title if ovs_top else None)
+        _stamp(out, "overseas_macro_index_top_score", ovs_top.overseas_score if ovs_top else None)
+
+        def _macro_note(data: dict) -> str | None:
+            # 선택된 조건(국내/해외)에 맞는 근거를 붙인다 — presets가 field를 override하므로
+            # 어느 쪽이 실제로 판정에 쓰였는지는 resolve_condition 결과를 다시 볼 수 없어
+            # 두 근거를 함께 보여준다(국내/해외 둘 다 참고 가능하도록).
+            dom = _top_note(data.get("domestic_macro_index_top_title"), data.get("domestic_macro_index_top_score"))
+            ovs = _top_note(data.get("overseas_macro_index_top_title"), data.get("overseas_macro_index_top_score"))
+            parts = [p for p in (f"국내 {dom}" if dom else None, f"해외 {ovs}" if ovs else None) if p]
+            return " / ".join(parts) if parts else None
+
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_macro_note)
         return out
 
 
@@ -366,7 +431,13 @@ class MomentumChangeNode(Node):
         out = context.clone()
         signals = repo.list_since(out.timestamp - timedelta(days=window * 2))
         _stamp(out, "sector_momentum_change", momentum_change(signals, sector, out.timestamp, window_days=window))
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+        # 근거는 "최근(가열/냉각을 판단하는 기준) 구간"에서 뽑는다 — 직전 구간까지 섞으면 혼란스럽다.
+        top = top_contributor(signals, out.timestamp, window, lambda s: s.sector == sector, lambda s: s.sector_score)
+        _stamp(out, "sector_momentum_change_top_title", top.title if top else None)
+        _stamp(out, "sector_momentum_change_top_score", top.sector_score if top else None)
+        apply_condition(
+            self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("sector_momentum_change")
+        )
         return out
 
 
@@ -398,7 +469,11 @@ class SectorBuzzNode(Node):
         out = context.clone()
         signals = repo.list_since(out.timestamp - timedelta(days=lookback + 1))
         _stamp(out, "buzz_zscore", buzz_zscore(signals, out.timestamp, sector, lookback_days=lookback))
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+        predicate = (lambda s: True) if sector is None else (lambda s: s.sector == sector)
+        top = top_contributor(signals, out.timestamp, lookback, predicate, lambda s: s.base_impact)
+        _stamp(out, "buzz_zscore_top_title", top.title if top else None)
+        _stamp(out, "buzz_zscore_top_score", top.base_impact if top else None)
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("buzz_zscore"))
         return out
 
 
@@ -431,5 +506,8 @@ class EventDensityNode(Node):
         out = context.clone()
         signals = repo.list_since(out.timestamp - timedelta(days=window))
         _stamp(out, "event_density", event_density(signals, out.timestamp, (event_type,), window))
-        apply_condition(self, out, self.condition_presets, self.condition_field)
+        top = top_contributor(signals, out.timestamp, window, lambda s: s.event_type == event_type, lambda s: s.base_impact)
+        _stamp(out, "event_density_top_title", top.title if top else None)
+        _stamp(out, "event_density_top_score", top.base_impact if top else None)
+        apply_condition(self, out, self.condition_presets, self.condition_field, note_fn=_note_fn("event_density"))
         return out

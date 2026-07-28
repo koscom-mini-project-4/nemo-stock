@@ -564,7 +564,8 @@ class SqliteNewsSignalRepository(NewsSignalRepository):
                             direction=item.direction, event_type=item.event_type, themes=item.themes,
                             base_impact=item.base_impact, sector_score=item.sector_score,
                             domestic_score=item.domestic_score, overseas_score=item.overseas_score,
-                            published_at=item.published_at, source=item.source, created_at=item.created_at,
+                            published_at=item.published_at, source=item.source, title=item.title,
+                            created_at=item.created_at,
                         )
                     )
             session.commit()
@@ -582,7 +583,7 @@ class SqliteNewsSignalRepository(NewsSignalRepository):
                     event_type=r.event_type, themes=list(r.themes or []), base_impact=r.base_impact,
                     sector_score=r.sector_score, domestic_score=r.domestic_score,
                     overseas_score=r.overseas_score, published_at=r.published_at,
-                    source=r.source, created_at=r.created_at,
+                    source=r.source, title=r.title, created_at=r.created_at,
                 )
                 for r in rows
             ]

@@ -66,6 +66,41 @@ def test_backtest_over_limit_with_news_signal_is_rejected(app_client: TestClient
     assert f"{NEWS_SIGNAL_BACKTEST_MAX_DAYS}일" in resp.json()["detail"]
 
 
+def test_backtest_over_limit_with_free_prompt_is_rejected(app_client: TestClient, auth_headers: dict):
+    """ai.free_prompt(§0-9)도 심볼×거래일마다 실제 AI 호출이 나가 동일한 기간 제한이 적용된다."""
+    payload = {
+        "name": "자유 프롬프트 포함 백테스트",
+        "schedule_interval_sec": 60,
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "scheduler.interval", "params": {"interval_sec": 60, "universe": "TESTSYM"}},
+                {"id": "n2", "type": "ai.free_prompt", "params": {"prompt": "무조건 통과", "data_mode": "치환"}},
+            ],
+            "edges": [{"from": "n1", "to": "n2"}],
+        },
+    }
+    wf_resp = app_client.post("/workflows", json=payload, headers=auth_headers)
+    assert wf_resp.status_code == 201
+    workflow_id = wf_resp.json()["id"]
+
+    start = date(2025, 1, 1)
+    end = start + timedelta(days=NEWS_SIGNAL_BACKTEST_MAX_DAYS + 5)
+    resp = app_client.post(
+        "/backtest",
+        json={
+            "workflow_id": workflow_id,
+            "universe": ["TESTSYM"],
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "initial_capital": 10_000_000,
+        },
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 400
+    assert "ai.free_prompt" in resp.json()["detail"]
+
+
 def test_backtest_within_limit_with_news_signal_proceeds(app_client: TestClient, auth_headers: dict):
     start = date(2025, 1, 1)
     ingest_resp = app_client.post(

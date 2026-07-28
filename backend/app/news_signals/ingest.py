@@ -23,8 +23,13 @@ def build_news_signal(
     news_id: str | None = None,
     symbol: str | None = None,
     source: str = "manual",
+    title: str | None = None,
 ) -> NewsSignalRecord:
-    """정규화 → 충격량 계산 → NewsSignalRecord 생성(저장은 호출자가)."""
+    """정규화 → 충격량 계산 → NewsSignalRecord 생성(저장은 호출자가).
+
+    title(§0-9): 원문 제목. app/nodes/data/news_signal.py의 집계 노드들이 "어떤 뉴스가 이
+    점수를 만들었는지" 근거를 보여줄 때 쓴다(aggregate.py::top_contributor).
+    """
     norm = normalize_classification(classification)
     impact = compute_impact(norm)
     return NewsSignalRecord(
@@ -40,6 +45,7 @@ def build_news_signal(
         overseas_score=impact["overseas_score"],
         published_at=published_at,
         source=source,
+        title=title,
     )
 
 
@@ -51,9 +57,10 @@ def classify_and_build_signal(
     news_id: str | None = None,
     symbol: str | None = None,
     source: str = "manual",
+    title: str | None = None,
 ) -> NewsSignalRecord:
     """원문 텍스트를 AI로 분류한 뒤 신호를 만든다(AI 키가 있을 때만)."""
     classification = classify_news(ai_client, text)
     return build_news_signal(
-        classification, published_at, news_id=news_id, symbol=symbol, source=source
+        classification, published_at, news_id=news_id, symbol=symbol, source=source, title=title
     )

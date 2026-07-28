@@ -8,12 +8,27 @@ from app.ai.base import AIClient, AIUnavailableError
 
 
 class FakeAIClient(AIClient):
-    def __init__(self, responses: list[dict] | None = None, model: str = "fake-model", available: bool = True):
+    """complete_json은 responses 큐를, complete_with_tools는 tool_scripts 큐를 하나씩 소비한다.
+
+    tool_scripts의 각 항목은 "라운드 리스트"다: {"tool_calls": [{"name","arguments"}, ...]}면
+    실제 tool_executor를 호출해 결과를 기록하고 다음 라운드로, {"tool_calls"} 없는 plain dict면
+    그게 최종 JSON 응답(더 이상 라운드 없음).
+    """
+
+    def __init__(
+        self,
+        responses: list[dict] | None = None,
+        model: str = "fake-model",
+        available: bool = True,
+        tool_scripts: list[list[dict]] | None = None,
+    ):
         self._responses = list(responses or [])
+        self._tool_scripts = list(tool_scripts or [])
         self._model = model
         self._available = available
         self.calls: list[tuple[str, str]] = []
         self.purposes: list[str] = []
+        self.tool_calls: list[tuple[str, str, dict]] = []  # (tool_name, arguments) 실행 이력
 
     @property
     def available(self) -> bool:
@@ -33,6 +48,32 @@ class FakeAIClient(AIClient):
         if not self._responses:
             raise AssertionError("FakeAIClient: 더 이상 준비된 응답이 없습니다.")
         return self._responses.pop(0)
+
+    def complete_with_tools(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tools: list[dict],
+        tool_executor,
+        temperature: float = 0.2,
+        purpose: str = "unknown",
+        max_rounds: int = 4,
+    ) -> dict:
+        if not self._available:
+            raise AIUnavailableError("fake client unavailable")
+        self.calls.append((system_prompt, user_prompt))
+        self.purposes.append(purpose)
+        if not self._tool_scripts:
+            raise AssertionError("FakeAIClient: 더 이상 준비된 tool_scripts가 없습니다.")
+        script = self._tool_scripts.pop(0)
+        for round_ in script:
+            if "tool_calls" in round_:
+                for call in round_["tool_calls"]:
+                    tool_executor(call["name"], call["arguments"])
+                    self.tool_calls.append((call["name"], call["arguments"], purpose))
+            else:
+                return round_
+        raise AssertionError("FakeAIClient: tool_script이 최종 JSON 없이 끝났습니다.")
 
 
 class FakeNewsTrader:

@@ -1,6 +1,6 @@
 export interface NodeParamSchema {
   key: string
-  type: 'string' | 'number' | 'boolean' | 'select' | 'expression'
+  type: 'string' | 'number' | 'boolean' | 'select' | 'expression' | 'prompt'
   label: string
   default?: unknown
   required?: boolean

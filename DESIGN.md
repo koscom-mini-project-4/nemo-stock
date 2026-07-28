@@ -154,6 +154,64 @@ fork 저장소를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit
   에러 없이 서빙됨을 curl로 확인. 이번 세션도 브라우저 자동화 도구가 없어 실제 클릭 동작은
   사용자가 `npm run dev`로 직접 확인 필요.
 
+## 0-9. 자유 프롬프트 AI 판단 노드 + 뉴스신호 근거 보강 + 노드 단독 테스트 (2026-07-28 사용자 요청)
+
+사용자 요청 3가지를 한 번에 처리: (1) 프롬프트/참고자료를 자유롭게 쓰는 통과·탈락 판단
+AI 노드 신설(치환 또는 AI 스스로 도구 호출 중 워크플로 작성자가 선택), (2) "뉴스 관련 노드의
+매수/매도 의견·이유가 json에 같이 안 넘어온다"는 제보 확인, (3) "if/else를 넘어가도 점수/의견이
+계속 json으로 누적돼야 한다"는 아키텍처 우려 검토.
+
+**(3) 조사 결과**: `app/nodes/base.py::NodeContext.symbols`는 이미 매 노드가 `clone()`
+(deepcopy)해서 이어받고, `logic.if_else`/`app/nodes/conditions.py::apply_condition()` 둘 다
+통과한 종목의 데이터 dict를 그대로 유지한다(탈락 종목만 제거, 필드를 지우지 않음) — 재현되지
+않음. 새 아키텍처 불필요. **(2)의 실체**는 `app/nodes/data/news_signal.py`의 11개 조건 내장
+뉴스신호 노드가 숫자 점수만 stamp하고 "어떤 뉴스가 그 점수를 만들었는지" 근거가 전혀 없던 것
+— `ai.news_signal`엔 이미 있던 `top_topic` 패턴이 빠져 있었다. → Part D에서 이식.
+
+- **Part A — `AIClient` 도구 호출(tool-calling) 지원**: `complete_with_tools(system_prompt,
+  user_prompt, tools, tool_executor, max_rounds=4, ...)` ABC 메서드 신설.
+  `OpenAIClient`에서 `tool_choice="auto"`로 반복 호출 → 도구 호출 시 `tool_executor`로 실행해
+  `role="tool"` 메시지로 이어붙이고 재호출(최대 `max_rounds`, 과금 폭주 방지) → 더 이상 도구를
+  안 부르거나 라운드 초과 시 도구 없이 마지막 1회로 최종 JSON을 강제. 기존 `complete_json`의
+  `gpt-5.6-luna` temperature 재시도 로직을 `_create()` 헬퍼로 공유. `FakeAIClient`에
+  `tool_scripts`(라운드별 스크립트) 지원 추가.
+- **Part B — 신규 노드 `ai.free_prompt`**(`app/nodes/ai/free_prompt.py`): `prompt`/`reference`
+  파라미터(신규 타입 `"prompt"`, 큰 textarea)에 `{{키}}`로 앞 노드가 채운 `symbols[code]`
+  값을 자동 치환(예약 토큰 `{{symbol}}`/`{{date}}`). `params.data_mode`로 두 방식 중 선택
+  (AskUserQuestion으로 사용자에게 확인 — "사용자가 선택할 수 있도록" 응답): **"치환"**(누락된
+  키가 있는 종목은 AI를 호출하지 않고 즉시 탈락 — 이게 "정형검증"의 실체: 전체 그래프 정적
+  타입분석이 아니라 실행 시점 심볼별 런타임 가드) | **"AI 직접 조회(도구 호출)"**(누락 값은
+  AI가 뉴스/가격 조회 도구 4종 — `get_symbol_news_signal`/`get_sector_news_signal`/
+  `get_macro_news_signal`/`get_price`, 전부 기존 `news_trader_factory`/`market_data`
+  provider를 얇게 감싼 것 — 를 스스로 호출해 채울 수 있음). AI 응답
+  `{"pass","opinion","confidence","reason"}`을 `symbols[code]`에 `{node_id}_pass/_opinion/
+  _confidence/_reason`으로 네임스페이스(다중 인스턴스 충돌 방지)해 채우고 필터형 노드로
+  동작, `meta.decisions`에도 기록(기존 컨벤션 그대로라 DebugPanel이 코드 변경 없이 판단
+  내용을 보여줌 — "테스트 실행 때 내용이 나와야" 요건 충족). `validate_params()`에서
+  `{{ }}` 짝 안 맞음 등 템플릿 문법 정적 검사. `backtest.py`의 기존 `ai.news_signal` 전용
+  AI 호출량 기간 제한(`NEWS_SIGNAL_BACKTEST_MAX_DAYS`)을 `ai.free_prompt`까지 확장(캐시 없이
+  심볼×거래일마다 실제 호출이 나가 동일한 비용 위험).
+- **Part C — 노드 단독 테스트 실행**(`ai.free_prompt`뿐 아니라 모든 노드에 범용):
+  `WorkflowGraph.ancestors_of(node_id)`(역방향 BFS) 신설, `WorkflowEngine.execute(...,
+  target_node_id=...)`가 지정되면 그 노드와 조상만 실행하도록 위상 순서를 필터링,
+  `RunOverride.target_node_id` 스키마 추가. 프론트 `PropertyPanel.vue`에 "▶ 이 노드까지
+  테스트" 버튼(선택 노드가 있을 때) → 최신 파라미터를 먼저 저장한 뒤 그 노드까지만 실행해
+  디버그 패널에 결과 표시.
+- **Part D — 뉴스신호 11종 근거 보강**: `NewsSignalRecord`에 `title`(원문 제목) 필드 추가(+
+  sqlite ORM은 `init_db()`의 기존 자동 컬럼 보정 로직으로 하위호환, in-memory 리포지토리는
+  변경 불필요) + `ingest.py`/`data.py` 적재 경로에서 스레딩.
+  `app/news_signals/aggregate.py::top_contributor(signals, as_of, window_days, predicate,
+  score_fn)` 신규 — 각 지표 함수와 동일한 필터 조건으로 `|score_fn|` 최대인 신호 1건을 찾는다.
+  `app/nodes/conditions.py::apply_condition()`에 선택적 `note_fn` 파라미터 추가(하위호환,
+  없으면 기존과 동일) — 있으면 reason 끝에 근거 문구를 붙임. 11개 노드 전부 지표 계산 직후
+  `top_contributor`로 근거를 찾아 `<field>_top_title`/`<field>_top_score`를 stamp하고
+  `apply_condition(..., note_fn=...)`으로 판단 사유에 포함 — `ai.news_signal`의 `topic_note`와
+  동일한 문구 스타일(`"주요 근거: '{title}' (기여점수 {score:+.4f})"`).
+- 검증: 백엔드 pytest 261→267개 전부 통과. 실 서버(`--reload`)에 curl로 라이브 검증 —
+  `GET /nodes`에 `ai.free_prompt` 노출 확인, 존재하지 않는 키를 참조하는 프롬프트로 테스트
+  실행 시 AI 호출 없이(duration_ms로 확인) `meta.decisions`에 "누락된 키" 사유가 정확히
+  기록됨을 확인, `target_node_id`로 하류 노드가 실행되지 않음을 확인.
+
 ---
 
 ## 1. 목표와 PoC 범위
@@ -287,6 +345,7 @@ def register_node(cls: type[Node]) -> type[Node]:
 | ai | `ai.sentiment_score` | 뉴스/공시 텍스트 감성 점수화(캐시 적용) |
 | ai | `ai.regime` | 시장 국면 판단(상승/하락/횡보) — 보조 판단용 |
 | ai(조건 내장, §0-5) | `ai.news_signal` | 뉴스 신호(종목/섹터/거시경제) — `koscom-mini-project-4/newsstock-lib`(vendored) 기반, t/n/f 판정을 필터링(logic.if_else 내장) + news_true(bool) 출력 |
+| ai(조건 내장, §0-9) | `ai.free_prompt` | 자유 프롬프트 판단 — 사용자가 프롬프트/참고자료를 직접 작성, `{{키}}`로 앞 노드 데이터 자동 치환 또는 AI가 뉴스/가격 조회 도구를 스스로 호출(택1), pass/opinion/confidence/reason 출력 + 필터링 |
 | logic | `logic.if_else` | 조건식 분기 (True 경로만 컨텍스트 전달) |
 | logic | `logic.filter` | 종목 목록 필터링 |
 | logic | `logic.rank` | 조건별 상위 N 랭킹 |

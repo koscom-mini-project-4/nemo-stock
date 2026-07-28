@@ -66,6 +66,8 @@ class RunOverride(BaseModel):
     # node_id -> symbol -> {field: value}
     overrides: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
     universe: list[str] | None = None
+    # 지정하면 그 노드와 조상 노드만 실행한다(노드 단독 테스트, §0-9).
+    target_node_id: str | None = None
 
 
 class NodeEventOut(BaseModel):

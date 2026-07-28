@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from app.dao.base import NewsSignalRecord
-from app.news_signals.aggregate import macro_risk_density, sector_momentum, theme_zscore
+from app.news_signals.aggregate import macro_risk_density, sector_momentum, theme_zscore, top_contributor
 
 AS_OF = datetime(2026, 7, 19, 12, 0, 0)
 
@@ -77,3 +77,35 @@ def test_theme_zscore_with_variance():
 
 def test_theme_zscore_none_when_no_variance():
     assert theme_zscore([], "HBM", AS_OF, lookback_days=20) is None
+
+
+def _titled_sig(days_ago, sector, sector_score, title):
+    return NewsSignalRecord(
+        id=f"t-{title}", symbol=None, sector=sector, direction=1, event_type="Earnings_Contract",
+        themes=[], base_impact=sector_score, sector_score=sector_score, domestic_score=0.0,
+        overseas_score=0.0, published_at=AS_OF - timedelta(days=days_ago), title=title,
+    )
+
+
+def test_top_contributor_picks_largest_absolute_score_within_predicate():
+    signals = [
+        _titled_sig(1, "반도체", 0.3, "완만한 호재"),
+        _titled_sig(2, "반도체", -0.9, "강한 악재"),  # |값|이 가장 큼
+        _titled_sig(1, "2차전지", 5.0, "다른 섹터 - 무시"),
+        _titled_sig(10, "반도체", 9.0, "기간 밖 - 무시"),
+    ]
+    top = top_contributor(
+        signals, AS_OF, window_days=7, predicate=lambda s: s.sector == "반도체", score_fn=lambda s: s.sector_score
+    )
+    assert top is not None
+    assert top.title == "강한 악재"
+
+
+def test_top_contributor_none_when_no_match():
+    assert top_contributor([], AS_OF, window_days=7, predicate=lambda s: True) is None
+
+
+def test_top_contributor_default_score_fn_is_base_impact():
+    signals = [_titled_sig(1, "반도체", 0.1, "약함")]
+    top = top_contributor(signals, AS_OF, window_days=7, predicate=lambda s: True)
+    assert top.title == "약함"

@@ -64,3 +64,30 @@ def test_unknown_node_type_rejected():
     graph = WorkflowGraph.from_dict(data)
     errors = graph.validate()
     assert any("등록되지 않은 노드 타입" in e for e in errors)
+
+
+def test_ancestors_of_includes_self_and_upstream_only():
+    graph = WorkflowGraph.from_dict(_simple_graph_dict())
+    assert graph.ancestors_of("n3") == {"n1", "n2", "n3"}
+    assert graph.ancestors_of("n1") == {"n1"}
+    assert graph.ancestors_of("n4") == {"n1", "n2", "n3", "n4"}
+
+
+def test_ancestors_of_with_diamond_merge():
+    data = {
+        "nodes": [
+            {"id": "n1", "type": "scheduler.interval", "params": {"interval_sec": 60, "universe": "005930"}},
+            {"id": "n2", "type": "data.price", "params": {}},
+            {"id": "n3", "type": "data.price", "params": {}},
+            {"id": "n4", "type": "logic.if_else", "params": {"expr": "price > 0"}},
+        ],
+        "edges": [
+            {"from": "n1", "to": "n2"},
+            {"from": "n1", "to": "n3"},
+            {"from": "n2", "to": "n4"},
+            {"from": "n3", "to": "n4"},
+        ],
+    }
+    graph = WorkflowGraph.from_dict(data)
+    assert graph.ancestors_of("n4") == {"n1", "n2", "n3", "n4"}
+    assert graph.ancestors_of("n2") == {"n1", "n2"}

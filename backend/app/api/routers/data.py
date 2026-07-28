@@ -141,6 +141,7 @@ def ingest_manual_news(payload: ManualNewsIngestRequest, container: Container = 
                         news_id=rec.id,
                         symbol=payload.symbol,
                         source="manual",
+                        title=item.title,
                     )
                 )
             except Exception:  # noqa: BLE001
@@ -171,6 +172,7 @@ def ingest_classified_news(
                 news_id=news_id,
                 symbol=item.symbol,
                 source="classified",
+                title=item.title,
             )
         )
         if item.symbol:

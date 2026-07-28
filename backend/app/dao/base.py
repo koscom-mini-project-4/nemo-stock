@@ -282,6 +282,10 @@ class NewsSignalRecord:
     overseas_score: float
     published_at: datetime
     source: str = "manual"
+    # 원문 뉴스 제목(§0-9) — 집계 지표(sector_momentum 등)가 "어떤 뉴스가 이 점수를 만들었는지"
+    # 근거를 보여줄 때 쓴다(app/news_signals/aggregate.py::top_contributor). 과거 레코드는 없을
+    # 수 있어 optional.
+    title: str | None = None
     created_at: datetime = field(default_factory=datetime.now)
 
 

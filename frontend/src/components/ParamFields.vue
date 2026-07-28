@@ -114,6 +114,15 @@ function onCheckbox(key: string, event: Event) {
           @input="onInput(spec.key, $event)"
         />
 
+        <textarea
+          v-else-if="spec.type === 'prompt'"
+          class="nodrag nopan"
+          :rows="compact ? 3 : 6"
+          :value="(params[spec.key] as string) ?? spec.default"
+          @mousedown.stop
+          @input="onInput(spec.key, $event)"
+        />
+
         <input
           v-else
           type="text"

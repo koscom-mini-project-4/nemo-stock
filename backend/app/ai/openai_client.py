@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from typing import Any, Callable
 
 from openai import BadRequestError, OpenAI
 
@@ -39,12 +40,79 @@ class OpenAIClient(AIClient):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
+        response = self._create(messages, temperature, response_format={"type": "json_object"})
+        self._record_usage(response, purpose)
+        content = response.choices[0].message.content or "{}"
+        return json.loads(content)
+
+    def complete_with_tools(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tools: list[dict],
+        tool_executor: Callable[[str, dict], Any],
+        temperature: float = 0.2,
+        purpose: str = "unknown",
+        max_rounds: int = 4,
+    ) -> dict:
+        if self._client is None:
+            raise AIUnavailableError("OPENAI_API_KEY가 설정되지 않아 AI 기능을 사용할 수 없습니다.")
+
+        messages: list[dict] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        for _ in range(max_rounds):
+            response = self._create(messages, temperature, tools=tools, tool_choice="auto")
+            self._record_usage(response, purpose)
+            message = response.choices[0].message
+            tool_calls = getattr(message, "tool_calls", None)
+            if not tool_calls:
+                content = message.content or ""
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    break  # 도구 호출 없이 곧장 non-JSON 답을 준 경우 — 마지막 강제 호출로 넘어간다
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": message.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        }
+                        for tc in tool_calls
+                    ],
+                }
+            )
+            for tc in tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                    result = tool_executor(tc.function.name, args)
+                except Exception as exc:  # noqa: BLE001 - 도구 실행 실패도 AI에게 알려 계속 진행시킨다
+                    result = {"error": str(exc)}
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(result, ensure_ascii=False, default=str),
+                    }
+                )
+
+        # max_rounds를 다 썼거나 non-JSON 응답 — 도구 없이 마지막 1회로 최종 JSON을 강제한다.
+        messages.append({"role": "user", "content": "지금까지의 정보로 도구 호출 없이 최종 JSON으로만 답하세요."})
+        response = self._create(messages, temperature, response_format={"type": "json_object"})
+        self._record_usage(response, purpose)
+        content = response.choices[0].message.content or "{}"
+        return json.loads(content)
+
+    def _create(self, messages: list[dict], temperature: float, **kwargs: Any):
         try:
-            response = self._client.chat.completions.create(
-                model=self._model,
-                temperature=temperature,
-                response_format={"type": "json_object"},
-                messages=messages,
+            return self._client.chat.completions.create(
+                model=self._model, temperature=temperature, messages=messages, **kwargs
             )
         except BadRequestError as exc:
             # gpt-5 계열 reasoning 모델(gpt-5*, gpt-5.6-sol/terra/luna 등)은 기본값(1)
@@ -52,14 +120,7 @@ class OpenAIClient(AIClient):
             body = exc.body if isinstance(exc.body, dict) else {}
             if body.get("param") != "temperature":
                 raise
-            response = self._client.chat.completions.create(
-                model=self._model,
-                response_format={"type": "json_object"},
-                messages=messages,
-            )
-        self._record_usage(response, purpose)
-        content = response.choices[0].message.content or "{}"
-        return json.loads(content)
+            return self._client.chat.completions.create(model=self._model, messages=messages, **kwargs)
 
     def _record_usage(self, response: object, purpose: str) -> None:
         """관리자 페이지 사용량 통계용 호출 기록. usage_repo가 없거나 기록 실패해도 AI 응답

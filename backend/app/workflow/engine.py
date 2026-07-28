@@ -54,9 +54,13 @@ class WorkflowEngine:
         run_id: str | None = None,
         timestamp: datetime | None = None,
         extra_providers: dict[str, Any] | None = None,
+        target_node_id: str | None = None,
     ) -> RunResult:
         """extra_providers: ai_client/news_repo/disclosure_repo/ai_score_cache_repo 등
         market_data/broker 외에 노드가 필요로 하는 추가 의존성을 node.execute(**providers)로 전달한다.
+
+        target_node_id: 지정하면 그 노드와 조상 노드만 실행한다(노드 단독 테스트, §0-9) —
+        나머지 그래프는 건드리지 않고 위상 순서만 그 부분집합으로 좁힌다.
         """
         run_id = run_id or str(uuid.uuid4())
         started_at = datetime.now()
@@ -69,6 +73,11 @@ class WorkflowEngine:
             raise WorkflowValidationError(errors)
 
         order = graph.topological_order()
+        if target_node_id is not None:
+            if target_node_id not in graph.nodes:
+                raise WorkflowValidationError([f"존재하지 않는 노드입니다: {target_node_id}"])
+            scope = graph.ancestors_of(target_node_id)
+            order = [n for n in order if n in scope]
         ctx_by_node: dict[str, NodeContext] = {}
         root_context = NodeContext(run_id=run_id, mode=mode, timestamp=timestamp)
 

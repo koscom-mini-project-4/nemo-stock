@@ -18,13 +18,13 @@ load_all_nodes()
 AS_OF = datetime(2026, 7, 19, 12, 0, 0)
 
 
-def _sig(days_ago, *, symbol=None, sector=None, event_type="General_Market", themes=None, sector_score=0.0):
+def _sig(days_ago, *, symbol=None, sector=None, event_type="General_Market", themes=None, sector_score=0.0, title=None):
     return NewsSignalRecord(
         id=f"s-{days_ago}-{sector}-{event_type}-{sector_score}-{themes}-{id(themes)}",
         symbol=symbol, sector=sector, direction=0, event_type=event_type,
         themes=themes or [], base_impact=sector_score, sector_score=sector_score,
         domestic_score=0.0, overseas_score=0.0,
-        published_at=AS_OF - timedelta(days=days_ago),
+        published_at=AS_OF - timedelta(days=days_ago), title=title,
     )
 
 
@@ -197,3 +197,47 @@ def test_extended_condition_nodes_chain():
     assert data["domestic_macro_index"] == 0.75  # (1.5+0)/2 ≥ 0
     assert data["sentiment_ratio"] == 1.0         # 호재 2/2 ≥ 0.3
     assert data["order_status"] == "filled"
+
+
+def test_sector_momentum_node_stamps_top_contributor_and_reason():
+    """§0-9: 숫자 점수만이 아니라 "어떤 뉴스가 이 점수를 만들었는지"(근거)가 출력/판단 사유에 실린다."""
+    graph = {
+        "nodes": [
+            {"id": "n1", "type": "scheduler.interval", "params": {"interval_sec": 60, "universe": "005930"}},
+            {"id": "n2", "type": "data.price", "params": {}},
+            {"id": "n3", "type": "data.sector_momentum",
+             "params": {"sector": "반도체", "window_days": 7, "condition": "leader"}},  # ≥0.5
+        ],
+        "edges": [{"from": "n1", "to": "n2"}, {"from": "n2", "to": "n3"}],
+    }
+    repo = InMemoryNewsSignalRepository()
+    repo.save_many([
+        _sig(1, sector="반도체", sector_score=0.3, title="완만한 호재"),
+        _sig(2, sector="반도체", sector_score=0.9, title="삼성전자 HBM 대규모 수주"),  # |값| 최대
+    ])
+    result = _run(graph, repo)
+    data = result.final_context.symbols["005930"]
+    assert data["sector_momentum_top_title"] == "삼성전자 HBM 대규모 수주"
+    assert data["sector_momentum_top_score"] == 0.9
+
+    decision = result.node_contexts["n3"].meta["decisions"]["n3"]["005930"]
+    assert decision["pass"] is True
+    assert "삼성전자 HBM 대규모 수주" in decision["reason"]
+
+
+def test_symbol_news_score_node_stamps_top_contributor_per_symbol():
+    graph = {
+        "nodes": [
+            {"id": "n1", "type": "scheduler.interval", "params": {"interval_sec": 60, "universe": "005930"}},
+            {"id": "n2", "type": "data.price", "params": {}},
+            {"id": "n3", "type": "data.symbol_news_score", "params": {"window_days": 7, "condition": "positive"}},
+        ],
+        "edges": [{"from": "n1", "to": "n2"}, {"from": "n2", "to": "n3"}],
+    }
+    repo = InMemoryNewsSignalRepository()
+    repo.save_many([_sig(1, symbol="005930", sector_score=1.5, title="긍정 실적 발표")])
+    result = _run(graph, repo)
+    data = result.final_context.symbols["005930"]
+    assert data["symbol_news_score_top_title"] == "긍정 실적 발표"
+    decision = result.node_contexts["n3"].meta["decisions"]["n3"]["005930"]
+    assert "긍정 실적 발표" in decision["reason"]

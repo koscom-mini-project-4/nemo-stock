@@ -14,6 +14,7 @@ const emit = defineEmits<{
   'update-param': [key: string, value: unknown]
   'update-all-params': [params: Record<string, unknown>]
   delete: []
+  'test-node': [nodeId: string]
 }>()
 
 const mode = ref<'form' | 'code'>('form')
@@ -60,6 +61,10 @@ function applyCode() {
         </div>
         <button class="btn btn-danger" type="button" @click="emit('delete')">삭제</button>
       </div>
+
+      <button class="btn test-node-btn" type="button" @click="emit('test-node', node.id)">
+        ▶ 이 노드까지 테스트
+      </button>
 
       <div class="mode-tabs">
         <button type="button" :class="{ active: mode === 'form' }" @click="switchMode('form')">폼</button>
@@ -153,5 +158,11 @@ function applyCode() {
   font-size: 12px;
   line-height: 1.5;
   margin: 0 0 12px;
+}
+
+.test-node-btn {
+  width: 100%;
+  margin-bottom: 10px;
+  font-size: 12.5px;
 }
 </style>

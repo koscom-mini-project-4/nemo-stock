@@ -105,7 +105,11 @@ def resolve_condition(
 
 
 def apply_condition(
-    node: Node, out: NodeContext, presets: list[Preset], default_field: str
+    node: Node,
+    out: NodeContext,
+    presets: list[Preset],
+    default_field: str,
+    note_fn: Callable[[dict], str] | None = None,
 ) -> None:
     """선택된 조건으로 종목을 필터링한다(통과만 남기고 탈락은 meta.filtered_out에 기록).
 
@@ -115,6 +119,10 @@ def apply_condition(
     우리 저장소는 모든 필터형 노드가 meta.decisions[node_id][symbol] = {"pass", "reason",
     "metrics"} 공통 포맷으로 판단 근거를 남기는 컨벤션이 있어(§0-4, indicator/base.py와 동일)
     이 함수도 meta.decisions를 함께 채우도록 했다 — "테스트 실행" 디버그 패널이 그 값을 읽는다.
+
+    note_fn(§0-9): 종목 데이터(data)를 받아 reason 끝에 덧붙일 근거 문구를 돌려주는 선택적
+    콜백(예: "어떤 뉴스가 이 점수를 만들었는지"). None을 돌려주면 아무것도 덧붙이지 않는다.
+    생략하면(기본값) 기존과 동일하게 동작한다(하위호환).
     """
     resolved = resolve_condition(node, presets, default_field)
     if resolved is None:
@@ -134,6 +142,9 @@ def apply_condition(
             if value is not None
             else f"{field} 값 없음(데이터 부족) → 탈락"
         )
+        note = note_fn(data) if note_fn else None
+        if note:
+            reason += f" | {note}"
         decisions[symbol] = {"pass": ok, "reason": reason, "metrics": {"field": field, "value": value}}
         if ok:
             passed[symbol] = data

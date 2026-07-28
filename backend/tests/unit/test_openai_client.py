@@ -56,6 +56,21 @@ def _fake_usage(prompt: int, completion: int, total: int) -> MagicMock:
     return u
 
 
+def _fake_tool_call(call_id: str, name: str, arguments: str) -> MagicMock:
+    tc = MagicMock()
+    tc.id = call_id
+    tc.function = MagicMock(name=name, arguments=arguments)
+    tc.function.name = name  # MagicMock(name=...)는 .name을 mock 이름으로 안 잡아줘서 명시 설정
+    return tc
+
+
+def _fake_tool_round_response(tool_calls: list, content: str | None = None) -> MagicMock:
+    resp = MagicMock()
+    resp.choices = [MagicMock(message=MagicMock(content=content, tool_calls=tool_calls))]
+    resp.usage = None
+    return resp
+
+
 def test_complete_json_retries_without_temperature_on_unsupported_value():
     client = OpenAIClient(api_key="sk-test", model="gpt-5.6-luna")
     create_mock = MagicMock(side_effect=[_temperature_error(), _fake_openai_response('{"ok": true}')])
@@ -124,6 +139,61 @@ def test_complete_json_without_usage_repo_does_not_error():
     result = client.complete_json("system", "user")
 
     assert result == {"ok": True}
+
+
+def test_complete_with_tools_executes_tool_call_then_returns_final_json():
+    client = OpenAIClient(api_key="sk-test", model="gpt-5.6-luna")
+    tool_call = _fake_tool_call("call_1", "get_price", '{"symbol": "005930"}')
+    create_mock = MagicMock(
+        side_effect=[
+            _fake_tool_round_response([tool_call]),
+            _fake_tool_round_response([], content='{"pass": true, "reason": "ok"}'),
+        ]
+    )
+    client._client.chat.completions.create = create_mock  # type: ignore[union-attr]
+    executor_calls: list[tuple[str, dict]] = []
+
+    def executor(name: str, args: dict):
+        executor_calls.append((name, args))
+        return {"price": 71000}
+
+    result = client.complete_with_tools("system", "user", tools=[{"type": "function"}], tool_executor=executor)
+
+    assert result == {"pass": True, "reason": "ok"}
+    assert executor_calls == [("get_price", {"symbol": "005930"})]
+    assert create_mock.call_count == 2
+    # 도구 결과가 대화에 tool 메시지로 이어붙여졌는지 확인
+    second_call_messages = create_mock.call_args_list[1].kwargs["messages"]
+    assert any(m.get("role") == "tool" and m.get("tool_call_id") == "call_1" for m in second_call_messages)
+
+
+def test_complete_with_tools_forces_final_json_after_max_rounds():
+    client = OpenAIClient(api_key="sk-test", model="gpt-5.6-luna")
+    always_calls_tool = _fake_tool_round_response([_fake_tool_call("call_x", "get_price", "{}")])
+    forced_final = _fake_openai_response('{"pass": false}')
+    create_mock = MagicMock(side_effect=[always_calls_tool, always_calls_tool, forced_final])
+    client._client.chat.completions.create = create_mock  # type: ignore[union-attr]
+
+    result = client.complete_with_tools(
+        "system", "user", tools=[{"type": "function"}], tool_executor=lambda n, a: {}, max_rounds=2
+    )
+
+    assert result == {"pass": False}
+    assert create_mock.call_count == 3  # 2회 도구 라운드 + 강제 최종 1회
+    assert "tools" not in create_mock.call_args_list[2].kwargs
+
+
+def test_complete_with_tools_retries_without_temperature_on_unsupported_value():
+    client = OpenAIClient(api_key="sk-test", model="gpt-5.6-luna")
+    create_mock = MagicMock(
+        side_effect=[_temperature_error(), _fake_tool_round_response([], content='{"pass": true}')]
+    )
+    client._client.chat.completions.create = create_mock  # type: ignore[union-attr]
+
+    result = client.complete_with_tools("system", "user", tools=[], tool_executor=lambda n, a: {})
+
+    assert result == {"pass": True}
+    assert "temperature" not in create_mock.call_args_list[1].kwargs
 
 
 def test_usage_save_failure_does_not_break_ai_response():

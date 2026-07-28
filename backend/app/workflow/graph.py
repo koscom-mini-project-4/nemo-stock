@@ -119,6 +119,19 @@ class WorkflowGraph:
                     queue.append(nxt)
         return seen
 
+    def ancestors_of(self, node_id: str) -> set[str]:
+        """node_id 자신을 포함해, 그 노드가 실행되려면 먼저 실행돼야 하는 조상 노드 집합
+        (역방향 BFS). 노드 단독 테스트 실행(§0-9)에서 "이 노드까지만" 범위를 계산하는 데 쓴다."""
+        seen = {node_id}
+        queue = deque([node_id])
+        while queue:
+            cur = queue.popleft()
+            for prev in self.predecessors(cur):
+                if prev not in seen:
+                    seen.add(prev)
+                    queue.append(prev)
+        return seen
+
     def topological_order(self) -> list[str]:
         """Kahn 알고리즘. 사이클이 있으면 WorkflowValidationError를 발생시킨다."""
         in_degree = {node_id: 0 for node_id in self.nodes}

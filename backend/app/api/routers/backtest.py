@@ -31,7 +31,10 @@ router = APIRouter(prefix="/backtest", tags=["backtest"], dependencies=[Depends(
 # 시점 날짜 기준으로 조회되도록 바뀐 뒤로는 각 거래일이 서로 다른 조회를 만듦), 백테스트 기간이
 # 길어질수록 OpenAI 호출이 그만큼 늘어난다. 비용을 예측 가능한 범위로 묶기 위해 이 노드가 포함된
 # 백테스트는 기간을 제한한다(2026-07-28 사용자 확인: 4일 → 7일로 상향).
+# ai.free_prompt(§0-9)도 심볼×거래일마다 실제 AI 호출이 나가고(도구 호출 모드는 라운드당
+# 추가 호출까지) 캐시가 없어 동일한 위험이 있으므로 같은 제한을 적용한다.
 NEWS_SIGNAL_BACKTEST_MAX_DAYS = 7
+_AI_COST_NODE_TYPES = {"ai.news_signal", "ai.free_prompt"}
 
 
 def _to_out(r: BacktestResultRecord) -> BacktestResultOut:
@@ -80,14 +83,14 @@ def run_backtest(
     if errors:
         raise HTTPException(status_code=422, detail={"message": "워크플로 검증 실패", "errors": errors})
 
-    has_news_signal = any(n.type == "ai.news_signal" for n in graph.nodes.values())
+    ai_cost_node_types = sorted({n.type for n in graph.nodes.values() if n.type in _AI_COST_NODE_TYPES})
     period_days = (payload.end_date - payload.start_date).days + 1
-    if has_news_signal and period_days > NEWS_SIGNAL_BACKTEST_MAX_DAYS:
+    if ai_cost_node_types and period_days > NEWS_SIGNAL_BACKTEST_MAX_DAYS:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"ai.news_signal 노드가 포함된 워크플로는 AI 호출량 제한을 위해 백테스트 기간을 "
-                f"최대 {NEWS_SIGNAL_BACKTEST_MAX_DAYS}일로 제한합니다(요청: {period_days}일)."
+                f"{', '.join(ai_cost_node_types)} 노드가 포함된 워크플로는 AI 호출량 제한을 위해 "
+                f"백테스트 기간을 최대 {NEWS_SIGNAL_BACKTEST_MAX_DAYS}일로 제한합니다(요청: {period_days}일)."
             ),
         )
 

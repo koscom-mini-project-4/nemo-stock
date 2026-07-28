@@ -735,6 +735,46 @@ group=stock&key=삼성전자`가 삼성전자 언급 실제 클러스터 7건을
 에러 없이 서빙되는 것까지만 확인 — 실제 클릭 동작(모달 열기/다시 수정/확정)은 사용자가
 `npm run dev`로 직접 확인 필요.
 
+## 2026-07-28 후속 작업 8: 자유 프롬프트 AI 노드 + 뉴스신호 근거 보강 + 노드 단독 테스트 (DESIGN.md §0-9)
+
+사용자 요청 3가지: (1) 프롬프트/참고자료를 자유롭게 쓰고 앞 노드 데이터(뉴스/지수 등)를
+자동 치환하거나 AI가 스스로 조회(skill/도구 호출)하게 하는 통과·탈락 판단 AI 노드 신설(테스트
+실행 시 판단 내용 표시 + 단독 테스트 + 키 누락 검증 요구), (2) "data.news 테스트 실행이
+비어 보이고 클러스터/의견/이유가 json에 안 넘어온다"는 버그 제보, (3) "if/else 넘어가도
+점수/의견이 json으로 계속 누적돼야 한다"는 아키텍처 우려.
+
+**조사 결과**: `NodeContext.symbols`는 이미 매 노드가 clone(deepcopy)해서 이어받고,
+`if_else`/`apply_condition` 둘 다 통과 종목의 데이터를 그대로 유지(탈락 종목만 제거) — (3)은
+재현 안 됨, 새 아키텍처 불필요. (2)의 실체는 `data.*` 뉴스신호 11개 노드가 숫자 점수만 내고
+"어떤 뉴스가 그 점수를 만들었는지" 근거가 없던 것 — `ai.news_signal`의 `top_topic` 패턴을
+이식해 해결(Part D).
+
+AskUserQuestion으로 "치환 vs AI 직접 조회(도구 호출)" 중 구현 방식을 물었고, 사용자가
+**"사용자가 선택할 수 있도록"**을 선택 — 워크플로 작성자가 노드 파라미터로 둘 중 고르도록
+양쪽 다 구현했다(EnterPlanMode로 4-Part 계획을 세워 승인받고 진행).
+
+- **Part A**: `AIClient.complete_with_tools()`(도구 호출 다회 루프, max_rounds로 과금 제한)
+  ABC 신설 + `OpenAIClient` 구현. `FakeAIClient`에 `tool_scripts` 테스트 더블 지원 추가.
+- **Part B**: 신규 노드 `ai.free_prompt`(`app/nodes/ai/free_prompt.py`) — `{{키}}` 자동
+  치환(치환 모드는 키 누락 시 AI 호출 없이 즉시 탈락 = "정형검증"의 실체, 전체 그래프 정적
+  분석이 아니라 실행 시점 심볼별 런타임 가드), 도구 호출 모드는 뉴스/가격 조회 도구 4종을
+  AI가 스스로 부를 수 있음(전부 기존 provider 재사용, 새 데이터소스 없음). 출력은
+  `{node_id}_pass/_opinion/_confidence/_reason`로 네임스페이스, `meta.decisions`에도 기록돼
+  DebugPanel이 코드 변경 없이 판단 내용을 보여줌. `backtest.py`의 AI 호출량 기간 제한을
+  `ai.free_prompt`까지 확장.
+- **Part C**: 노드 단독 테스트 실행(모든 노드에 범용) — `WorkflowGraph.ancestors_of()` +
+  `WorkflowEngine.execute(target_node_id=...)` + `PropertyPanel.vue`의 "이 노드까지 테스트"
+  버튼. 새 파라미터 타입 `"prompt"`(큰 textarea) 추가.
+- **Part D**: `NewsSignalRecord.title` 필드 추가(sqlite는 기존 자동 컬럼 보정으로 하위호환) +
+  `app/news_signals/aggregate.py::top_contributor()` 신규 + `apply_condition(note_fn=...)`
+  확장(하위호환) — 11개 뉴스신호 노드 전부에 `<field>_top_title`/`<field>_top_score` stamp
+  + 판단 사유에 근거 문구 포함.
+
+**검증**: 백엔드 pytest 255→267개 전부 통과. `vue-tsc -b` + `npm run build` 통과. 실 서버
+(`--reload`)에 curl로 라이브 검증 — `GET /nodes`에 `ai.free_prompt` 노출, 존재하지 않는 키를
+참조하는 프롬프트로 테스트 실행 시 AI를 실제로 호출하지 않고(duration_ms로 확인) "누락된 키"
+사유가 정확히 기록됨을 확인, `target_node_id`로 하류 노드가 실행되지 않음을 확인.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

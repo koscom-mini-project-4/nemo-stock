@@ -9,7 +9,7 @@ from __future__ import annotations
 
 def load_all_nodes() -> None:
     from app.nodes import scheduler  # noqa: F401
-    from app.nodes.ai import news_signal, sentiment_score  # noqa: F401
+    from app.nodes.ai import free_prompt, news_signal, sentiment_score  # noqa: F401
     from app.nodes.data import disclosure, news, news_signal, price  # noqa: F401
     from app.nodes.execution import market_order  # noqa: F401
     from app.nodes.indicator import (  # noqa: F401

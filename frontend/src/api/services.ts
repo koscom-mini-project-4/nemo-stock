@@ -100,8 +100,13 @@ export async function runWorkflow(
   id: string,
   overrides: Record<string, Record<string, Record<string, unknown>>>,
   universe?: string[],
+  targetNodeId?: string,
 ): Promise<RunResultOut> {
-  const { data } = await apiClient.post(`/workflows/${id}/run`, { overrides, universe })
+  const { data } = await apiClient.post(`/workflows/${id}/run`, {
+    overrides,
+    universe,
+    target_node_id: targetNodeId,
+  })
   return data
 }
 

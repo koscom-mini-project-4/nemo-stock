@@ -172,6 +172,7 @@ class NewsSignalORM(Base):
     overseas_score: Mapped[float] = mapped_column(Float)
     published_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     source: Mapped[str] = mapped_column(String(32), default="manual")
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
