@@ -274,3 +274,15 @@ export interface NewsUpdateResult {
   purged_clusters?: number | null
   minutes_since_last_update?: number | null
 }
+
+/** GET /data/symbols/stats(§0-10) — count는 현재 캐시(동기화 전이면 8개 폴백 시드),
+ * db_count는 sqlite에 저장된(직전 동기화) 건수. */
+export interface SymbolStats {
+  count: number
+  db_count: number
+}
+
+export interface SymbolSyncResult {
+  synced: number
+  as_of: string
+}

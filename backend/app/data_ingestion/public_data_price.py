@@ -16,7 +16,7 @@ totalCount가 17,000건 이상 — KOSPI/KOSDAQ 전 종목이 섞여 나옴). �
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import httpx
 
@@ -89,6 +89,65 @@ class PublicDataPriceClient:
                 break
             page_no += 1
         return bars
+
+    def fetch_market_snapshot(
+        self, as_of: date, num_of_rows: int = 500, max_pages: int = 10, max_days_back: int = 7
+    ) -> tuple[date, list[dict]]:
+        """as_of(또는 그 이전 최근 영업일)의 KOSPI/KOSDAQ 전 종목 스냅샷을 가져온다(종목
+        마스터 캐시 동기화용, §0-10).
+
+        fetch_daily_prices 상단 docstring에 문서화된 서버 동작 — `likeSrtnCd`(종목코드
+        필터)를 주지 않고 호출하면 시장 전체 데이터가 반환됨 — 을 이번엔 "버그"가 아니라
+        "전 종목 목록을 한 번에 가져오는 방법"으로 그대로 활용한다. 주말/공휴일 등 그날
+        시세가 없으면 최대 max_days_back일 전까지 하루씩 물러나며 재시도한다.
+
+        반환: (실제 데이터가 있었던 날짜, [{"symbol","name","market"}, ...] 종목코드 기준
+        중복 제거). 데이터를 못 찾으면 (as_of, [])를 반환한다.
+        """
+        for days_back in range(max_days_back + 1):
+            query_date = as_of - timedelta(days=days_back)
+            rows = self._fetch_snapshot_rows(query_date, num_of_rows, max_pages)
+            if rows:
+                return query_date, self._rows_to_symbol_infos(rows)
+        return as_of, []
+
+    def _fetch_snapshot_rows(self, query_date: date, num_of_rows: int, max_pages: int) -> list[dict]:
+        date_str = query_date.strftime("%Y%m%d")
+        rows: list[dict] = []
+        page_no = 1
+        while page_no <= max_pages:
+            params = {
+                "serviceKey": self._service_key,
+                "resultType": "json",
+                "beginBasDt": date_str,
+                "endBasDt": date_str,
+                "numOfRows": num_of_rows,
+                "pageNo": page_no,
+            }
+            response = self._client.get(self._base_url, params=params)
+            response.raise_for_status()
+            body = self._parse_body(response)
+            page_rows = self._extract_items(body)
+            rows.extend(page_rows)
+            total_count = int(body.get("totalCount", 0) or 0)
+            if not page_rows or page_no * num_of_rows >= total_count:
+                break
+            page_no += 1
+        return rows
+
+    @staticmethod
+    def _rows_to_symbol_infos(rows: list[dict]) -> list[dict]:
+        """srtnCd(코드)/itmsNm(종목명)/mrktCtg(시장구분) 추출, 코드 기준 중복 제거, 필드가
+        비어있는 행은 skip(방어적 — 실 서버 필드명이 문서와 다를 가능성 대비)."""
+        by_symbol: dict[str, dict] = {}
+        for row in rows:
+            symbol = str(row.get("srtnCd") or "").strip()
+            name = str(row.get("itmsNm") or "").strip()
+            if not symbol or not name:
+                continue
+            market = str(row.get("mrktCtg") or "").strip() or None
+            by_symbol[symbol] = {"symbol": symbol, "name": name, "market": market}
+        return list(by_symbol.values())
 
     @staticmethod
     def _parse_body(response: httpx.Response) -> dict:

@@ -17,6 +17,8 @@ import type {
   PricePointOut,
   RunResultOut,
   SymbolOut,
+  SymbolStats,
+  SymbolSyncResult,
   ValidationResult,
   WorkflowChatLastRun,
   WorkflowChatResponse,
@@ -227,5 +229,15 @@ export async function fetchNewsTopicClusters(
   end: string,
 ): Promise<NewsTopicCluster[]> {
   const { data } = await apiClient.get('/data/news/topics/clusters', { params: { group, key, start, end } })
+  return data
+}
+
+export async function fetchSymbolStats(): Promise<SymbolStats> {
+  const { data } = await apiClient.get('/data/symbols/stats')
+  return data
+}
+
+export async function syncSymbols(): Promise<SymbolSyncResult> {
+  const { data } = await apiClient.post('/data/symbols/sync')
   return data
 }

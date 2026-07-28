@@ -16,13 +16,14 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_container, get_intraday_price_bar_repo, get_price_ingest_client
 from app.auth.security import get_current_username
-from app.dao.base import DisclosureRecord, IntradayPriceBarRepository, NewsRecord, PriceBarRecord
+from app.dao.base import DisclosureRecord, IntradayPriceBarRepository, NewsRecord, PriceBarRecord, SymbolMasterRecord
 from app.data_ingestion.auto_ingest import ensure_price_data
 from app.data_ingestion.naver_price_client import NaverStockChartClient
 from app.data_ingestion.opendart_client import OpenDartAPIError, OpenDartClient
 from app.data_ingestion.public_data_price import PublicDataAPIError, PublicDataPriceClient
 from app.dependencies import Container
-from app.market_data.symbol_master import search_symbols
+from app.market_data import symbol_master
+from app.market_data.symbol_master import SymbolInfo, search_symbols
 from app.news_signals.ingest import build_news_signal, classify_and_build_signal
 from app.schemas.backtest import PricePointOut
 from app.schemas.data import (
@@ -44,10 +45,44 @@ router = APIRouter(prefix="/data", tags=["data"], dependencies=[Depends(get_curr
 def get_symbols(q: str = "") -> list[SymbolOut]:
     """종목코드/한글 종목명으로 검색한다(부분 일치). q가 비어 있으면 전체 목록.
 
-    정적 매핑(app/market_data/symbol_master.py)만 검색 대상이다 — 매핑에 없는 임의
+    `app/market_data/symbol_master.py`의 캐시(§0-10)만 검색 대상이다 — 매핑에 없는 임의
     종목코드는 워크플로에서 여전히 자유롭게 쓸 수 있지만 이 검색에는 나타나지 않는다.
+    `POST /data/symbols/sync`로 동기화하기 전에는 8개 대표 종목만 나온다.
     """
     return [SymbolOut(symbol=s.symbol, name=s.name) for s in search_symbols(q)]
+
+
+@router.post("/symbols/sync")
+def sync_symbols(container: Container = Depends(get_container)) -> dict[str, Any]:
+    """공공데이터포털 금융위원회_주식시세정보로 KOSPI/KOSDAQ 전 종목 코드/명/시장구분을
+    가져와 종목 마스터 캐시를 갱신한다(§0-10) — 관리자 페이지의 "지금 동기화" 버튼이 호출.
+
+    `app/market_data/symbol_master.py`의 8개 하드코딩 목록을 실제 전 종목으로 교체해,
+    `ai.news_signal`/`ai.free_prompt`의 종목코드→종목명 자동 매핑이 관리자 페이지의 뉴스
+    클러스터 검색(§0-7, newsstock.db 기준 종목명)과 최대한 같은 이름 기준으로 일치하게 한다.
+    수천 건을 페이지네이션으로 가져와 수 초~수십 초 걸릴 수 있다.
+    """
+    if not container.settings.data_go_kr_service_key:
+        raise HTTPException(status_code=400, detail="DATA_GO_KR_SERVICE_KEY가 설정되지 않았습니다.")
+    with PublicDataPriceClient(container.settings.data_go_kr_service_key) as client:
+        try:
+            as_of, rows = client.fetch_market_snapshot(date.today())
+        except PublicDataAPIError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    now = datetime.now()
+    records = [
+        SymbolMasterRecord(symbol=r["symbol"], name=r["name"], market=r["market"], updated_at=now) for r in rows
+    ]
+    container.symbol_master_repo.upsert_many(records)
+    symbol_master.load_cache([SymbolInfo(symbol=r.symbol, name=r.name, market=r.market) for r in records])
+    return {"synced": len(records), "as_of": as_of.isoformat()}
+
+
+@router.get("/symbols/stats")
+def get_symbols_stats(container: Container = Depends(get_container)) -> dict[str, Any]:
+    """종목 마스터 캐시 현황(관리자 페이지). 동기화 전이면 count=8(폴백 시드)."""
+    return {"count": symbol_master.cache_size(), "db_count": container.symbol_master_repo.count()}
 
 
 @router.get("/prices/{symbol}", response_model=list[PricePointOut])

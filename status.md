@@ -775,6 +775,37 @@ AskUserQuestion으로 "치환 vs AI 직접 조회(도구 호출)" 중 구현 방
 참조하는 프롬프트로 테스트 실행 시 AI를 실제로 호출하지 않고(duration_ms로 확인) "누락된 키"
 사유가 정확히 기록됨을 확인, `target_node_id`로 하류 노드가 실행되지 않음을 확인.
 
+## 2026-07-28 후속 작업 9: 종목 마스터 캐시 — 종목코드↔종목명 매핑 확장 (DESIGN.md §0-10)
+
+사용자 질문: "관리자에서 종목 키로 검색되는데, 지금 check로부터 특정 종목의 종목명과
+종목코드, 섹션 등 일치시키는 로직이 있나요? 제대로 뉴스 불러올 수 있나요?" → 조사 결과
+`app/market_data/symbol_master.py`가 8개 종목만 정적 하드코딩돼 있어 관리자 검색(§0-7,
+뉴스에서 AI가 직접 추출한 이름 80개 이상)과 불일치함을 확인해 보고. 이어서 "캐시 구조도
+만들고 둘이 일치되도록 방법을 강구해달라"는 요청으로 EnterPlanMode → 4-Part 계획 승인 →
+구현.
+
+이미 연동된 `DATA_GO_KR_SERVICE_KEY`(금융위원회_주식시세정보) API를 재사용해 KOSPI/KOSDAQ
+전 종목의 코드/명/시장구분을 가져오는 `PublicDataPriceClient.fetch_market_snapshot()` 신규
+(`likeSrtnCd` 없이 호출하면 시장 전체가 반환되는 기존에 알려진 서버 동작을 활용). durable
+캐시로 `SymbolMasterRepository`(sqlite+in-memory) 신설, `symbol_master.py`는 8개 하드코딩을
+"캐시 비었을 때의 폴백 시드"로 축소하고 `load_cache()`로 교체 가능한 in-memory 캐시 도입(호출부
+4곳 전혀 무변경). `POST /data/symbols/sync` + `GET /data/symbols/stats` + 부팅 시 sqlite에서
+자동 복원 + `AdminView.vue` "종목 마스터" 카드. 섹터 자동 매핑은 신뢰할 공공 API가 없어
+범위에서 명시적으로 제외(기존처럼 사용자가 큐레이션된 30개 섹터에서 직접 선택).
+
+**라이브 검증 중 발견**: 구현 후 실 서버에 `POST /data/symbols/sync`를 실제로 트리거했더니
+`synced: 0`. 원인 추적 결과 신규 코드 문제가 아니라 **기존 `DATA_GO_KR_SERVICE_KEY`가 이
+API(금융위원회_주식시세정보)에서 이미 항상 빈 응답(resultCode "00"인데 totalCount 0)을 준다는
+것**을 확인(2025-01-02 같은 명백한 과거 영업일로 직접 curl해도 동일 — 기존
+`fetch_daily_prices`/`ingest_public_prices` 경로도 똑같이 영향받음, 내가 이번에 새로 만든
+코드가 원인이 아님). data.go.kr 콘솔에서 이 API에 대한 서비스키 활용 승인 상태를 확인해야
+할 것으로 보임 — 코드는 mock 응답으로 전부 유닛 테스트 통과했으므로 승인만 되면 추가 코드
+수정 없이 정상 동작할 것으로 예상.
+
+**검증**: 백엔드 pytest 267→282개 전부 통과(신규: `test_symbol_master.py`,
+`test_api_symbol_sync.py`, `test_public_data_price_client.py`/`test_dao_sqlite.py` 확장).
+`vue-tsc -b` + `npm run build` 통과.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

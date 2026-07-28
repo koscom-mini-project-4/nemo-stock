@@ -33,6 +33,7 @@ from app.dao.base import (
     PortfolioRepository,
     PriceBarRepository,
     RunRepository,
+    SymbolMasterRepository,
     UserRecord,
     UserRepository,
     WorkflowRepository,
@@ -50,6 +51,7 @@ from app.dao.sqlite.repositories import (
     SqlitePortfolioRepository,
     SqlitePriceBarRepository,
     SqliteRunRepository,
+    SqliteSymbolMasterRepository,
     SqliteUserRepository,
     SqliteWorkflowRepository,
 )
@@ -57,6 +59,7 @@ from app.market_data.base import MarketDataProvider
 from app.market_data.dummy import DummyMarketDataProvider
 from app.market_data.koscom_adapter import KoscomMarketDataProvider
 from app.market_data.toss_adapter import TossInvestMarketDataProvider
+from app.market_data import symbol_master
 from app.nodes import load_all_nodes
 from app.trigger.queue import InMemoryTriggerQueue, TriggerQueue
 from app.trigger.scheduler_service import SchedulerService
@@ -83,6 +86,7 @@ class Container:
     news_signal_repo: NewsSignalRepository
     ai_score_cache_repo: AIScoreCacheRepository
     ai_usage_repo: AIUsageRepository
+    symbol_master_repo: SymbolMasterRepository
     portfolio_repo: PortfolioRepository
     ai_client: AIClient
     news_trader_factory: Callable[..., NewsTrader]
@@ -190,8 +194,19 @@ def build_container(settings: Settings) -> Container:
     news_signal_repo = SqliteNewsSignalRepository(session_factory)
     ai_score_cache_repo = SqliteAIScoreCacheRepository(session_factory)
     ai_usage_repo = SqliteAIUsageRepository(session_factory)
+    symbol_master_repo = SqliteSymbolMasterRepository(session_factory)
     portfolio_repo = SqlitePortfolioRepository(session_factory)
     ai_client: AIClient = OpenAIClient(settings.openai_api_key, settings.openai_model, usage_repo=ai_usage_repo)
+
+    # 부팅 시 직전 종목 마스터 동기화 결과(§0-10)를 sqlite에서 in-memory 캐시로 복원한다.
+    # 비어있으면(최초 부팅, 한 번도 동기화 안 함) load_cache()가 아무것도 안 해 기존 8개
+    # 폴백 시드가 그대로 유지된다.
+    symbol_master.load_cache(
+        [
+            symbol_master.SymbolInfo(symbol=r.symbol, name=r.name, market=r.market)
+            for r in symbol_master_repo.list_all()
+        ]
+    )
 
     # newsstock-lib(vendored)의 자체 OpenAI 호출도 같은 사용량 로그에 남긴다 — 이 모듈은 별도
     # DI 컨테이너가 없어 콜백 주입으로 연결한다(app/vendor/news_classifier/classifier.py 참조).
@@ -267,6 +282,7 @@ def build_container(settings: Settings) -> Container:
         news_signal_repo=news_signal_repo,
         ai_score_cache_repo=ai_score_cache_repo,
         ai_usage_repo=ai_usage_repo,
+        symbol_master_repo=symbol_master_repo,
         portfolio_repo=portfolio_repo,
         ai_client=ai_client,
         news_trader_factory=news_trader_factory,

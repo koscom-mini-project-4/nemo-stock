@@ -212,6 +212,45 @@ AI 노드 신설(치환 또는 AI 스스로 도구 호출 중 워크플로 작�
   실행 시 AI 호출 없이(duration_ms로 확인) `meta.decisions`에 "누락된 키" 사유가 정확히
   기록됨을 확인, `target_node_id`로 하류 노드가 실행되지 않음을 확인.
 
+## 0-10. 종목 마스터 캐시 — 종목코드↔종목명 매핑을 실제 전 종목으로 확장 (2026-07-28 사용자 요청)
+
+`app/market_data/symbol_master.py`의 종목코드→종목명 매핑이 정적으로 하드코딩된 8개
+종목뿐이라, `ai.news_signal`/`ai.free_prompt`가 종목코드로 뉴스를 조회할 때 이 8개 밖의
+종목은 전부 "종목명 매핑 없음"으로 실패했다. 반면 관리자 페이지 뉴스 클러스터 검색(§0-7)은
+`newsstock.db`(AI가 뉴스 기사에서 직접 추출한 종목명)를 그대로 노출해 80개 이상의 이름이
+검색되는 등, 두 검색 경로가 서로 다른 데이터 소스를 써서 불일치했다. 이미 연동된 공공데이터
+API(`DATA_GO_KR_SERVICE_KEY`, 금융위원회_주식시세정보)를 재사용해 실제 KOSPI/KOSDAQ 전
+종목의 코드/종목명/시장구분을 캐싱하는 구조로 이 8개 하드코딩을 대체했다.
+
+**범위 확정**: 종목코드→**섹터** 자동 매핑은 포함하지 않았다. 이미 연동된 공공데이터 API는
+종목코드/종목명/시장구분만 주고 업종(섹터) 분류는 주지 않는다. 기존처럼 사용자가
+`app/news_signals/sectors.py`의 큐레이션된 30개 섹터에서 직접 선택하는 구조를 유지한다.
+
+- `app/data_ingestion/public_data_price.py::PublicDataPriceClient.fetch_market_snapshot(as_of,
+  ...)` 신규 — 기존 `fetch_daily_prices`가 쓰는 것과 같은 엔드포인트(`GetStockSecuritiesInfoService/
+  getStockPriceInfo`)를 `likeSrtnCd` 없이 호출하면 시장 전체가 반환되는 서버 동작(원래
+  `fetch_daily_prices` 상단에 "버그"로 문서화돼 있던 것)을 "전 종목 목록을 한 번에 가져오는
+  방법"으로 활용. 그날 데이터가 없으면(주말/공휴일) 최대 7일 전까지 물러나며 재시도.
+- `SymbolMasterRecord`/`SymbolMasterRepository`(`app/dao/base.py`) + sqlite/in-memory
+  구현체(기존 `NewsSignalRepository` 등과 동일 패턴) — durable 캐시.
+- `app/market_data/symbol_master.py` 리팩터: 기존 8개 하드코딩 목록은 "캐시가 비어있을 때
+  (최초 부팅/동기화 전/API 키 없음)"의 폴백 시드로만 남기고, `load_cache()`로 통째로 교체
+  가능한 in-memory 캐시를 도입. `get_symbol_name()`/`search_symbols()`/`list_symbols()`는
+  시그니처 그대로라 호출부(`ai/news_signal.py`, `ai/free_prompt.py`, `api/routers/backtest.py`,
+  `api/routers/data.py`) 전혀 수정 없이 내부 구현만 교체됨.
+- `app/dependencies.py::build_container()`가 부팅 시 직전 동기화 결과를 sqlite에서
+  `load_cache()`로 즉시 복원(재시작해도 API 재호출 불필요). `POST /data/symbols/sync`(관리자
+  트리거, `DATA_GO_KR_SERVICE_KEY` 없으면 400) + `GET /data/symbols/stats`(현재 캐시 크기/
+  DB 저장 건수) 신규. `AdminView.vue`에 "종목 마스터" 카드(동기화 버튼 + 현황) 추가.
+- **실 서버 라이브 검증 결과(중요)**: 구현 직후 실 서버에 `POST /data/symbols/sync`를 실제로
+  트리거했으나 `synced: 0`이었다. 원인을 추적한 결과, 신규 코드의 문제가 아니라 **기존에
+  이미 있던 `fetch_daily_prices`/`ingest_public_prices` 경로도 현재 `DATA_GO_KR_SERVICE_KEY`
+  로는 같은 엔드포인트에서 항상 `totalCount: 0`(resultCode는 "00" 정상)을 받는다**는 것을
+  확인했다(2025-01-02처럼 명백한 과거 영업일로 직접 curl해도 동일). data.go.kr 콘솔에서 이
+  API("금융위원회_주식시세정보")에 대한 서비스키 활용 승인 상태를 확인해야 한다 — 코드
+  로직(페이지네이션/필드 파싱/폴백)은 mock 응답으로 전부 유닛 테스트 통과했으므로, 승인이
+  완료되면 별도 코드 수정 없이 정상 동작할 것으로 예상된다.
+
 ---
 
 ## 1. 목표와 PoC 범위

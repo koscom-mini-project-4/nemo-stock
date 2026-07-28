@@ -31,6 +31,8 @@ from app.dao.base import (
     PriceBarRepository,
     RunRecord,
     RunRepository,
+    SymbolMasterRecord,
+    SymbolMasterRepository,
     UserRecord,
     UserRepository,
     WorkflowRecord,
@@ -49,6 +51,7 @@ from app.dao.sqlite.models import (
     PriceBarIntradayORM,
     PriceBarORM,
     RunORM,
+    SymbolMasterORM,
     UserORM,
     WorkflowORM,
 )
@@ -587,6 +590,48 @@ class SqliteNewsSignalRepository(NewsSignalRepository):
                 )
                 for r in rows
             ]
+
+
+class SqliteSymbolMasterRepository(SymbolMasterRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def upsert_many(self, items: list[SymbolMasterRecord]) -> None:
+        if not items:
+            return
+        with self._sf() as session:
+            for item in items:
+                row = session.get(SymbolMasterORM, item.symbol)
+                if row is None:
+                    session.add(
+                        SymbolMasterORM(
+                            symbol=item.symbol, name=item.name, market=item.market, updated_at=item.updated_at
+                        )
+                    )
+                else:
+                    row.name = item.name
+                    row.market = item.market
+                    row.updated_at = item.updated_at
+            session.commit()
+
+    def list_all(self) -> list[SymbolMasterRecord]:
+        with self._sf() as session:
+            rows = session.scalars(select(SymbolMasterORM).order_by(SymbolMasterORM.symbol)).all()
+            return [
+                SymbolMasterRecord(symbol=r.symbol, name=r.name, market=r.market, updated_at=r.updated_at)
+                for r in rows
+            ]
+
+    def get(self, symbol: str) -> SymbolMasterRecord | None:
+        with self._sf() as session:
+            row = session.get(SymbolMasterORM, symbol)
+            if row is None:
+                return None
+            return SymbolMasterRecord(symbol=row.symbol, name=row.name, market=row.market, updated_at=row.updated_at)
+
+    def count(self) -> int:
+        with self._sf() as session:
+            return session.scalar(select(func.count()).select_from(SymbolMasterORM)) or 0
 
 
 class SqliteAIScoreCacheRepository(AIScoreCacheRepository):
