@@ -17,9 +17,11 @@ from app.schemas.workflow import (
     ValidationResult,
     WorkflowCreate,
     WorkflowOut,
+    WorkflowTemplateOut,
     WorkflowUpdate,
 )
 from app.workflow.graph import WorkflowGraph, WorkflowValidationError
+from app.workflow.templates import get_templates
 
 router = APIRouter(prefix="/workflows", tags=["workflows"], dependencies=[Depends(get_current_username)])
 
@@ -66,6 +68,15 @@ def create_workflow(payload: WorkflowCreate, container: Container = Depends(get_
         # 별도 /validate 호출로 확인하도록 유도한다. 여기서는 활성화만 막는다.
         pass
     return out
+
+
+@router.get("/templates", response_model=list[WorkflowTemplateOut])
+def list_workflow_templates() -> list[WorkflowTemplateOut]:
+    """/{workflow_id}보다 먼저 등록해야 "templates"가 workflow_id로 잘못 매칭되지 않는다."""
+    return [
+        WorkflowTemplateOut(id=t.id, name=t.name, description=t.description, graph=t.graph)
+        for t in get_templates()
+    ]
 
 
 @router.get("/{workflow_id}", response_model=WorkflowOut)
@@ -148,6 +159,7 @@ def run_workflow(
             overrides=payload.overrides,
             run_id=run_id,
             extra_providers=container.node_providers(),
+            target_node_id=payload.target_node_id,
         )
     except WorkflowValidationError as exc:
         run_record.status = "error"

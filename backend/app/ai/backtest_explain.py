@@ -109,7 +109,7 @@ def explain_backtest(
 
     attempts: list[dict] = []
 
-    raw = ai_client.complete_json(system_prompt, user_prompt)
+    raw = ai_client.complete_json(system_prompt, user_prompt, purpose="backtest_explain")
     if not raw.get("changed"):
         attempts.append({"raw": raw})
         return _unchanged_result(raw)
@@ -126,7 +126,7 @@ def explain_backtest(
         + "\n".join(f"- {e}" for e in errors)
         + f"\n\n이전 시도 JSON:\n{json.dumps(raw, ensure_ascii=False)}"
     )
-    raw2 = ai_client.complete_json(system_prompt, repair_prompt)
+    raw2 = ai_client.complete_json(system_prompt, repair_prompt, purpose="backtest_explain")
     if not raw2.get("changed"):
         attempts.append({"raw": raw2})
         return _unchanged_result(raw2)

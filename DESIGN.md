@@ -49,6 +49,169 @@
 - **공공데이터포털 금융위원회_주식시세정보 API** (`data.go.kr`, 서비스키 필요, 무료): 종목코드+일자 기준 시가/종가/고가/저가/거래량 등 제공. **일 1회, 영업일 T+1 오후 갱신** (실시간 아님) → 백테스트용 일봉 데이터 소스로 적합. 1초/1분 단위 "실시간성"은 이 데이터로 재현 불가능하므로, 라이브/테스트 모드에서는 이 일봉을 시드로 한 더미 실시간 시세 생성기를 별도로 둔다 (§5.2).
 - **OpenDART(공시)**: `opendart.fss.or.kr` API 키 발급 필요(무료). 공시 원문/공시목록 조회에 사용.
 
+## 0-4. 추가 확정 사항 (2026-07-28 사용자 확인 — 조건 내장 지표 노드 + 판단 로그)
+
+사용자 요청: 팀 원본 저장소 `koscom-mini-project-4/koscom_nemonemo`를 참고해 if문/조건 관련
+기능을 늘리고 노드 편집을 쉽게 만들 것, "테스트 실행" 로그에 실행 결과뿐 아니라 각 노드의
+판단 근거도 함께 보이게 할 것.
+
+fork 저장소를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit`) 이후 커밋을 조사한 결과,
+"계산 + 조건 내장" 지표 노드(원시 수식 대신 사람이 읽는 조건 프리셋 드롭다운으로 판단)라는
+아이디어를 발견해 우리 아키텍처에 맞게 이식했다. fork에도 없던 "판단 근거를 로그에 표시"하는
+기능은 이번에 새로 설계했다.
+
+| 항목 | 결정 |
+| --- | --- |
+| 조건 내장 지표 노드 범위 | fork와 동일하게 **12종 전부** 포트(SMA/EMA/MACD/RSI매매신호/기간수익률/변동성/볼린저/ATR추적손절/52주최고가대비/MDD/거래량비율/거래량Z-score, §3.2). 값만 계산하던 기존 `indicator.moving_average`/`indicator.rsi`/`indicator.momentum`은 변경하지 않고 그대로 유지(하위호환). `indicator.rsi`와 타입이 겹치는 fork의 조건 내장 RSI는 `indicator.rsi_signal`로 개명해 충돌을 피함. |
+| `logic.if_else` 처리 | **유지**(fork처럼 팔레트에서 숨기지 않음). 복합조건/OR 로직 등 프리셋으로 커버되지 않는 경우에 여전히 필요하기 때문. |
+| 판단(judgment) 로그 | 모든 필터형 노드(`logic.if_else`/`logic.rank`/`risk.stop_loss`/조건 내장 지표 노드 12종)가 종목별 통과/탈락 근거를 `context.meta.decisions[node_id][symbol] = {"pass": bool, "reason": str, "metrics"?: dict}` 형태로 공통 기록(§3.1). 기존 `meta.filtered_out`(탈락 종목 코드 목록만 기록, `app/api/routers/ai.py`의 챗봇 컨텍스트가 참조)은 하위호환을 위해 그대로 유지하고 신규 필드만 추가. 프론트 `DebugPanel.vue`가 "테스트 실행" 시 이 값을 종목별 판단 테이블로 렌더링한다. |
+
+## 0-5. 추가 확정 사항 (2026-07-28 사용자 확인 — newsstock-lib 통합)
+
+사용자 요청: 팀이 만든 별도 저장소 `koscom-mini-project-4/newsstock-lib`(뉴스 기반 종목/섹터/
+거시경제 매매 판단 라이브러리)를 포함시키거나 살짝 수정해서, 뉴스 기반 true/false 신호를
+내는 노드를 추가할 것. 다른 기능에서도 필요하면 크롤링을 트리거할 수 있게 할 것.
+
+| 항목 | 결정 |
+| --- | --- |
+| 통합 방식 | **vendoring**. `newsstock-lib`의 `news_classifier` 패키지(`NewsTrader` 파사드 — 조회 시 스스로 크롤링(네이버 경제뉴스)→AI 분류→클러스터 반영을 수행하고 종목/섹터/거시 3축의 t(호재)/n(중립)/f(악재) 판정을 계산하는 자체완결 라이브러리)를 `backend/app/vendor/news_classifier/`에 그대로 복사. 우리 `NewsRepository`/`ai.sentiment_score`(기존 뉴스 파이프라인)와는 독립된 별개 경로다. |
+| 수정한 부분("혹은 살짝 수정해서") | `classifier.py::call_ai`가 OpenAI 호출 시 `temperature=0`을 하드코딩하는데, 우리 메인 모델 `gpt-5.6-luna`(reasoning 계열)는 기본값(1) 외의 temperature를 거부한다(§0-1, `app/ai/openai_client.py`와 동일 문제). `OpenAIClient.complete_json`과 동일한 "BadRequestError(param=temperature) 감지 시 temperature 없이 1회 재시도" 패턴을 적용. 그 외 파일은 원본 그대로. |
+| Provider 배선 | `NewsTrader`는 스레드 세이프하지 않은 `sqlite3.Connection`을 내부에 물고 있어 `ai_client`처럼 공유 인스턴스 하나를 두면 `WorkerPool`의 여러 워커 스레드가 동시에 같은 연결을 건드릴 수 있다. 공유 인스턴스 대신 노드 실행마다 새 `NewsTrader`(새 sqlite 연결)를 만드는 **팩토리 콜러블**(`Container.news_trader_factory`)을 `node_providers()`로 주입한다. DB 파일은 `Settings.newsstock_db_path`(기본 `backend/newsstock.db`, `nemo_stock.db`와 별도)이고 API 키/모델은 기존 `openai_api_key`/`openai_model`을 재사용한다. |
+| 신규 노드 | `ai.news_signal`(§3.2) — `params.axis`(종목/섹터/거시경제)에 따라 `NewsTrader.stock`/`sector`/`macro`를 호출해 `symbols[code]`에 `news_verdict`/`news_score`/`news_cluster_count`/`news_true`(bool)를 채우고 `params.pass_when` 기준으로 필터링하는 조건 내장형 노드(§0-4의 필터형 노드 패턴을 그대로 따름). axis="종목"이고 `key`를 안 주면 `app/market_data/symbol_master.py`로 종목코드→한글명 자동 매핑. |
+| 다른 기능에서의 크롤링 트리거 | `ai.news_signal`은 `params.auto_update`(기본 true)로 실행 시점에 스스로 갱신을 트리거하지만(라이브러리 자체 30분 쓰로틀로 비용 제한), 이를 꺼둔 워크플로나 다른 기능(대시보드 등)이 독립적으로 트리거할 수 있도록 `POST /data/news/update`(§9) 엔드포인트를 추가해 `news_trader_factory`를 통한 수동 갱신을 노출한다. |
+| 백테스트 시점 인식 | `NewsTrader.stock/sector/macro()`는 `start`를 안 주면 항상 "실제 오늘"을 기준으로 계산하므로, 백테스트가 과거 날짜로 `context.timestamp`를 바꿔가며 노드를 반복 실행해도 매 거래일이 전부 동일한(가장 최근) 결과를 받는 문제가 있었다. `ai.news_signal`이 `start=context.timestamp.date()`를 명시적으로 넘기도록 수정해 백테스트의 각 거래일이 그 날짜 시점의 뉴스 창을 보게 했다. |
+| 백테스트 AI 호출량 제한 | 위 수정으로 백테스트 거래일마다 서로 다른 조회가 실제로 일어나게 되어, 기간이 길어질수록 OpenAI 호출(뉴스 분류)이 그만큼 늘어난다. 비용을 예측 가능한 범위로 묶기 위해 `ai.news_signal` 노드가 포함된 워크플로의 백테스트는 기간을 제한한다(`app/api/routers/backtest.py::NEWS_SIGNAL_BACKTEST_MAX_DAYS`, 초과 시 400. 최초 4일 → 2026-07-28 사용자 확인으로 **7일**로 상향). |
+| 크롤러 병렬 fetch | 실제 크롤링(`POST /data/news/update`)이 원본 순차 구현 기준 수분 이상 걸려, `crawler.py::crawl()`에 `workers` 파라미터(기본 `CRAWL_WORKERS=4`)를 추가해 페이지 안의 기사들을 `ThreadPoolExecutor`로 동시에 fetch하게 했다. 스레드마다 별도 `requests.Session`(별도 connection pool, `threading.local`)을 쓰고 지연은 워커별로 각자 넣어 정중함 정책은 유지한다. 목록 페이지 조회와 AI 분류(`pipeline.classify_many`, 오래된 뉴스부터 순서대로 처리해야 클러스터가 올바르게 쌓이는 순차 의존성)는 병렬화 대상에서 제외했다. |
+
+## 0-6. 추가 확정 사항 (2026-07-28 사용자 확인 — fork 뉴스 신호 파이프라인 포트 + 백테스트/관리자 UX)
+
+사용자가 실제로 백테스트를 돌려보며 발견한 문제(뉴스 마커가 안 뜸, 일봉만 나옴)와 fork
+(`koscom_nemonemo`)에 우리가 아직 안 옮긴 노드가 많다는 지적을 계기로 진행한 후속 작업 묶음.
+
+| 항목 | 결정 |
+| --- | --- |
+| `ai.news_signal` 파라미터 확장 | `NewsTrader`의 `threshold`/`decay_base`/`include_zero`/`decay_from`(전부 라이브러리 기본값과 동일한 기본값)을 노드 파라미터로 노출해 사용자가 직접 조절 가능하게 함(`Container.news_trader_factory`도 동일 kwargs를 받도록 확장). |
+| 백테스트 뉴스 마커 버그 수정 | `/backtest/{id}/news/{used,all}`이 `data.news`/`NewsRepository`(구 파이프라인)만 알고 `ai.news_signal`이 쓰는 `newsstock.db`는 몰라, 그 노드만 쓰는 워크플로는 마커가 항상 비어 있었다(§0-5 도입 시 놓쳤던 버그). `GET /backtest/{id}/news/signal` 신규 추가 — 워크플로의 `ai.news_signal` 노드 파라미터로 조회해 `클러스터` 목록을 마커로 변환. 프론트는 기존 "참고 뉴스"와 별개 시각(보라 삼각형)으로 병렬 표시. |
+| 백테스트 신규 폼 기본 기간 | `ai.news_signal` 노드가 포함된 워크플로를 선택하면 시작/종료일을 "최근 개장일 기준 4일"로 자동 설정(공휴일 캘린더 없이 주말만 건너뛰는 근사, 워크플로 변경 시에만 재적용). AI 호출량 상한(§0-5)과 별개로 UX 기본값만 다룬다. |
+| 백테스트 AI 호출량 상한 재조정 | 4일 → **7일**로 상향(`NEWS_SIGNAL_BACKTEST_MAX_DAYS`). |
+| 판정 근거의 "주요 주제" 노출 | `ai.news_signal`이 판정에 가장 큰 영향을 준 뉴스 클러스터(`|점수|` 최대)를 `news_top_topic`/`news_top_topic_score`로 symbols에 채우고 `meta.decisions`의 판단 사유 문구에도 포함 — true/false 판정의 근거를 사람이 바로 확인 가능. |
+| 백테스트 차트 시간봉 | `GET /backtest/{id}/prices`에 `interval`(기본 `day`, `minute60`) 파라미터를 추가해 기존 `intraday_price_bar_repo`를 노출. 프론트는 `minute60`을 먼저 시도하고 데이터가 있으면(§0-2 실측 한계로 최근 약 8거래일치만 존재) 그걸, 없으면 일봉으로 자동 폴백. 시간봉 모드에서는 매매/뉴스 마커·자산곡선을 "그 날짜의 마지막 봉"에 맞춰 매핑(라벨이 날짜+시각이라 기존 정확히-같은-문자열 매칭이 깨지므로). 백테스트 엔진 자체는 여전히 일봉 기준(§8-1 원칙 유지) — 이건 차트 표시 전용. |
+| 관리자 페이지 신설 | `/admin`(프론트 `AdminView.vue`) — (1) 뉴스 분석 현황: `NewsTrader.stats()`/`clusters()`를 그대로 노출(`GET /data/news/{stats,clusters}`) + 수동 갱신 버튼, (2) 사용량 통계: 백테스트 실행 수 + AI 호출 수/토큰 수(목적별·모델별). 단일 관리자 계정 구조라 별도 권한 분기 없음. |
+| AI 사용량 계측 | 신규 `AIUsageRecord`/`AIUsageRepository`(+sqlite 구현) — `OpenAIClient.complete_json()`에 `usage_repo`/`purpose` 파라미터 추가(둘 다 옵션, 하위호환), 응답의 `usage`(토큰수)를 저장한다. `app/vendor/news_classifier/classifier.py`(newsstock-lib 자체 OpenAI 호출 경로)도 `set_usage_sink()` 콜백으로 동일 로그에 남기도록 소폭 수정(VENDOR_NOTES.md 세 번째 항목). 기존 AI 호출부(workflow_draft/workflow_chat/scoring_cache/backtest_explain/news_classify)에 `purpose=` 라벨을 붙여 목적별 집계가 의미 있게 나오도록 함. `BacktestResultRepository.count()` 추가. |
+| fork "뉴스 신호" 파이프라인 11종 포트 | fork를 다시 조사해 지표 노드(§0-4) 포트 때는 놓쳤던 완전히 별도인 3계층 파이프라인(AI 라벨링 → 충격량/시계열 집계 → 조건 내장 노드)을 발견 — 사용자가 전부 포트하기로 확정. `app/nodes/conditions.py`(§0-4 때 "필요 없다"고 안 옮겼던 큐레이션 프리셋 시스템 — 이번엔 11개 노드가 전부 씀), `app/news_signals/{sectors,themes,impact,aggregate,ingest}.py`, `app/ai/news_classify.py`(Depth1/2/3 분류, 우리 `AIScoreCacheRepository` 재사용), `NewsSignalRecord`/`NewsSignalRepository`(+sqlite/in-memory 구현), 노드 11종(`app/nodes/data/news_signal.py`, §3.2), `POST /data/ingest/news/classified` 신규 + `ingest_manual_news` 확장(AI 키 있으면 best-effort 신호 저장). 우리 저장소가 fork와 동일한 `Node`/`NodeContext`/`AIClient` 기반이라 vendoring이 아니라 일반 포트로 진행했고, `conditions.py::apply_condition()`에 우리 컨벤션인 `meta.decisions` 기록을 추가한 것 외엔 원본 그대로다. 프론트 코드 변경 없이(기존 select/option_labels/show_if/subcategory 렌더링 재사용) 팔레트에 바로 노출됨을 확인. |
+
+## 0-7. 관리자 페이지: 클러스터 ↔ 종목/섹터/거시 상호 탐색 (2026-07-28 사용자 요청)
+
+관리자 페이지의 "뉴스 분석 현황" 클러스터 목록이 대표제목/strength/뉴스건수만 보여줘 "이 주제가
+정확히 어떤 종목/섹터/거시와 연결됐는지"를 알 수 없었다. 사용자 요청으로 양방향 탐색을 추가:
+(1) 클러스터(주제) → 연결된 종목/섹터/거시 목록, (2) 반대로 종목/섹터/거시 키 → 그와 연결된
+클러스터 목록.
+
+- `app/vendor/news_classifier/db.py`: `cluster_tags(conn, cluster_id)` 신규(해당 클러스터의
+  `classifications` 테이블에서 종목/섹터/거시지표 키를 중복 제거해 반환) + `cluster_stats()`가
+  각 클러스터 행에 이 태그를 병합해 반환하도록 확장(응답 필드 추가뿐이라 하위호환).
+- `app/vendor/news_classifier/api.py::NewsTrader`: `clusters_for_key(group, key, start, end)`
+  (기존 `db.group_cluster_rows` 래핑 — 반대 방향 조회), `keys_in_range(group, start, end)`
+  (기존 `db.group_keys` 래핑 — 탐색 드롭다운용 키 목록). `VENDOR_NOTES.md`에 기록.
+- `app/api/routers/data.py`: `GET /data/news/topics?group=stock|sector|macro&start=&end=`(키
+  목록), `GET /data/news/topics/clusters?group=&key=&start=&end=`(그 키에 연결된 클러스터
+  목록) 신규. `GET /data/news/clusters`는 시그니처 변경 없이 응답에 `종목`/`섹터`/`거시지표`
+  필드가 추가됨.
+- 프론트(`AdminView.vue`): 클러스터 표에 태그 열 추가, "종목/섹터/거시로 클러스터 탐색"
+  섹션 신규(축 선택 → 키 드롭다운 → 관련 클러스터 조회). 뉴스 분석 현황과 동일한 기간(날짜
+  범위)을 공유해 별도 날짜 입력을 추가하지 않았다.
+- 실 서버(`--reload`)에 curl로 라이브 검증: `/data/news/topics?group=stock`이 실제 종목명
+  목록을 반환, `/data/news/clusters`의 클러스터가 실제 종목 태그를 포함, `/data/news/topics/
+  clusters?group=stock&key=삼성전자`가 해당 종목이 언급된 실제 클러스터 7건을 정확히 반환.
+
+## 0-8. AI 챗봇 노드 수정 제안: 전/후 비교 창 (2026-07-28 사용자 요청)
+
+캔버스의 AI 챗봇(`ChatPanel.vue`)이 그래프 수정을 제안하면 지금까지는 "노드 N개, 엣지 N개"
+요약과 적용/취소 버튼만 있어 실제로 뭐가 바뀌는지 알 수 없었다. 사용자 요청으로 전/후 비교
+창을 추가하고, 그 안에서 다시 수정을 요청하거나 확정/확정취소할 수 있게 했다. 백엔드 변경
+없음 — `app/ai/workflow_chat.py::chat_about_workflow()`가 이미 `graph` 인자를 그대로 받아
+"현재 그래프"로 취급하므로, 프론트가 무엇을 넘기느냐만으로 이번 기능이 성립한다.
+
+- `frontend/src/utils/graphDiff.ts` 신규 — 순수 함수 `diffGraphs(before, after)`. 노드는 id로
+  매칭해 추가/삭제/변경(타입 또는 파라미터 중 하나라도 다르면 변경, 파라미터별로 이전/이후
+  값 목록 포함)으로 분류하고, 엣지는 `from->to[:branch]` 키로 추가/삭제만 분류한다.
+- `frontend/src/components/GraphDiffModal.vue` 신규 — `diffGraphs()` 결과를 노드별
+  추가(초록)/삭제(빨강)/변경(노랑) 배지로, 엣지 변경은 별도 목록으로 보여준다. 노드 타입은
+  `NodeTypeSchema.display_name`으로, 파라미터 키는 `param_schema[].label`로 사람이 읽는
+  이름으로 표시(둘 다 프론트에 이미 있던 스키마 재사용, 신규 API 없음). 하단에 "다시 수정
+  요청" 입력창 + "확정"/"확정 취소" 버튼.
+- `frontend/src/components/ChatPanel.vue`: 기존 인라인 적용/취소 버튼을 "비교 검토"
+  버튼(→ 모달 오픈)으로 교체. **"다시 수정" 시 핵심은 AI에게 넘기는 `graph`를 캔버스의
+  현재 상태(`props.graph`)가 아니라 지금 검토 중인 제안(`pendingGraph`)으로 바꿔치기하는
+  것** — 그래야 AI가 직전 제안 위에 이어서 고치지, 원래 캔버스 기준으로 처음부터 다시
+  제안하지 않는다. 비교 창의 "before"는 항상 실제 캔버스 그래프로 고정해, 여러 번 "다시
+  수정"을 거쳐도 최종 제안과 현재 캔버스의 전체 누적 차이를 계속 보여준다. AI가 그래프
+  변경 없이 순수 답변만 한 경우(changed=false) 비교 창이 깨지지 않도록 기존 제안을 유지하고
+  안내 문구만 띄운다.
+- `frontend/src/views/StrategyBuilderView.vue`: 이미 보유 중이던 `nodeTypes`를
+  `ChatPanel`에 prop으로 전달(라벨 표시용, 신규 fetch 없음).
+- 검증: `vue-tsc -b` + `npm run build` 통과, 사용자 dev 서버(HMR)로 신규/변경 파일이 컴파일
+  에러 없이 서빙됨을 curl로 확인. 이번 세션도 브라우저 자동화 도구가 없어 실제 클릭 동작은
+  사용자가 `npm run dev`로 직접 확인 필요.
+
+## 0-9. 자유 프롬프트 AI 판단 노드 + 뉴스신호 근거 보강 + 노드 단독 테스트 (2026-07-28 사용자 요청)
+
+사용자 요청 3가지를 한 번에 처리: (1) 프롬프트/참고자료를 자유롭게 쓰는 통과·탈락 판단
+AI 노드 신설(치환 또는 AI 스스로 도구 호출 중 워크플로 작성자가 선택), (2) "뉴스 관련 노드의
+매수/매도 의견·이유가 json에 같이 안 넘어온다"는 제보 확인, (3) "if/else를 넘어가도 점수/의견이
+계속 json으로 누적돼야 한다"는 아키텍처 우려 검토.
+
+**(3) 조사 결과**: `app/nodes/base.py::NodeContext.symbols`는 이미 매 노드가 `clone()`
+(deepcopy)해서 이어받고, `logic.if_else`/`app/nodes/conditions.py::apply_condition()` 둘 다
+통과한 종목의 데이터 dict를 그대로 유지한다(탈락 종목만 제거, 필드를 지우지 않음) — 재현되지
+않음. 새 아키텍처 불필요. **(2)의 실체**는 `app/nodes/data/news_signal.py`의 11개 조건 내장
+뉴스신호 노드가 숫자 점수만 stamp하고 "어떤 뉴스가 그 점수를 만들었는지" 근거가 전혀 없던 것
+— `ai.news_signal`엔 이미 있던 `top_topic` 패턴이 빠져 있었다. → Part D에서 이식.
+
+- **Part A — `AIClient` 도구 호출(tool-calling) 지원**: `complete_with_tools(system_prompt,
+  user_prompt, tools, tool_executor, max_rounds=4, ...)` ABC 메서드 신설.
+  `OpenAIClient`에서 `tool_choice="auto"`로 반복 호출 → 도구 호출 시 `tool_executor`로 실행해
+  `role="tool"` 메시지로 이어붙이고 재호출(최대 `max_rounds`, 과금 폭주 방지) → 더 이상 도구를
+  안 부르거나 라운드 초과 시 도구 없이 마지막 1회로 최종 JSON을 강제. 기존 `complete_json`의
+  `gpt-5.6-luna` temperature 재시도 로직을 `_create()` 헬퍼로 공유. `FakeAIClient`에
+  `tool_scripts`(라운드별 스크립트) 지원 추가.
+- **Part B — 신규 노드 `ai.free_prompt`**(`app/nodes/ai/free_prompt.py`): `prompt`/`reference`
+  파라미터(신규 타입 `"prompt"`, 큰 textarea)에 `{{키}}`로 앞 노드가 채운 `symbols[code]`
+  값을 자동 치환(예약 토큰 `{{symbol}}`/`{{date}}`). `params.data_mode`로 두 방식 중 선택
+  (AskUserQuestion으로 사용자에게 확인 — "사용자가 선택할 수 있도록" 응답): **"치환"**(누락된
+  키가 있는 종목은 AI를 호출하지 않고 즉시 탈락 — 이게 "정형검증"의 실체: 전체 그래프 정적
+  타입분석이 아니라 실행 시점 심볼별 런타임 가드) | **"AI 직접 조회(도구 호출)"**(누락 값은
+  AI가 뉴스/가격 조회 도구 4종 — `get_symbol_news_signal`/`get_sector_news_signal`/
+  `get_macro_news_signal`/`get_price`, 전부 기존 `news_trader_factory`/`market_data`
+  provider를 얇게 감싼 것 — 를 스스로 호출해 채울 수 있음). AI 응답
+  `{"pass","opinion","confidence","reason"}`을 `symbols[code]`에 `{node_id}_pass/_opinion/
+  _confidence/_reason`으로 네임스페이스(다중 인스턴스 충돌 방지)해 채우고 필터형 노드로
+  동작, `meta.decisions`에도 기록(기존 컨벤션 그대로라 DebugPanel이 코드 변경 없이 판단
+  내용을 보여줌 — "테스트 실행 때 내용이 나와야" 요건 충족). `validate_params()`에서
+  `{{ }}` 짝 안 맞음 등 템플릿 문법 정적 검사. `backtest.py`의 기존 `ai.news_signal` 전용
+  AI 호출량 기간 제한(`NEWS_SIGNAL_BACKTEST_MAX_DAYS`)을 `ai.free_prompt`까지 확장(캐시 없이
+  심볼×거래일마다 실제 호출이 나가 동일한 비용 위험).
+- **Part C — 노드 단독 테스트 실행**(`ai.free_prompt`뿐 아니라 모든 노드에 범용):
+  `WorkflowGraph.ancestors_of(node_id)`(역방향 BFS) 신설, `WorkflowEngine.execute(...,
+  target_node_id=...)`가 지정되면 그 노드와 조상만 실행하도록 위상 순서를 필터링,
+  `RunOverride.target_node_id` 스키마 추가. 프론트 `PropertyPanel.vue`에 "▶ 이 노드까지
+  테스트" 버튼(선택 노드가 있을 때) → 최신 파라미터를 먼저 저장한 뒤 그 노드까지만 실행해
+  디버그 패널에 결과 표시.
+- **Part D — 뉴스신호 11종 근거 보강**: `NewsSignalRecord`에 `title`(원문 제목) 필드 추가(+
+  sqlite ORM은 `init_db()`의 기존 자동 컬럼 보정 로직으로 하위호환, in-memory 리포지토리는
+  변경 불필요) + `ingest.py`/`data.py` 적재 경로에서 스레딩.
+  `app/news_signals/aggregate.py::top_contributor(signals, as_of, window_days, predicate,
+  score_fn)` 신규 — 각 지표 함수와 동일한 필터 조건으로 `|score_fn|` 최대인 신호 1건을 찾는다.
+  `app/nodes/conditions.py::apply_condition()`에 선택적 `note_fn` 파라미터 추가(하위호환,
+  없으면 기존과 동일) — 있으면 reason 끝에 근거 문구를 붙임. 11개 노드 전부 지표 계산 직후
+  `top_contributor`로 근거를 찾아 `<field>_top_title`/`<field>_top_score`를 stamp하고
+  `apply_condition(..., note_fn=...)`으로 판단 사유에 포함 — `ai.news_signal`의 `topic_note`와
+  동일한 문구 스타일(`"주요 근거: '{title}' (기여점수 {score:+.4f})"`).
+- 검증: 백엔드 pytest 261→267개 전부 통과. 실 서버(`--reload`)에 curl로 라이브 검증 —
+  `GET /nodes`에 `ai.free_prompt` 노출 확인, 존재하지 않는 키를 참조하는 프롬프트로 테스트
+  실행 시 AI 호출 없이(duration_ms로 확인) `meta.decisions`에 "누락된 키" 사유가 정확히
+  기록됨을 확인, `target_node_id`로 하류 노드가 실행되지 않음을 확인.
+
 ---
 
 ## 1. 목표와 PoC 범위
@@ -153,6 +316,8 @@ def register_node(cls: type[Node]) -> type[Node]:
 
 **포트폴리오 자동 주입 변수** (§0-3): `WorkflowEngine.execute()`가 런 시작 시점에 `broker.get_balance()`/`get_positions()`를 1회 조회해, 각 노드의 출력 컨텍스트가 만들어질 때마다 `symbols[code]`에 아직 없는 경우에 한해 `held_qty`(보유수량)/`held_avg_price`(평단가)/`cash`(현금)/`equity`(평가자산)를 채워 넣는다(`meta.cash`/`meta.equity`에도 동일 값 기록). 어떤 노드도 이 값을 배선하지 않으며, `logic.if_else`의 `expr`(`simpleeval`, `names=dict(symbols[code])`)에서 바로 참조 가능하다(예: `held_qty == 0 and cash > price * 10`). 값은 런 시작 시점 스냅샷이므로 해당 런 자신이 실행 도중 발생시킨 주문으로는 바뀌지 않는다 — `node_registry_schema()`에는 나타나지 않는 암묵적 변수이므로 AI 프롬프트(§7.2, §7.5)에 별도 문구로 고지한다.
 
+**판단(judgment) 로그** (§0-4): 종목을 걸러내는 필터형 노드(`logic.if_else`/`logic.rank`/`risk.stop_loss`/조건 내장 지표 노드, §3.2)는 탈락 종목 코드 목록만 남기는 `meta.filtered_out[node_id]`와 별개로, 종목별 통과/탈락 근거를 `meta.decisions[node_id][symbol] = {"pass": bool, "reason": str, "metrics"?: dict}` 형태로 함께 기록한다. `NodeContext.snapshot()`이 `meta`를 그대로 실어 `NodeExecutionEvent.output_snapshot`으로 발행하므로 엔진 수정 없이 각 노드만 이 값을 채우면 되고, 프론트 `DebugPanel.vue`가 "테스트 실행" 결과에서 이를 종목별 판단 테이블(통과✅/탈락⛔ + 사유)로 렌더링한다.
+
 ### 3.2 PoC 기본 제공 노드 목록
 
 | 카테고리 | type | 설명 |
@@ -162,12 +327,25 @@ def register_node(cls: type[Node]) -> type[Node]:
 | data | `data.volume` | 거래량/거래대금 조회 |
 | data | `data.news` | 종목 관련 최근 뉴스 조회(sqlite 적재분) |
 | data | `data.disclosure` | 종목 관련 최근 공시 조회(OpenDART 적재분) |
-| indicator | `indicator.moving_average` | 이동평균 계산 |
-| indicator | `indicator.rsi` | RSI 계산 |
-| indicator | `indicator.volatility` | 변동성(표준편차) 계산 |
-| indicator | `indicator.custom_formula` | 사용자 수식(안전한 표현식 평가, `simpleeval` 등 사용) |
+| data(조건 내장, §0-6) | `data.sector_momentum`/`data.sector_linked_impact`/`data.sector_momentum_change`/`data.sector_buzz` | 뉴스 신호 — 섹터 단위 지표(모멘텀/업종 연관 영향/모멘텀 가속도/버즈 Z-Score), fork 포트, `app/nodes/conditions.py` 프리셋 |
+| data(조건 내장, §0-6) | `data.macro_risk`/`data.macro_sentiment` | 뉴스 신호 — 매크로 공포지수/거시 심리지수(국내·해외) |
+| data(조건 내장, §0-6) | `data.theme_zscore` | 뉴스 신호 — 테마 쏠림 Z-Score |
+| data(조건 내장, §0-6) | `data.sentiment_ratio`/`data.event_density` | 뉴스 신호 — 감성 우위도(Bull-Bear)/이벤트 밀도(국면 탐지) |
+| data(조건 내장, §0-6) | `data.symbol_news_score`/`data.symbol_direct_impact` | 뉴스 신호 — 종목별 뉴스 점수/직접 영향도(정규화) |
+| indicator | `indicator.moving_average` | 이동평균 계산(값만 계산, 필터링 없음) |
+| indicator | `indicator.rsi` | RSI 계산(값만 계산, 필터링 없음) |
+| indicator | `indicator.momentum` | 모멘텀(N일 수익률) 계산(값만 계산, 필터링 없음) |
+| indicator | `indicator.custom_formula` | 사용자 수식(안전한 표현식 평가, `simpleeval` 등 사용) — 미구현 |
+| indicator(조건 내장, §0-4) | `indicator.sma`/`indicator.ema`/`indicator.macd` | 추세 — 계산+조건 판정을 자체 완결하는 필터형 노드(logic.if_else 내장) |
+| indicator(조건 내장, §0-4) | `indicator.rsi_signal`/`indicator.period_return` | 모멘텀 — 위와 동일한 필터형 노드 |
+| indicator(조건 내장, §0-4) | `indicator.volatility`/`indicator.bollinger`/`indicator.atr_stop` | 변동성 — 위와 동일한 필터형 노드 |
+| indicator(조건 내장, §0-4) | `indicator.high_52w` | 가격 위치(52주 최고가 대비 낙폭) — 위와 동일한 필터형 노드 |
+| indicator(조건 내장, §0-4) | `indicator.mdd` | 위험(최대낙폭) — 위와 동일한 필터형 노드 |
+| indicator(조건 내장, §0-4) | `indicator.volume_ratio`/`indicator.volume_zscore` | 거래량 — 위와 동일한 필터형 노드 |
 | ai | `ai.sentiment_score` | 뉴스/공시 텍스트 감성 점수화(캐시 적용) |
 | ai | `ai.regime` | 시장 국면 판단(상승/하락/횡보) — 보조 판단용 |
+| ai(조건 내장, §0-5) | `ai.news_signal` | 뉴스 신호(종목/섹터/거시경제) — `koscom-mini-project-4/newsstock-lib`(vendored) 기반, t/n/f 판정을 필터링(logic.if_else 내장) + news_true(bool) 출력 |
+| ai(조건 내장, §0-9) | `ai.free_prompt` | 자유 프롬프트 판단 — 사용자가 프롬프트/참고자료를 직접 작성, `{{키}}`로 앞 노드 데이터 자동 치환 또는 AI가 뉴스/가격 조회 도구를 스스로 호출(택1), pass/opinion/confidence/reason 출력 + 필터링 |
 | logic | `logic.if_else` | 조건식 분기 (True 경로만 컨텍스트 전달) |
 | logic | `logic.filter` | 종목 목록 필터링 |
 | logic | `logic.rank` | 조건별 상위 N 랭킹 |

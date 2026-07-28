@@ -26,6 +26,7 @@ function logout() {
         <RouterLink to="/" class="nav-link">대시보드</RouterLink>
         <RouterLink to="/strategies/new" class="nav-link">새 전략</RouterLink>
         <RouterLink to="/ai/generate" class="nav-link">AI 전략 생성</RouterLink>
+        <RouterLink to="/admin" class="nav-link">관리자</RouterLink>
       </nav>
       <button class="btn" @click="logout">로그아웃</button>
     </header>

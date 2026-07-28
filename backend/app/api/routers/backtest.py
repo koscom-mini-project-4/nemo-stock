@@ -12,6 +12,8 @@ from app.dao.base import BacktestResultRecord, IntradayPriceBarRepository
 from app.data_ingestion.auto_ingest import ensure_price_data
 from app.data_ingestion.naver_price_client import NaverStockChartClient
 from app.dependencies import Container
+from app.market_data.symbol_master import get_symbol_name
+from app.nodes.ai.news_signal import AXIS_METHOD
 from app.schemas.backtest import (
     BacktestRequest,
     BacktestResultOut,
@@ -24,6 +26,15 @@ from app.schemas.backtest import (
 from app.workflow.graph import WorkflowGraph
 
 router = APIRouter(prefix="/backtest", tags=["backtest"], dependencies=[Depends(get_current_username)])
+
+# ai.news_signal(auto_update=true)은 거래일마다 AI 분류를 다시 트리거할 수 있어(뉴스가 실행
+# 시점 날짜 기준으로 조회되도록 바뀐 뒤로는 각 거래일이 서로 다른 조회를 만듦), 백테스트 기간이
+# 길어질수록 OpenAI 호출이 그만큼 늘어난다. 비용을 예측 가능한 범위로 묶기 위해 이 노드가 포함된
+# 백테스트는 기간을 제한한다(2026-07-28 사용자 확인: 4일 → 7일로 상향).
+# ai.free_prompt(§0-9)도 심볼×거래일마다 실제 AI 호출이 나가고(도구 호출 모드는 라운드당
+# 추가 호출까지) 캐시가 없어 동일한 위험이 있으므로 같은 제한을 적용한다.
+NEWS_SIGNAL_BACKTEST_MAX_DAYS = 7
+_AI_COST_NODE_TYPES = {"ai.news_signal", "ai.free_prompt"}
 
 
 def _to_out(r: BacktestResultRecord) -> BacktestResultOut:
@@ -71,6 +82,17 @@ def run_backtest(
     errors = graph.validate()
     if errors:
         raise HTTPException(status_code=422, detail={"message": "워크플로 검증 실패", "errors": errors})
+
+    ai_cost_node_types = sorted({n.type for n in graph.nodes.values() if n.type in _AI_COST_NODE_TYPES})
+    period_days = (payload.end_date - payload.start_date).days + 1
+    if ai_cost_node_types and period_days > NEWS_SIGNAL_BACKTEST_MAX_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{', '.join(ai_cost_node_types)} 노드가 포함된 워크플로는 AI 호출량 제한을 위해 "
+                f"백테스트 기간을 최대 {NEWS_SIGNAL_BACKTEST_MAX_DAYS}일로 제한합니다(요청: {period_days}일)."
+            ),
+        )
 
     if container.settings.auto_ingest_prices:
         for symbol in payload.universe:
@@ -138,11 +160,30 @@ def get_backtest(result_id: str, container: Container = Depends(get_container)) 
 
 @router.get("/{result_id}/prices", response_model=list[PricePointOut])
 def get_backtest_prices(
-    result_id: str, symbol: str, container: Container = Depends(get_container)
+    result_id: str, symbol: str, interval: str = "day", container: Container = Depends(get_container)
 ) -> list[PricePointOut]:
+    """일봉(기본, interval="day") 또는 시간봉(interval="minute60")을 반환한다.
+
+    시간봉은 §0-2 문서화된 실측 한계(네이버 API가 최근 약 8거래일치만 제공)로 오래된 기간은
+    항상 빈 배열이다 — 프론트가 빈 배열이면 일봉으로 폴백하는 방식으로 이 한계를 흡수한다.
+    백테스트 엔진 자체는 여전히 일봉으로만 동작하며(§8-1), 이건 차트 표시 전용이다.
+    """
     record = _get_result_or_404(result_id, container)
     if symbol not in record.universe:
         raise HTTPException(status_code=400, detail="해당 백테스트의 대상 종목이 아닙니다.")
+
+    if interval != "day":
+        start = datetime.combine(record.start_date, time.min)
+        end = datetime.combine(record.end_date, time.max)
+        intraday_bars = container.intraday_price_bar_repo.list_range(symbol, start, end, interval=interval)
+        return [
+            PricePointOut(
+                date=b.bar_datetime.strftime("%Y-%m-%d %H:%M"),
+                open=b.open, high=b.high, low=b.low, close=b.close, volume=b.volume,
+            )
+            for b in intraday_bars
+        ]
+
     bars = container.price_bar_repo.list_range(symbol, record.start_date, record.end_date)
     return [
         PricePointOut(
@@ -203,3 +244,71 @@ def get_backtest_news_all(
         )
         for n in items
     ]
+
+
+@router.get("/{result_id}/news/signal", response_model=list[NewsMarkerOut])
+def get_backtest_news_signal(
+    result_id: str, symbol: str, container: Container = Depends(get_container)
+) -> list[NewsMarkerOut]:
+    """ai.news_signal(newsstock-lib) 파이프라인이 참고하는 뉴스 클러스터를 마커로 반환한다.
+
+    /news/used·/news/all은 data.news/NewsRepository(구 파이프라인, nemo_stock.db)만 알고
+    ai.news_signal이 쓰는 별도 DB(newsstock.db)는 전혀 모르기 때문에, 워크플로가
+    ai.news_signal만 쓰는 경우 기존 두 엔드포인트는 항상 빈 배열을 반환한다(버그) — 이 엔드포인트가
+    그 데이터 소스를 대신 조회한다. 워크플로에 ai.news_signal 노드가 없으면 빈 배열.
+    """
+    record = _get_result_or_404(result_id, container)
+    if symbol not in record.universe:
+        raise HTTPException(status_code=400, detail="해당 백테스트의 대상 종목이 아닙니다.")
+
+    workflow = container.workflow_repo.get(record.workflow_id)
+    if workflow is None:
+        return []
+    graph = WorkflowGraph.from_dict(workflow.graph)
+    node = next((n for n in graph.nodes.values() if n.type == "ai.news_signal"), None)
+    if node is None:
+        return []
+
+    axis = str(node.params.get("axis", "종목"))
+    key = str(node.params.get("key", "") or "")
+    if axis == "종목" and not key:
+        key = get_symbol_name(symbol) or ""
+    if not key:
+        return []
+
+    period_days = int(node.params.get("period_days", 7) or 7)
+    threshold = float(node.params.get("threshold", 0.1) or 0.1)
+    decay_base = float(node.params.get("decay_base", 0.3) or 0.3)
+    include_zero = bool(node.params.get("include_zero", True))
+    decay_from = str(node.params.get("decay_from", "end") or "end")
+    method_name = AXIS_METHOD.get(axis, "stock")
+
+    # 노드는 매 거래일 start=그날, period=period_days(그날부터 앞으로 period_days)로 조회한다.
+    # 백테스트 전체 표시 구간을 한 번에 커버하려면 start=백테스트 시작일, period=
+    # (백테스트 기간 + 노드의 조회기간)으로 넓혀서 조회하면 각 거래일이 봤을 구간의 합집합을
+    # 충분히 덮는다(경계 며칠 정도 더 넓게 잡히는 건 마커 표시 목적상 무해하다).
+    span_days = (record.end_date - record.start_date).days + period_days
+
+    trader = container.news_trader_factory(
+        auto_update=False, threshold=threshold, decay_base=decay_base,
+        include_zero=include_zero, decay_from=decay_from,
+    )
+    try:
+        result = getattr(trader, method_name)(key, start=record.start_date.isoformat(), period=span_days)
+    finally:
+        trader.close()
+
+    markers: list[NewsMarkerOut] = []
+    for cluster in result.get("클러스터", []) or []:
+        first_seen = str(cluster.get("최초발생날짜", ""))
+        markers.append(
+            NewsMarkerOut(
+                date=first_seen[:10],
+                news_id=str(cluster.get("클러스터id", "")),
+                title=str(cluster.get("대표제목", "")),
+                published_at=first_seen,
+                source="newsstock",
+                used=True,
+            )
+        )
+    return markers

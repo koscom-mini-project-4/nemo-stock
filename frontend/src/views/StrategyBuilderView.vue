@@ -349,6 +349,24 @@ async function handleTestRun(payload: {
   }
 }
 
+async function runNodeTest(nodeId: string) {
+  // 선택된 노드의 최신 파라미터(예: 방금 고친 프롬프트)까지 반영해서 테스트하도록 먼저 저장한다.
+  await save()
+  if (!workflowId.value) return
+  playingAnimation.value = true
+  activeTab.value = 'debug'
+  try {
+    const result = await runWorkflow(workflowId.value, {}, undefined, nodeId)
+    lastRunStatus.value = result.status
+    lastRunFinalSymbols.value = result.final_symbols
+    await animateEvents(result.events)
+  } catch {
+    alert('노드 테스트 실행에 실패했습니다. "검증" 탭에서 그래프 오류를 확인하세요.')
+  } finally {
+    playingAnimation.value = false
+  }
+}
+
 function goBacktest() {
   if (!workflowId.value) return
   router.push({ path: '/backtests/new', query: { workflow_id: workflowId.value, universe: schedulerUniverse.value } })
@@ -428,10 +446,18 @@ onMounted(load)
             @update-param="updateParam"
             @update-all-params="updateAllParams"
             @delete="deleteSelectedNode"
+            @test-node="runNodeTest"
           />
           <ValidationPanel v-else-if="activeTab === 'validation'" :result="validationResult" :loading="validating" />
           <DebugPanel v-else-if="activeTab === 'debug'" :events="debugEvents" :playing="playingAnimation" />
-          <ChatPanel v-else :name="name" :graph="currentGraph" :last-run="chatLastRun" @apply-graph="applyChatGraph" />
+          <ChatPanel
+            v-else
+            :name="name"
+            :graph="currentGraph"
+            :last-run="chatLastRun"
+            :node-types="nodeTypes"
+            @apply-graph="applyChatGraph"
+          />
         </div>
       </div>
     </div>

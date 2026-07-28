@@ -27,7 +27,11 @@ class NodeParam(TypedDict, total=False):
     label: str
     default: Any
     required: bool
-    options: list[str]  # type == "select"인 경우 선택지
+    options: list[str]  # type == "select"인 경우 선택지(값)
+    option_labels: list[str]  # options와 같은 길이의 사람이 읽는 라벨(프리셋 표시용)
+    group: str  # "calc"(계산용 파라미터) | "condition"(매매 조건) — 프론트 입력 그룹 구분
+    hint: str  # 입력 도움말(예: "5, 20, 60, 120")
+    show_if: dict[str, str]  # {"param": <다른 키>, "equals": <값>}일 때만 노출(조건부 필드)
 
 
 @dataclass
@@ -79,6 +83,8 @@ class Node(ABC):
     category: ClassVar[str]
     display_name: ClassVar[str]
     description: ClassVar[str] = ""
+    subcategory: ClassVar[str] = ""  # 분류(예: 추세/모멘텀/변동성/거래량) — 팔레트 2차 그룹핑용
+    example: ClassVar[str] = ""  # 매매 신호 발생 예시(팔레트 툴팁용)
     param_schema: ClassVar[list[NodeParam]] = []
 
     def __init__(self, node_id: str, params: dict[str, Any] | None = None):
@@ -131,8 +137,10 @@ def node_registry_schema() -> list[dict[str, Any]]:
         {
             "type": cls.type,
             "category": cls.category,
+            "subcategory": cls.subcategory,
             "display_name": cls.display_name,
             "description": cls.description,
+            "example": cls.example,
             "param_schema": cls.param_schema,
         }
         for cls in NODE_REGISTRY.values()

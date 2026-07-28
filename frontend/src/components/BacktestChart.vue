@@ -14,7 +14,7 @@ import {
   ScatterController,
   Tooltip,
 } from 'chart.js'
-import { fetchBacktestNewsAll, fetchBacktestNewsUsed, fetchBacktestPrices } from '@/api/services'
+import { fetchBacktestNewsAll, fetchBacktestNewsSignal, fetchBacktestNewsUsed, fetchBacktestPrices } from '@/api/services'
 import type { BacktestExplainSelection, BacktestResultOut, NewsMarkerOut, PricePointOut, TradeOut } from '@/api/types'
 import { bollingerBands, rsi, sma } from '@/utils/indicators'
 
@@ -39,8 +39,10 @@ const emit = defineEmits<{
 }>()
 
 const selectedSymbol = ref(props.result.universe[0] ?? '')
+const intradayMode = ref(false)
 const pricePoints = ref<PricePointOut[]>([])
 const usedNews = ref<NewsMarkerOut[]>([])
+const signalNews = ref<NewsMarkerOut[]>([])
 const allNews = ref<NewsMarkerOut[]>([])
 const showAllNews = ref(false)
 const showMA = ref(true)
@@ -65,8 +67,14 @@ async function loadSymbolData() {
   loading.value = true
   loadError.value = ''
   try {
-    pricePoints.value = await fetchBacktestPrices(props.result.id, selectedSymbol.value)
+    // 시간봉을 먼저 시도하고(짧은 최근 구간에만 존재, §0-2 실측 한계), 없으면 일봉으로 폴백한다.
+    const intraday = await fetchBacktestPrices(props.result.id, selectedSymbol.value, 'minute60')
+    intradayMode.value = intraday.length > 0
+    pricePoints.value = intradayMode.value
+      ? intraday
+      : await fetchBacktestPrices(props.result.id, selectedSymbol.value, 'day')
     usedNews.value = await fetchBacktestNewsUsed(props.result.id, selectedSymbol.value)
+    signalNews.value = await fetchBacktestNewsSignal(props.result.id, selectedSymbol.value)
     allNews.value = showAllNews.value ? await fetchBacktestNewsAll(props.result.id, selectedSymbol.value) : []
   } catch {
     loadError.value = '시세/뉴스 데이터를 불러오지 못했습니다.'
@@ -85,6 +93,27 @@ function buildDateMap<T>(dates: string[], values: T[]): Map<string, T> {
   const m = new Map<string, T>()
   dates.forEach((d, i) => m.set(d, values[i]))
   return m
+}
+
+// 일봉 모드에서는 라벨이 곧 날짜(YYYY-MM-DD)라 그대로 맞아떨어지지만, 시간봉 모드에서는 라벨이
+// "YYYY-MM-DD HH:mm"이라 매매/뉴스/자산곡선처럼 "그날" 단위로 오는 데이터를 그 날짜의 봉에
+// 맞춰 매핑해야 한다(둘 다 앞 10자만 비교하면 되므로 별도 분기 없이 동일 로직을 쓴다).
+function dayPrefix(label: string): string {
+  return label.slice(0, 10)
+}
+
+function buildDayAlignedSeries(labels: string[], dayValues: Map<string, number>): (number | null)[] {
+  return labels.map((label) => dayValues.get(dayPrefix(label)) ?? null)
+}
+
+// 매매/뉴스처럼 "그 날짜에 표시할" 마커는 그날의 마지막 봉(라벨)에 꽂는다(라벨에 없는 날짜는 null).
+function lastLabelForDay(labels: string[], dateStr: string): string | null {
+  const prefix = dayPrefix(dateStr)
+  let found: string | null = null
+  for (const label of labels) {
+    if (dayPrefix(label) === prefix) found = label
+  }
+  return found
 }
 
 function destroyCharts() {
@@ -112,7 +141,7 @@ function renderCharts() {
     props.result.equity_curve.map((e) => e.date),
     props.result.equity_curve.map((e) => e.equity),
   )
-  const equitySeries = labels.map((d) => equityByDate.get(d) ?? null)
+  const equitySeries = buildDayAlignedSeries(labels, equityByDate)
 
   const ma5 = sma(closes, 5)
   const ma20 = sma(closes, 20)
@@ -145,10 +174,11 @@ function renderCharts() {
     )
   }
 
-  const priceByDate = buildDateMap(labels, closes)
   const tradeScatter = props.result.trades
-    .filter((t) => t.symbol === selectedSymbol.value && priceByDate.has(t.date))
-    .map((t) => ({ x: t.date, y: t.price, trade: t }))
+    .filter((t) => t.symbol === selectedSymbol.value)
+    .map((t) => ({ label: lastLabelForDay(labels, t.date), trade: t }))
+    .filter((d): d is { label: string; trade: TradeOut } => d.label !== null)
+    .map((d) => ({ x: d.label, y: d.trade.price, trade: d.trade }))
   datasets.push({
     type: 'scatter', label: '매매', yAxisID: 'yPrice', data: tradeScatter, showLine: false,
     pointStyle: 'triangle', pointRadius: 7, pointBorderColor: '#fff', pointBorderWidth: 1,
@@ -158,13 +188,26 @@ function renderCharts() {
 
   const validCloses = closes.filter((c): c is number => c != null)
   const newsY = validCloses.length ? Math.min(...validCloses) : 0
-  const usedNewsScatter = usedNews.value.filter((n) => priceByDate.has(n.date)).map((n) => ({ x: n.date, y: newsY, news: n }))
+  function newsScatter(news: NewsMarkerOut[]) {
+    return news
+      .map((n) => ({ label: lastLabelForDay(labels, n.date), news: n }))
+      .filter((d): d is { label: string; news: NewsMarkerOut } => d.label !== null)
+      .map((d) => ({ x: d.label, y: newsY, news: d.news }))
+  }
+  const usedNewsScatter = newsScatter(usedNews.value)
   datasets.push({
     type: 'scatter', label: '참고 뉴스', yAxisID: 'yPrice', data: usedNewsScatter, showLine: false,
     pointStyle: 'rectRot', pointRadius: 5, pointBackgroundColor: '#eab308', pointBorderColor: '#a16207',
   })
+  // ai.news_signal(newsstock-lib) 데이터 소스 — data.news 기반 '참고 뉴스'와는 별개 파이프라인이라
+  // 모양/색을 구분해서 같이 표시한다(둘 다 없을 수도, 둘 다 있을 수도 있음).
+  const signalNewsScatter = newsScatter(signalNews.value)
+  datasets.push({
+    type: 'scatter', label: '뉴스 신호(newsstock)', yAxisID: 'yPrice', data: signalNewsScatter, showLine: false,
+    pointStyle: 'triangle', pointRadius: 5, pointBackgroundColor: '#8b5cf6', pointBorderColor: '#5b21b6',
+  })
   if (showAllNews.value) {
-    const allNewsScatter = allNews.value.filter((n) => priceByDate.has(n.date)).map((n) => ({ x: n.date, y: newsY, news: n }))
+    const allNewsScatter = newsScatter(allNews.value)
     datasets.push({
       type: 'scatter', label: '전체 뉴스', yAxisID: 'yPrice', data: allNewsScatter, showLine: false,
       pointStyle: 'rectRot', pointRadius: 4, pointBackgroundColor: 'rgba(234,179,8,0.3)', pointBorderColor: 'rgba(161,98,7,0.3)',
@@ -291,8 +334,13 @@ function onMouseUp(e: MouseEvent) {
   dragOverlay.value = null
   const lo = Math.min(startIndex, endIndex)
   const hi = Math.max(startIndex, endIndex)
+  // renderedLabels는 시간봉 모드에서 "YYYY-MM-DD HH:mm"이라, AI 설명 API가 기대하는 순수
+  // 날짜(date)로 잘라서 보낸다.
   emit('select', {
-    kind: 'range', symbol: selectedSymbol.value, start_date: renderedLabels[lo], end_date: renderedLabels[hi],
+    kind: 'range',
+    symbol: selectedSymbol.value,
+    start_date: dayPrefix(renderedLabels[lo]),
+    end_date: dayPrefix(renderedLabels[hi]),
   })
 }
 
@@ -326,9 +374,14 @@ onBeforeUnmount(destroyCharts)
       <label class="checkbox"><input v-model="showMA" type="checkbox" @change="renderCharts" /> 이동평균</label>
       <label class="checkbox"><input v-model="showBollinger" type="checkbox" @change="renderCharts" /> 볼린저밴드</label>
       <label class="checkbox"><input v-model="showAllNews" type="checkbox" @change="toggleAllNews" /> 전체 뉴스 표시(참고용)</label>
+      <span class="interval-badge" :class="{ intraday: intradayMode }">
+        {{ intradayMode ? '시간봉(60분)' : '일봉' }}
+      </span>
     </div>
     <p class="text-muted hint">
       ▲매수 / ▼매도 지점을 클릭하면 AI에게 물어볼 수 있고, 빈 구간을 드래그해 선택해도 물어볼 수 있습니다.
+      시간봉은 최근 약 8거래일치만 제공되어(네이버 API 실측 한계) 그 기간을 벗어나면 자동으로
+      일봉으로 표시됩니다.
     </p>
     <p v-if="loadError" class="error">{{ loadError }}</p>
     <p v-else-if="!loading && pricePoints.length === 0" class="text-muted">표시할 시세 데이터가 없습니다.</p>
@@ -374,6 +427,22 @@ onBeforeUnmount(destroyCharts)
 
 .controls .checkbox {
   gap: 4px;
+}
+
+.interval-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.interval-badge.intraday {
+  background: color-mix(in srgb, #8b5cf6 12%, transparent);
+  color: #8b5cf6;
+  border-color: color-mix(in srgb, #8b5cf6 40%, transparent);
 }
 
 .hint {

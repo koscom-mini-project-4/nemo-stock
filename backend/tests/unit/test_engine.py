@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
 from app.broker.base import OrderRequest
 from app.broker.dummy import DummyOrderExecutionProvider
 from app.market_data.dummy import DummyMarketDataProvider
 from app.nodes import load_all_nodes
 from app.workflow.engine import WorkflowEngine
 from app.workflow.events import InMemoryEventBus
-from app.workflow.graph import WorkflowGraph
+from app.workflow.graph import WorkflowGraph, WorkflowValidationError
 
 load_all_nodes()
 
@@ -95,6 +97,49 @@ def test_engine_filters_out_symbols_failing_condition():
     assert result.status == "success"
     assert result.final_context.symbols == {}
     assert len(broker.orders) == 0
+
+
+def test_engine_target_node_id_runs_only_ancestors(monkeypatch):
+    """노드 단독 테스트(§0-9): target_node_id를 주면 그 노드와 조상만 실행하고
+    하류 노드(n4 매수 주문)는 아예 실행되지 않아야 한다."""
+    graph = WorkflowGraph.from_dict(_scenario_graph())
+    bus = InMemoryEventBus()
+    engine = WorkflowEngine(bus)
+    market_data = DummyMarketDataProvider(seed_prices={"005930": 70000, "000660": 120000}, seed=5)
+    broker = DummyOrderExecutionProvider(initial_cash=100_000_000)
+
+    result = engine.execute(
+        workflow_id="wf1",
+        graph=graph,
+        mode="test",
+        market_data=market_data,
+        broker=broker,
+        target_node_id="n3",
+    )
+
+    assert result.status == "success"
+    assert list(result.node_contexts.keys()) == ["n1", "n2", "n3"]
+    assert len(broker.orders) == 0  # n4(매수)는 실행되지 않았어야 한다
+    events = bus.get_history(result.run_id)
+    assert {e.node_id for e in events} == {"n1", "n2", "n3"}
+
+
+def test_engine_target_node_id_unknown_raises_validation_error():
+    graph = WorkflowGraph.from_dict(_scenario_graph())
+    bus = InMemoryEventBus()
+    engine = WorkflowEngine(bus)
+    market_data = DummyMarketDataProvider(seed=6)
+    broker = DummyOrderExecutionProvider()
+
+    with pytest.raises(WorkflowValidationError):
+        engine.execute(
+            workflow_id="wf1",
+            graph=graph,
+            mode="test",
+            market_data=market_data,
+            broker=broker,
+            target_node_id="does-not-exist",
+        )
 
 
 def test_engine_injects_portfolio_fields_into_symbols():

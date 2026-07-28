@@ -61,6 +61,39 @@ def test_full_workflow_create_validate_and_test_run(app_client: TestClient, auth
     assert node_ids_seen == {"n1", "n2", "n3", "n4"}
 
 
+def test_test_run_with_target_node_id_runs_only_ancestors(app_client: TestClient, auth_headers: dict):
+    """노드 단독 테스트(§0-9): target_node_id를 주면 그 노드까지만 실행하고 하류(매수 n4)는
+    실행되지 않는다."""
+    create_resp = app_client.post("/workflows", json=_workflow_payload(), headers=auth_headers)
+    workflow_id = create_resp.json()["id"]
+
+    run_resp = app_client.post(
+        f"/workflows/{workflow_id}/run",
+        json={
+            "overrides": {"n2": {"005930": {"price": 71000, "prev_close": 70000}}},
+            "target_node_id": "n3",
+        },
+        headers=auth_headers,
+    )
+    assert run_resp.status_code == 200, run_resp.text
+    result = run_resp.json()
+    node_ids_seen = {e["node_id"] for e in result["events"]}
+    assert node_ids_seen == {"n1", "n2", "n3"}
+    assert "order_status" not in result["final_symbols"]["005930"]  # n4가 실행되지 않았어야 한다
+
+
+def test_test_run_with_unknown_target_node_id_returns_422(app_client: TestClient, auth_headers: dict):
+    create_resp = app_client.post("/workflows", json=_workflow_payload(), headers=auth_headers)
+    workflow_id = create_resp.json()["id"]
+
+    run_resp = app_client.post(
+        f"/workflows/{workflow_id}/run",
+        json={"target_node_id": "does-not-exist"},
+        headers=auth_headers,
+    )
+    assert run_resp.status_code == 422
+
+
 def test_test_run_condition_fail_blocks_execution(app_client: TestClient, auth_headers: dict):
     create_resp = app_client.post("/workflows", json=_workflow_payload(), headers=auth_headers)
     workflow_id = create_resp.json()["id"]

@@ -20,6 +20,10 @@ frontend/dist/
 frontend/.vite/
 frontend/*.local
 
+# dev.sh 로그
+.dev-backend.log
+.dev-frontend.log
+
 # OS / editor
 .DS_Store
 *.swp

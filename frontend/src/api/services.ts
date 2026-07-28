@@ -1,21 +1,50 @@
 import { apiClient } from './client'
 import type {
+  AccountSummaryOut,
+  AdminMetrics,
   BacktestExplainResponse,
   BacktestExplainSelection,
   BacktestResultOut,
   ChatMessage,
   GenerateDraftResponse,
+  NewsCluster,
   NewsMarkerOut,
+  NewsStats,
+  NewsTopicCluster,
+  NewsTopicGroup,
+  NewsUpdateResult,
   NodeTypeSchema,
   PricePointOut,
   RunResultOut,
+  SymbolOut,
   ValidationResult,
   WorkflowChatLastRun,
   WorkflowChatResponse,
   WorkflowGraph,
   WorkflowOut,
   WorkflowStatus,
+  WorkflowTemplateOut,
 } from './types'
+
+export async function fetchAccountSummary(): Promise<AccountSummaryOut> {
+  const { data } = await apiClient.get('/account/summary')
+  return data
+}
+
+export async function fetchPrices(symbol: string, days = 90): Promise<PricePointOut[]> {
+  const { data } = await apiClient.get(`/data/prices/${symbol}`, { params: { days } })
+  return data
+}
+
+export async function fetchSymbols(q = ''): Promise<SymbolOut[]> {
+  const { data } = await apiClient.get('/data/symbols', { params: q ? { q } : undefined })
+  return data
+}
+
+export async function fetchWorkflowTemplates(): Promise<WorkflowTemplateOut[]> {
+  const { data } = await apiClient.get('/workflows/templates')
+  return data
+}
 
 export async function login(username: string, password: string): Promise<string> {
   const { data } = await apiClient.post('/auth/login', { username, password })
@@ -71,8 +100,13 @@ export async function runWorkflow(
   id: string,
   overrides: Record<string, Record<string, Record<string, unknown>>>,
   universe?: string[],
+  targetNodeId?: string,
 ): Promise<RunResultOut> {
-  const { data } = await apiClient.post(`/workflows/${id}/run`, { overrides, universe })
+  const { data } = await apiClient.post(`/workflows/${id}/run`, {
+    overrides,
+    universe,
+    target_node_id: targetNodeId,
+  })
   return data
 }
 
@@ -113,8 +147,12 @@ export async function chatAboutWorkflow(payload: {
   return data
 }
 
-export async function fetchBacktestPrices(id: string, symbol: string): Promise<PricePointOut[]> {
-  const { data } = await apiClient.get(`/backtest/${id}/prices`, { params: { symbol } })
+export async function fetchBacktestPrices(
+  id: string,
+  symbol: string,
+  interval: 'day' | 'minute60' = 'day',
+): Promise<PricePointOut[]> {
+  const { data } = await apiClient.get(`/backtest/${id}/prices`, { params: { symbol, interval } })
   return data
 }
 
@@ -125,6 +163,11 @@ export async function fetchBacktestNewsUsed(id: string, symbol: string): Promise
 
 export async function fetchBacktestNewsAll(id: string, symbol: string): Promise<NewsMarkerOut[]> {
   const { data } = await apiClient.get(`/backtest/${id}/news/all`, { params: { symbol } })
+  return data
+}
+
+export async function fetchBacktestNewsSignal(id: string, symbol: string): Promise<NewsMarkerOut[]> {
+  const { data } = await apiClient.get(`/backtest/${id}/news/signal`, { params: { symbol } })
   return data
 }
 
@@ -149,5 +192,40 @@ export interface ManualPriceBar {
 
 export async function ingestManualPrices(symbol: string, bars: ManualPriceBar[]): Promise<{ ingested: number }> {
   const { data } = await apiClient.post('/data/ingest/prices/manual', { symbol, bars })
+  return data
+}
+
+export async function fetchAdminMetrics(): Promise<AdminMetrics> {
+  const { data } = await apiClient.get('/admin/metrics')
+  return data
+}
+
+export async function fetchNewsStats(): Promise<NewsStats> {
+  const { data } = await apiClient.get('/data/news/stats')
+  return data
+}
+
+export async function fetchNewsClusters(start: string, end: string): Promise<NewsCluster[]> {
+  const { data } = await apiClient.get('/data/news/clusters', { params: { start, end } })
+  return data
+}
+
+export async function triggerNewsUpdate(force = false): Promise<NewsUpdateResult> {
+  const { data } = await apiClient.post('/data/news/update', { force })
+  return data
+}
+
+export async function fetchNewsTopicKeys(group: NewsTopicGroup, start: string, end: string): Promise<string[]> {
+  const { data } = await apiClient.get('/data/news/topics', { params: { group, start, end } })
+  return data
+}
+
+export async function fetchNewsTopicClusters(
+  group: NewsTopicGroup,
+  key: string,
+  start: string,
+  end: string,
+): Promise<NewsTopicCluster[]> {
+  const { data } = await apiClient.get('/data/news/topics/clusters', { params: { group, key, start, end } })
   return data
 }

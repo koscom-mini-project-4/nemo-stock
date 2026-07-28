@@ -13,9 +13,11 @@ class MarketOrderNode(Node):
     display_name = "시장가 주문"
     description = (
         "각 종목에 대해 broker provider로 시장가 주문을 넣는다. 입력: symbols[code].price를 "
-        "기준가로 사용(없으면 해당 종목 주문 스킵 후 meta.errors에 기록). params.side(buy|sell), "
-        "params.qty(종목당 수량). 출력: symbols[code]에 order_status/order_price, "
-        "meta.orders에 주문 상세(order_id/symbol/side/qty/price/status/reason) 누적."
+        "기준가로 사용(없으면 해당 종목 주문 스킵 후 meta.errors에 기록). 수량은 "
+        "symbols[code].target_qty(portfolio.equal_weight 등 앞선 노드가 계산한 동적 수량)가 "
+        "있으면 그 값을, 없으면 params.qty(고정 수량)를 사용한다. params.side(buy|sell). "
+        "출력: symbols[code]에 order_status/order_price, meta.orders에 주문 상세"
+        "(order_id/symbol/side/qty/price/status/reason) 누적. 수량이 0 이하이면 주문을 스킵한다."
     )
     param_schema: list[NodeParam] = [
         {
@@ -26,7 +28,13 @@ class MarketOrderNode(Node):
             "required": True,
             "options": ["buy", "sell"],
         },
-        {"key": "qty", "type": "number", "label": "주문 수량(종목당)", "default": 1, "required": True},
+        {
+            "key": "qty",
+            "type": "number",
+            "label": "주문 수량(종목당, target_qty 없을 때 사용)",
+            "default": 1,
+            "required": True,
+        },
     ]
 
     def execute(self, context: NodeContext, **providers: object) -> NodeContext:
@@ -35,7 +43,7 @@ class MarketOrderNode(Node):
             raise RuntimeError("execution.market_order 노드 실행에는 broker provider가 필요합니다.")
 
         side = str(self.get_param("side", "buy"))
-        qty = int(self.get_param("qty", 1))
+        default_qty = int(self.get_param("qty", 1))
 
         out = context.clone()
         orders: list[dict] = []
@@ -43,6 +51,9 @@ class MarketOrderNode(Node):
             ref_price = data.get("price")
             if ref_price is None:
                 out.meta.setdefault("errors", []).append(f"{self.node_id}:{symbol}: 기준가(price) 없음, 주문 스킵")
+                continue
+            qty = int(data["target_qty"]) if data.get("target_qty") is not None else default_qty
+            if qty <= 0:
                 continue
             result = broker.place_order(
                 OrderRequest(

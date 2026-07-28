@@ -27,19 +27,39 @@ class _FakeClient:
         return self.hourly
 
 
-def test_ensure_price_data_skips_when_data_already_exists():
+def test_ensure_price_data_skips_when_latest_data_is_fresh():
+    """최신 데이터가 end 근처(STALE_THRESHOLD_DAYS 이내)까지 있으면 재수집하지 않는다."""
     price_repo = InMemoryPriceBarRepository()
     intraday_repo = InMemoryIntradayPriceBarRepository()
     price_repo.save_many(
-        [PriceBarRecord(symbol="005930", trade_date=date(2026, 6, 1), open=1, high=1, low=1, close=1, volume=1)]
+        [PriceBarRecord(symbol="005930", trade_date=date(2026, 6, 8), open=1, high=1, low=1, close=1, volume=1)]
     )
-    client = _FakeClient(daily=[PriceBarRecord(symbol="005930", trade_date=date(2026, 6, 2), open=2, high=2, low=2, close=2, volume=2)])
+    client = _FakeClient(daily=[PriceBarRecord(symbol="005930", trade_date=date(2026, 6, 9), open=2, high=2, low=2, close=2, volume=2)])
 
     result = ensure_price_data(price_repo, intraday_repo, client, "005930", date(2026, 6, 1), date(2026, 6, 10))
 
     assert result.skipped_existing is True
     assert client.daily_calls == 0
     assert client.hourly_calls == 0
+
+
+def test_ensure_price_data_refetches_when_existing_data_is_stale():
+    """데이터가 있어도 가장 최신 날짜가 end에서 STALE_THRESHOLD_DAYS일 이상 떨어져 있으면
+    (예: 과거 세션에서 짧은 기간만 수집된 채 방치) 다시 수집해 최신 날짜까지 채운다."""
+    price_repo = InMemoryPriceBarRepository()
+    intraday_repo = InMemoryIntradayPriceBarRepository()
+    price_repo.save_many(
+        [PriceBarRecord(symbol="005930", trade_date=date(2026, 6, 1), open=1, high=1, low=1, close=1, volume=1)]
+    )
+    fresh_bar = PriceBarRecord(symbol="005930", trade_date=date(2026, 6, 10), open=2, high=2, low=2, close=2, volume=2)
+    client = _FakeClient(daily=[fresh_bar])
+
+    result = ensure_price_data(price_repo, intraday_repo, client, "005930", date(2026, 6, 1), date(2026, 6, 10))
+
+    assert result.skipped_existing is False
+    assert result.daily_fetched == 1
+    assert client.daily_calls == 1
+    assert price_repo.list_range("005930", date(2026, 6, 10), date(2026, 6, 10)) == [fresh_bar]
 
 
 def test_ensure_price_data_fetches_daily_and_hourly_when_missing():

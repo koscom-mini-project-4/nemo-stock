@@ -14,6 +14,7 @@ load_all_nodes()
 def app_client(tmp_path, monkeypatch):
     db_path = tmp_path / f"test_{uuid.uuid4().hex}.db"
     monkeypatch.setenv("database_url", f"sqlite:///{db_path}")
+    monkeypatch.setenv("newsstock_db_path", str(tmp_path / f"test_newsstock_{uuid.uuid4().hex}.db"))
     monkeypatch.setenv("scheduler_tick_seconds", "0.1")
     # 테스트는 개발자 로컬 backend/.env에 실제 키가 들어있는지 여부와 무관하게 결정적으로
     # 동작해야 한다. "키 미설정" 경로를 검증하는 테스트가 로컬 .env의 실제 키를 우연히

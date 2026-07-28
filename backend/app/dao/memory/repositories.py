@@ -16,6 +16,8 @@ from app.dao.base import (
     IntradayPriceBarRepository,
     NewsRecord,
     NewsRepository,
+    NewsSignalRecord,
+    NewsSignalRepository,
     NodeEventRecord,
     NodeEventRepository,
     PortfolioRepository,
@@ -178,6 +180,20 @@ class InMemoryNewsRepository(NewsRepository):
     def list_range(self, symbol: str, start: datetime, end: datetime) -> list[NewsRecord]:
         items = [n for n in self._store.values() if n.symbol == symbol and start <= n.published_at <= end]
         items.sort(key=lambda n: n.published_at)
+        return items
+
+
+class InMemoryNewsSignalRepository(NewsSignalRepository):
+    def __init__(self) -> None:
+        self._store: dict[str, NewsSignalRecord] = {}
+
+    def save_many(self, items: list[NewsSignalRecord]) -> None:
+        for item in items:
+            self._store[item.id] = item
+
+    def list_since(self, cutoff: datetime) -> list[NewsSignalRecord]:
+        items = [s for s in self._store.values() if s.published_at >= cutoff]
+        items.sort(key=lambda s: s.published_at)
         return items
 
 
