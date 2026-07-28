@@ -396,7 +396,11 @@ def count_clusters(conn, start: str, end: str) -> int:
 
 
 def cluster_stats(conn, start: str, end: str) -> list:
-    """기간 내 클러스터 목록 + 각 클러스터에 묶인 뉴스 개수."""
+    """기간 내 클러스터 목록 + 각 클러스터에 묶인 뉴스 개수 + 연결된 종목/섹터/거시지표.
+
+    nemo-stock 관리자 페이지에서 "이 주제(클러스터)가 어떤 종목/섹터/거시와 연결됐는지"를
+    바로 보여주기 위해 원본 대비 종목/섹터/거시지표 키 목록을 추가했다(cluster_tags 참조).
+    """
     rows = conn.execute(
         "SELECT c.id, c.representative_title, c.first_seen_at, c.strength, "
         "       COUNT(n.url_hash) AS news_count "
@@ -405,4 +409,20 @@ def cluster_stats(conn, start: str, end: str) -> list:
         "GROUP BY c.id ORDER BY news_count DESC, c.first_seen_at DESC",
         (start, end),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    for item in out:
+        item.update(cluster_tags(conn, item["id"]))
+    return out
+
+
+def cluster_tags(conn, cluster_id: int) -> dict:
+    """클러스터에 연결된 종목/섹터/거시지표 키(중복 제거)."""
+    rows = conn.execute(
+        "SELECT DISTINCT stock, sector, macro FROM classifications WHERE cluster_id = ?",
+        (cluster_id,),
+    ).fetchall()
+    return {
+        "종목": sorted({r["stock"] for r in rows if r["stock"]}),
+        "섹터": sorted({r["sector"] for r in rows if r["sector"]}),
+        "거시지표": sorted({r["macro"] for r in rows if r["macro"]}),
+    }

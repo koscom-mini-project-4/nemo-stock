@@ -161,6 +161,16 @@ class NewsTrader:
     def clusters(self, start: str, end: str) -> list:
         return db.cluster_stats(self.conn, start, end)
 
+    def clusters_for_key(self, group: str, key: str, start: str, end: str) -> list:
+        """특정 종목/섹터/거시지표 키에 연결된 클러스터 목록(기간 내) — "종목/섹터/거시로부터
+        관련 클러스터 탐색"용(nemo-stock 관리자 페이지)."""
+        return db.group_cluster_rows(self.conn, group.upper(), key, start, end)
+
+    def keys_in_range(self, group: str, start: str, end: str) -> list:
+        """기간 내에 데이터가 있는 키(종목/섹터/거시지표명) 목록 — 관리자 페이지에서 탐색할
+        키를 고르는 드롭다운 소스로 쓴다."""
+        return db.group_keys(self.conn, group.upper(), start, end)
+
     @staticmethod
     def groups() -> dict:
         """{"A": "종목 영향 지표", ...}"""

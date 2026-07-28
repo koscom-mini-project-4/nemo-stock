@@ -100,6 +100,30 @@ fork 저장소를 clone해 우리와 갈라진 지점(2026-07-19 `Initial commit
 | AI 사용량 계측 | 신규 `AIUsageRecord`/`AIUsageRepository`(+sqlite 구현) — `OpenAIClient.complete_json()`에 `usage_repo`/`purpose` 파라미터 추가(둘 다 옵션, 하위호환), 응답의 `usage`(토큰수)를 저장한다. `app/vendor/news_classifier/classifier.py`(newsstock-lib 자체 OpenAI 호출 경로)도 `set_usage_sink()` 콜백으로 동일 로그에 남기도록 소폭 수정(VENDOR_NOTES.md 세 번째 항목). 기존 AI 호출부(workflow_draft/workflow_chat/scoring_cache/backtest_explain/news_classify)에 `purpose=` 라벨을 붙여 목적별 집계가 의미 있게 나오도록 함. `BacktestResultRepository.count()` 추가. |
 | fork "뉴스 신호" 파이프라인 11종 포트 | fork를 다시 조사해 지표 노드(§0-4) 포트 때는 놓쳤던 완전히 별도인 3계층 파이프라인(AI 라벨링 → 충격량/시계열 집계 → 조건 내장 노드)을 발견 — 사용자가 전부 포트하기로 확정. `app/nodes/conditions.py`(§0-4 때 "필요 없다"고 안 옮겼던 큐레이션 프리셋 시스템 — 이번엔 11개 노드가 전부 씀), `app/news_signals/{sectors,themes,impact,aggregate,ingest}.py`, `app/ai/news_classify.py`(Depth1/2/3 분류, 우리 `AIScoreCacheRepository` 재사용), `NewsSignalRecord`/`NewsSignalRepository`(+sqlite/in-memory 구현), 노드 11종(`app/nodes/data/news_signal.py`, §3.2), `POST /data/ingest/news/classified` 신규 + `ingest_manual_news` 확장(AI 키 있으면 best-effort 신호 저장). 우리 저장소가 fork와 동일한 `Node`/`NodeContext`/`AIClient` 기반이라 vendoring이 아니라 일반 포트로 진행했고, `conditions.py::apply_condition()`에 우리 컨벤션인 `meta.decisions` 기록을 추가한 것 외엔 원본 그대로다. 프론트 코드 변경 없이(기존 select/option_labels/show_if/subcategory 렌더링 재사용) 팔레트에 바로 노출됨을 확인. |
 
+## 0-7. 관리자 페이지: 클러스터 ↔ 종목/섹터/거시 상호 탐색 (2026-07-28 사용자 요청)
+
+관리자 페이지의 "뉴스 분석 현황" 클러스터 목록이 대표제목/strength/뉴스건수만 보여줘 "이 주제가
+정확히 어떤 종목/섹터/거시와 연결됐는지"를 알 수 없었다. 사용자 요청으로 양방향 탐색을 추가:
+(1) 클러스터(주제) → 연결된 종목/섹터/거시 목록, (2) 반대로 종목/섹터/거시 키 → 그와 연결된
+클러스터 목록.
+
+- `app/vendor/news_classifier/db.py`: `cluster_tags(conn, cluster_id)` 신규(해당 클러스터의
+  `classifications` 테이블에서 종목/섹터/거시지표 키를 중복 제거해 반환) + `cluster_stats()`가
+  각 클러스터 행에 이 태그를 병합해 반환하도록 확장(응답 필드 추가뿐이라 하위호환).
+- `app/vendor/news_classifier/api.py::NewsTrader`: `clusters_for_key(group, key, start, end)`
+  (기존 `db.group_cluster_rows` 래핑 — 반대 방향 조회), `keys_in_range(group, start, end)`
+  (기존 `db.group_keys` 래핑 — 탐색 드롭다운용 키 목록). `VENDOR_NOTES.md`에 기록.
+- `app/api/routers/data.py`: `GET /data/news/topics?group=stock|sector|macro&start=&end=`(키
+  목록), `GET /data/news/topics/clusters?group=&key=&start=&end=`(그 키에 연결된 클러스터
+  목록) 신규. `GET /data/news/clusters`는 시그니처 변경 없이 응답에 `종목`/`섹터`/`거시지표`
+  필드가 추가됨.
+- 프론트(`AdminView.vue`): 클러스터 표에 태그 열 추가, "종목/섹터/거시로 클러스터 탐색"
+  섹션 신규(축 선택 → 키 드롭다운 → 관련 클러스터 조회). 뉴스 분석 현황과 동일한 기간(날짜
+  범위)을 공유해 별도 날짜 입력을 추가하지 않았다.
+- 실 서버(`--reload`)에 curl로 라이브 검증: `/data/news/topics?group=stock`이 실제 종목명
+  목록을 반환, `/data/news/clusters`의 클러스터가 실제 종목 태그를 포함, `/data/news/topics/
+  clusters?group=stock&key=삼성전자`가 해당 종목이 언급된 실제 클러스터 7건을 정확히 반환.
+
 ---
 
 ## 1. 목표와 PoC 범위

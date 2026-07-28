@@ -693,6 +693,26 @@ news_signal.py`(11개 노드: `sector_momentum`/`macro_risk`/`theme_zscore`/`sen
 **미착수(다음 작업으로 명시적으로 분리)**: "AI에 질의하여 노드를 수정할 때 전/후 비교 창"
 기능은 이번 계획 범위에 없었고 사용자가 별도로 요청한 것 — 별도 계획으로 다시 스코핑 필요.
 
+## 2026-07-28 후속 작업 6: 관리자 페이지 — 클러스터↔종목/섹터/거시 상호 탐색 (DESIGN.md §0-7)
+
+사용자 요청: "관리자 화면에서 해당 주제의 속한 종목/섹션/거시도 볼 수 있게 하고, 반대로
+종목/섹션/거시로부터 해당 클러스터들을 탐색할 수 있도록 해 주세요."
+
+**구현**: `newsstock-lib`(vendor) `classifications` 테이블에 이미 클러스터별 종목/섹터/거시
+연결 정보가 있었으므로(`stock`/`sector`/`macro` 컬럼 + `cluster_id`), 새 크롤링/AI 호출 없이
+조회 함수만 추가했다. `db.py::cluster_tags()`(클러스터→태그) 신규 + `cluster_stats()`에 병합,
+`api.py::NewsTrader.clusters_for_key()`/`keys_in_range()`(반대 방향, 기존 `db.group_cluster_rows`/
+`db.group_keys`를 얇게 래핑) 신규. 라우터: `GET /data/news/topics`(키 목록),
+`GET /data/news/topics/clusters`(키→클러스터). `GET /data/news/clusters`는 시그니처 변경 없이
+응답에 태그 필드만 추가(하위호환). `AdminView.vue`에 클러스터 표 태그 열 + "종목/섹터/거시로
+클러스터 탐색" 섹션(축 선택→키 드롭다운→조회) 추가, 기존 뉴스 분석 현황과 날짜 범위 공유.
+
+**검증**: 백엔드 pytest 233→242개 전부 통과(신규 `test_vendor_news_classifier_topics.py`,
+`test_api_news_topics.py`). `vue-tsc -b` + `npm run build` 통과. 실 서버(`--reload`)에 curl로
+라이브 검증 — `/data/news/topics?group=stock`이 실제 종목명 목록(삼성전자 등) 반환,
+`/data/news/clusters`가 실제 클러스터에 종목 태그를 포함, `/data/news/topics/clusters?
+group=stock&key=삼성전자`가 삼성전자 언급 실제 클러스터 7건을 정확히 반환.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

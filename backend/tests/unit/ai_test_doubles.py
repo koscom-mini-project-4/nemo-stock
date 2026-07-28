@@ -45,13 +45,19 @@ class FakeNewsTrader:
         results: dict[str, dict[str, Any]] | None = None,
         stats: dict[str, Any] | None = None,
         clusters: list[dict[str, Any]] | None = None,
+        topic_keys: dict[str, list[str]] | None = None,
+        topic_clusters: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
     ):
         self._results = dict(results or {})
         self._stats = stats or {}
         self._clusters = clusters or []
+        self._topic_keys = dict(topic_keys or {})
+        self._topic_clusters = dict(topic_clusters or {})
         self.calls: list[tuple[str, str, str | None, int | None]] = []
         self.update_calls: list[bool] = []
         self.cluster_calls: list[tuple[str, str]] = []
+        self.keys_in_range_calls: list[tuple[str, str, str]] = []
+        self.clusters_for_key_calls: list[tuple[str, str, str, str]] = []
         self.closed = False
 
     def _lookup(self, axis: str, name: str, start: str | None, period: int | None) -> dict[str, Any]:
@@ -77,6 +83,14 @@ class FakeNewsTrader:
     def clusters(self, start: str, end: str) -> list[dict[str, Any]]:
         self.cluster_calls.append((start, end))
         return self._clusters
+
+    def keys_in_range(self, group: str, start: str, end: str) -> list[str]:
+        self.keys_in_range_calls.append((group, start, end))
+        return self._topic_keys.get(group, [])
+
+    def clusters_for_key(self, group: str, key: str, start: str, end: str) -> list[dict[str, Any]]:
+        self.clusters_for_key_calls.append((group, key, start, end))
+        return self._topic_clusters.get((group, key), [])
 
     def close(self) -> None:
         self.closed = True

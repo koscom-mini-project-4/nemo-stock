@@ -247,6 +247,23 @@ export interface NewsCluster {
   first_seen_at: string
   strength: number
   news_count: number
+  /** 이 클러스터(주제)에 연결된 종목/섹터/거시지표 키(§0-7, 관리자 페이지 상호 탐색용). */
+  종목?: string[]
+  섹터?: string[]
+  거시지표?: string[]
+}
+
+/** GET /data/news/topics(-/clusters)의 axis 값. app/nodes/ai/news_signal.py의 AXIS_METHOD와 동일 매핑. */
+export type NewsTopicGroup = 'stock' | 'sector' | 'macro'
+
+/** 특정 종목/섹터/거시지표 키로부터 역탐색한 클러스터 — NewsCluster와 필드명이 다르다
+ * (백엔드가 NewsTrader.clusters_for_key()를 그대로 통과시킴, `id`가 아니라 `cluster_id`). */
+export interface NewsTopicCluster {
+  cluster_id: number
+  representative_title: string
+  first_seen_at: string
+  strength: number
+  count: number
 }
 
 export interface NewsUpdateResult {

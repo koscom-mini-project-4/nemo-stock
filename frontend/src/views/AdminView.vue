@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import {
   fetchAdminMetrics,
   fetchNewsClusters,
   fetchNewsStats,
+  fetchNewsTopicClusters,
+  fetchNewsTopicKeys,
   triggerNewsUpdate,
 } from '@/api/services'
-import type { AdminMetrics, NewsCluster, NewsStats, NewsUpdateResult } from '@/api/types'
+import type {
+  AdminMetrics,
+  NewsCluster,
+  NewsStats,
+  NewsTopicCluster,
+  NewsTopicGroup,
+  NewsUpdateResult,
+} from '@/api/types'
 
 const metrics = ref<AdminMetrics | null>(null)
 const metricsLoading = ref(false)
@@ -25,6 +34,22 @@ const clustersError = ref('')
 const updating = ref(false)
 const updateResult = ref<NewsUpdateResult | null>(null)
 const updateError = ref('')
+
+const TOPIC_AXES: { value: NewsTopicGroup; label: string }[] = [
+  { value: 'stock', label: '종목' },
+  { value: 'sector', label: '섹터' },
+  { value: 'macro', label: '거시경제' },
+]
+
+const topicGroup = ref<NewsTopicGroup>('stock')
+const topicKeys = ref<string[]>([])
+const topicKeysLoading = ref(false)
+const topicKeysError = ref('')
+
+const selectedTopicKey = ref('')
+const topicClusters = ref<NewsTopicCluster[]>([])
+const topicClustersLoading = ref(false)
+const topicClustersError = ref('')
 
 function defaultEnd() {
   return new Date().toISOString().slice(0, 10)
@@ -71,6 +96,50 @@ async function loadClusters() {
   }
 }
 
+function reloadClusterRange() {
+  loadClusters()
+  loadTopicKeys()
+}
+
+function clusterTags(c: NewsCluster): string[] {
+  return [...(c.종목 ?? []), ...(c.섹터 ?? []), ...(c.거시지표 ?? [])]
+}
+
+async function loadTopicKeys() {
+  topicKeysLoading.value = true
+  topicKeysError.value = ''
+  selectedTopicKey.value = ''
+  topicClusters.value = []
+  try {
+    topicKeys.value = await fetchNewsTopicKeys(topicGroup.value, clusterStart.value, clusterEnd.value)
+  } catch {
+    topicKeysError.value = '키 목록을 불러오지 못했습니다.'
+    topicKeys.value = []
+  } finally {
+    topicKeysLoading.value = false
+  }
+}
+
+async function loadTopicClusters() {
+  if (!selectedTopicKey.value) return
+  topicClustersLoading.value = true
+  topicClustersError.value = ''
+  try {
+    topicClusters.value = await fetchNewsTopicClusters(
+      topicGroup.value,
+      selectedTopicKey.value,
+      clusterStart.value,
+      clusterEnd.value,
+    )
+  } catch {
+    topicClustersError.value = '클러스터 목록을 불러오지 못했습니다.'
+  } finally {
+    topicClustersLoading.value = false
+  }
+}
+
+watch(topicGroup, loadTopicKeys)
+
 async function runUpdate(force: boolean) {
   updating.value = true
   updateError.value = ''
@@ -91,6 +160,7 @@ onMounted(() => {
   loadMetrics()
   loadNewsStats()
   loadClusters()
+  loadTopicKeys()
 })
 </script>
 
@@ -190,19 +260,68 @@ onMounted(() => {
           종료일
           <input v-model="clusterEnd" type="date" />
         </label>
-        <button class="btn" :disabled="clustersLoading" @click="loadClusters">조회</button>
+        <button class="btn" :disabled="clustersLoading" @click="reloadClusterRange">조회</button>
       </div>
       <p v-if="clustersError" class="error">{{ clustersError }}</p>
       <table v-else class="cluster-table">
-        <thead><tr><th>대표제목</th><th>최초발생</th><th>strength</th><th>뉴스건수</th></tr></thead>
+        <thead><tr><th>대표제목</th><th>최초발생</th><th>strength</th><th>뉴스건수</th><th>관련 종목/섹터/거시</th></tr></thead>
         <tbody>
           <tr v-for="c in clusters" :key="c.id">
             <td>{{ c.representative_title }}</td>
             <td class="mono">{{ c.first_seen_at }}</td>
             <td>{{ c.strength }}</td>
             <td>{{ c.news_count }}</td>
+            <td>
+              <span v-for="tag in clusterTags(c)" :key="tag" class="tag">{{ tag }}</span>
+              <span v-if="clusterTags(c).length === 0" class="text-muted">-</span>
+            </td>
           </tr>
-          <tr v-if="!clustersLoading && clusters.length === 0"><td colspan="4" class="text-muted">해당 기간에 클러스터가 없습니다.</td></tr>
+          <tr v-if="!clustersLoading && clusters.length === 0"><td colspan="5" class="text-muted">해당 기간에 클러스터가 없습니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>종목/섹터/거시로 클러스터 탐색</h2>
+      <p class="text-muted hint">
+        위 뉴스 분석 현황의 기간({{ clusterStart }} ~ {{ clusterEnd }})을 그대로 사용합니다. 기간을
+        바꾸려면 위 조회란을 먼저 갱신하세요.
+      </p>
+      <div class="row">
+        <label>
+          축
+          <select v-model="topicGroup">
+            <option v-for="axis in TOPIC_AXES" :key="axis.value" :value="axis.value">{{ axis.label }}</option>
+          </select>
+        </label>
+        <label>
+          키
+          <select v-model="selectedTopicKey" :disabled="topicKeysLoading || topicKeys.length === 0">
+            <option value="" disabled>선택하세요</option>
+            <option v-for="k in topicKeys" :key="k" :value="k">{{ k }}</option>
+          </select>
+        </label>
+        <button class="btn" :disabled="!selectedTopicKey || topicClustersLoading" @click="loadTopicClusters">
+          관련 클러스터 조회
+        </button>
+      </div>
+      <p v-if="topicKeysError" class="error">{{ topicKeysError }}</p>
+      <p v-else-if="topicKeysLoading" class="text-muted">키 목록 불러오는 중...</p>
+      <p v-else-if="topicKeys.length === 0" class="text-muted">해당 기간/축에 데이터가 없습니다.</p>
+
+      <p v-if="topicClustersError" class="error">{{ topicClustersError }}</p>
+      <table v-else-if="selectedTopicKey" class="cluster-table">
+        <thead><tr><th>대표제목</th><th>최초발생</th><th>strength</th><th>뉴스건수</th></tr></thead>
+        <tbody>
+          <tr v-for="c in topicClusters" :key="c.cluster_id">
+            <td>{{ c.representative_title }}</td>
+            <td class="mono">{{ c.first_seen_at }}</td>
+            <td>{{ c.strength }}</td>
+            <td>{{ c.count }}</td>
+          </tr>
+          <tr v-if="!topicClustersLoading && topicClusters.length === 0">
+            <td colspan="4" class="text-muted">'{{ selectedTopicKey }}'와 연결된 클러스터가 없습니다.</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -337,5 +456,15 @@ th {
 .error {
   color: var(--danger);
   margin: 0 0 8px;
+}
+
+.tag {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin: 0 4px 4px 0;
+  font-size: 11.5px;
 }
 </style>

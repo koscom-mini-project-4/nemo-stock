@@ -10,6 +10,8 @@ import type {
   NewsCluster,
   NewsMarkerOut,
   NewsStats,
+  NewsTopicCluster,
+  NewsTopicGroup,
   NewsUpdateResult,
   NodeTypeSchema,
   PricePointOut,
@@ -205,5 +207,20 @@ export async function fetchNewsClusters(start: string, end: string): Promise<New
 
 export async function triggerNewsUpdate(force = false): Promise<NewsUpdateResult> {
   const { data } = await apiClient.post('/data/news/update', { force })
+  return data
+}
+
+export async function fetchNewsTopicKeys(group: NewsTopicGroup, start: string, end: string): Promise<string[]> {
+  const { data } = await apiClient.get('/data/news/topics', { params: { group, start, end } })
+  return data
+}
+
+export async function fetchNewsTopicClusters(
+  group: NewsTopicGroup,
+  key: string,
+  start: string,
+  end: string,
+): Promise<NewsTopicCluster[]> {
+  const { data } = await apiClient.get('/data/news/topics/clusters', { params: { group, key, start, end } })
   return data
 }

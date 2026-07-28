@@ -242,7 +242,7 @@ def get_news_stats(container: Container = Depends(get_container)) -> dict[str, A
 
 @router.get("/news/clusters")
 def get_news_clusters(start: date, end: date, container: Container = Depends(get_container)) -> list[dict[str, Any]]:
-    """기간 내 뉴스 클러스터 목록(대표제목/최초발생일/strength/뉴스건수).
+    """기간 내 뉴스 클러스터 목록(대표제목/최초발생일/strength/뉴스건수 + 연결된 종목/섹터/거시지표).
 
     NewsTrader.clusters()는 저장된 시각(예: "2026-07-28 14:25:15")과 문자열로 직접 비교하므로,
     날짜만(예: "2026-07-28") 넘기면 그날 자정 이후 데이터가 상한에 걸려 누락된다(실 서버 검증
@@ -251,6 +251,56 @@ def get_news_clusters(start: date, end: date, container: Container = Depends(get
     trader = container.news_trader_factory(auto_update=False)
     try:
         return trader.clusters(
+            datetime.combine(start, time.min).strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.combine(end, time.max).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+    finally:
+        trader.close()
+
+
+_NEWS_AXIS_GROUP = {"stock": "A", "sector": "B", "macro": "C"}
+
+
+def _resolve_axis_group(group: str) -> str:
+    code = _NEWS_AXIS_GROUP.get(group)
+    if code is None:
+        raise HTTPException(status_code=400, detail="group은 stock/sector/macro 중 하나여야 합니다.")
+    return code
+
+
+@router.get("/news/topics")
+def get_news_topics(
+    group: str, start: date, end: date, container: Container = Depends(get_container)
+) -> list[str]:
+    """기간 내 데이터가 있는 종목/섹터/거시지표 키 목록.
+
+    관리자 페이지의 "종목/섹터/거시로부터 관련 클러스터 탐색"(클러스터 목록의 반대 방향)
+    기능에서 탐색할 키를 고르는 드롭다운 소스로 쓴다.
+    """
+    code = _resolve_axis_group(group)
+    trader = container.news_trader_factory(auto_update=False)
+    try:
+        return trader.keys_in_range(
+            code,
+            datetime.combine(start, time.min).strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.combine(end, time.max).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+    finally:
+        trader.close()
+
+
+@router.get("/news/topics/clusters")
+def get_news_topic_clusters(
+    group: str, key: str, start: date, end: date, container: Container = Depends(get_container)
+) -> list[dict[str, Any]]:
+    """특정 종목/섹터/거시지표 키에 연결된 클러스터 목록(기간 내) — GET /data/news/clusters가
+    "클러스터 → 연결된 종목/섹터/거시"라면, 이 엔드포인트는 그 반대 방향이다."""
+    code = _resolve_axis_group(group)
+    trader = container.news_trader_factory(auto_update=False)
+    try:
+        return trader.clusters_for_key(
+            code,
+            key,
             datetime.combine(start, time.min).strftime("%Y-%m-%d %H:%M:%S"),
             datetime.combine(end, time.max).strftime("%Y-%m-%d %H:%M:%S"),
         )
