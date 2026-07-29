@@ -17,6 +17,18 @@ from datetime import timedelta
 from typing import Callable
 
 from app.ai.news_classify import EVENT_TYPES
+
+# EVENT_TYPES는 AI 분류/저장에 쓰이는 데이터 값이라 그대로 두고, 선택지 표시용 한글 라벨만 별도로 둔다.
+EVENT_TYPE_LABELS: dict[str, str] = {
+    "M&A_Investment": "M&A/투자",
+    "Earnings_Contract": "실적/계약",
+    "Macro_Indicator": "거시지표",
+    "Policy_Regulation": "정책/규제",
+    "Geopolitical_Risk": "지정학 리스크",
+    "Management_Risk": "경영 리스크",
+    "General_Market": "일반 시황",
+    "Non_Economic": "경제 무관",
+}
 from app.dao.base import NewsSignalRepository
 from app.news_signals.sectors import SECTORS
 from app.news_signals.themes import ALL_THEMES
@@ -493,7 +505,8 @@ class EventDensityNode(Node):
     ]
     param_schema: list[NodeParam] = [
         {"key": "event_type", "type": "select", "label": "이벤트 성격", "required": True,
-         "options": list(EVENT_TYPES), "group": "calc", "hint": "탐지할 이벤트 Enum"},
+         "options": list(EVENT_TYPES), "option_labels": [EVENT_TYPE_LABELS[t] for t in EVENT_TYPES],
+         "group": "calc", "hint": "탐지할 이벤트 Enum"},
         {"key": "window_days", "type": "number", "label": "기간(일)", "default": 3,
          "required": False, "group": "calc", "hint": "단기=3"},
         *condition_params(condition_presets, "dominant"),

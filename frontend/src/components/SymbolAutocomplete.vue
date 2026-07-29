@@ -33,13 +33,16 @@ function onInput(e: Event) {
 
 function applySuggestion(s: { symbol: string; name: string }) {
   // 마지막(입력 중이던) 토큰을 선택한 종목코드로 치환하고, 다음 종목을 이어 입력할 수 있도록
-  // 콤마를 붙여둔다.
+  // 콤마를 붙여둔다. 이미 마지막 토큰이 같은 종목코드면(중복 클릭/이벤트 재실행 등) 다시
+  // 추가하지 않는다 — 브라우저 자동완성과 겹쳐 클릭 시 값이 두 번 들어가던 버그의 방어책.
   const parts = props.modelValue
     .split(',')
-    .slice(0, -1)
     .map((p) => p.trim())
     .filter(Boolean)
-  parts.push(s.symbol)
+  parts.pop()
+  if (parts[parts.length - 1] !== s.symbol) {
+    parts.push(s.symbol)
+  }
   emit('update:modelValue', `${parts.join(', ')}, `)
   open.value = false
   inputEl.value?.focus()
@@ -72,6 +75,9 @@ function onBlur() {
     <input
       ref="inputEl"
       type="text"
+      autocomplete="off"
+      autocorrect="off"
+      spellcheck="false"
       :value="modelValue"
       :placeholder="placeholder"
       @input="onInput"

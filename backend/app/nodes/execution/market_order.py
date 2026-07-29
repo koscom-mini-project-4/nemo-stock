@@ -29,6 +29,7 @@ class MarketOrderNode(Node):
             "default": "buy",
             "required": True,
             "options": ["buy", "sell"],
+            "option_labels": ["매수", "매도"],
         },
         {
             "key": "qty_mode",

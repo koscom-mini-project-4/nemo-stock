@@ -1,6 +1,28 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { NodeParamSchema } from '@/api/types'
+import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
+import { translateExpr } from '@/utils/exprLabels'
+
+// 종목코드를 콤마로 나열하는 파라미터 키(예: scheduler.interval의 대상 종목코드)는 자동완성을 붙인다.
+const SYMBOL_LIST_KEYS = new Set(['universe'])
+
+// expression 필드(예: logic.if_else의 조건식)는 평소엔 필드명을 한글로 치환해 읽기 편하게
+// 보여주고, 클릭하면 원본 문자열을 바로 수정할 수 있는 텍스트영역으로 바뀐다.
+const editingExprKeys = ref<Set<string>>(new Set())
+function startEditExpr(key: string) {
+  if (editingExprKeys.value.has(key)) return
+  editingExprKeys.value = new Set(editingExprKeys.value).add(key)
+}
+function stopEditExpr(key: string) {
+  const next = new Set(editingExprKeys.value)
+  next.delete(key)
+  editingExprKeys.value = next
+}
+function focusOnMount(el: Element | { $el?: Element } | null) {
+  const node = (el as HTMLTextAreaElement | null) ?? null
+  node?.focus()
+}
 
 const props = defineProps<{
   paramSchema: NodeParamSchema[]
@@ -105,14 +127,29 @@ function onCheckbox(key: string, event: Event) {
           @input="onNumberInput(spec.key, $event)"
         />
 
-        <textarea
-          v-else-if="spec.type === 'expression'"
-          class="nodrag nopan mono"
-          :rows="compact ? 1 : 2"
-          :value="(params[spec.key] as string) ?? spec.default"
-          @mousedown.stop
-          @input="onInput(spec.key, $event)"
-        />
+        <template v-else-if="spec.type === 'expression'">
+          <textarea
+            v-if="editingExprKeys.has(spec.key)"
+            :ref="focusOnMount"
+            class="nodrag nopan mono"
+            :rows="compact ? 1 : 2"
+            :value="(params[spec.key] as string) ?? spec.default"
+            @mousedown.stop
+            @input="onInput(spec.key, $event)"
+            @blur="stopEditExpr(spec.key)"
+          />
+          <div
+            v-else
+            class="nodrag nopan mono expr-display"
+            tabindex="0"
+            title="클릭하면 원본 조건식을 직접 수정할 수 있습니다."
+            @mousedown.stop
+            @click="startEditExpr(spec.key)"
+            @focus="startEditExpr(spec.key)"
+          >
+            {{ translateExpr(((params[spec.key] as string) ?? spec.default) || 'True') }}
+          </div>
+        </template>
 
         <textarea
           v-else-if="spec.type === 'prompt'"
@@ -122,6 +159,13 @@ function onCheckbox(key: string, event: Event) {
           @mousedown.stop
           @input="onInput(spec.key, $event)"
         />
+
+        <div v-else-if="SYMBOL_LIST_KEYS.has(spec.key)" class="nodrag nopan" @mousedown.stop>
+          <SymbolAutocomplete
+            :model-value="(params[spec.key] as string) ?? spec.default ?? ''"
+            @update:model-value="(v) => emit('update-param', spec.key, v)"
+          />
+        </div>
 
         <input
           v-else
@@ -233,6 +277,29 @@ function onCheckbox(key: string, event: Event) {
 
 .param-field.is-expression textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.expr-display {
+  padding: 7px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+}
+
+.expr-display:hover {
+  border-color: var(--accent);
+}
+
+.param-fields.compact .expr-display {
+  padding: 3px 6px;
+  font-size: 11.5px;
+  border-radius: 3px;
 }
 
 .param-fields.compact .param-field.is-expression {

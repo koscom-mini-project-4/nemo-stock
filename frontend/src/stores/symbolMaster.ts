@@ -29,19 +29,24 @@ export const useSymbolMasterStore = defineStore('symbolMaster', {
       const name = state.byCode[symbol]
       return name ? `${name}(${symbol})` : symbol
     },
-    /** 종목코드/한글 종목명 부분일치 검색(대소문자 무시, 자동완성용). ensureLoaded 후 사용. */
+    /** 종목코드/한글 종목명 검색(대소문자 무시, 자동완성용). ensureLoaded 후 사용.
+     * "삼성" 같은 짧은 검색어에도 원하는 종목(예: 삼성전자)이 상위에 오도록 일치도로 정렬한다
+     * — 이름/코드가 검색어로 "시작"하는 항목을 부분일치보다 우선한다. */
     search: (state) => (query: string, limit = 8) => {
       const q = query.trim()
       if (!q) return []
       const qLower = q.toLowerCase()
-      const out: { symbol: string; name: string }[] = []
+      const ranked: { symbol: string; name: string; rank: number }[] = []
       for (const [symbol, name] of Object.entries(state.byCode)) {
-        if (symbol.includes(q) || name.toLowerCase().includes(qLower)) {
-          out.push({ symbol, name })
-          if (out.length >= limit) break
-        }
+        const nameLower = name.toLowerCase()
+        let rank = -1
+        if (symbol === q || nameLower === qLower) rank = 0
+        else if (symbol.startsWith(q) || nameLower.startsWith(qLower)) rank = 1
+        else if (symbol.includes(q) || nameLower.includes(qLower)) rank = 2
+        if (rank >= 0) ranked.push({ symbol, name, rank })
       }
-      return out
+      ranked.sort((a, b) => a.rank - b.rank || a.name.length - b.name.length)
+      return ranked.slice(0, limit).map(({ symbol, name }) => ({ symbol, name }))
     },
   },
 })

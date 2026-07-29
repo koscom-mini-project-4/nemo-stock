@@ -21,6 +21,7 @@ import {
 import type { NodeEventOut, NodeTypeSchema, ValidationResult, WorkflowGraph, WorkflowStatus } from '@/api/types'
 import { flowElementsToGraph, graphToFlowElements, type FlowNodeData } from '@/utils/flowAdapter'
 import { categoryColor } from '@/utils/categoryColors'
+import { workflowStatusLabel } from '@/utils/labels'
 import { useDraftStore } from '@/stores/draft'
 import NodePalette, { PALETTE_DRAG_MIME } from '@/components/NodePalette.vue'
 import PropertyPanel from '@/components/PropertyPanel.vue'
@@ -396,7 +397,7 @@ onMounted(load)
         주기(초)
         <input v-model.number="scheduleIntervalSec" type="number" min="1" />
       </label>
-      <span :class="['badge', `badge-${status}`]">{{ status }}</span>
+      <span :class="['badge', `badge-${status}`]">{{ workflowStatusLabel(status) }}</span>
       <span v-if="savedMessage" class="text-muted">{{ savedMessage }}</span>
       <div class="toolbar-spacer" />
       <button class="btn" :disabled="saving" @click="save">{{ saving ? '저장 중...' : '저장' }}</button>

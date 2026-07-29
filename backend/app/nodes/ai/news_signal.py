@@ -186,6 +186,7 @@ class NewsSignalNode(Node):
             "default": "end",
             "required": False,
             "options": ["end", "start", "now"],
+            "option_labels": ["조회 구간 끝", "조회 구간 시작", "현재 시각"],
             "group": "calc",
             "hint": "감쇠(d)를 조회 구간의 끝/시작/현재 중 어디부터 셀지",
         },

@@ -31,6 +31,7 @@ class RankNode(Node):
             "default": "desc",
             "required": False,
             "options": ["desc", "asc"],
+            "option_labels": ["내림차순(desc)", "오름차순(asc)"],
         },
     ]
 

@@ -72,20 +72,22 @@ function applyCode() {
       </div>
 
       <div v-if="!schema" class="text-muted">알 수 없는 노드 타입입니다.</div>
-      <p v-else-if="schema.description" class="text-muted node-description">{{ schema.description }}</p>
-      <ParamFields
-        v-else-if="mode === 'form'"
-        :param-schema="schema.param_schema"
-        :params="node.data?.params ?? {}"
-        @update-param="(key, value) => emit('update-param', key, value)"
-      />
-      <div v-else class="code-editor">
-        <textarea v-model="codeText" rows="12" class="mono" spellcheck="false" />
-        <div class="code-actions">
-          <button class="btn btn-primary" type="button" @click="applyCode">적용</button>
-          <span v-if="codeError" class="error">{{ codeError }}</span>
+      <template v-else>
+        <p v-if="schema.description" class="text-muted node-description">{{ schema.description }}</p>
+        <ParamFields
+          v-if="mode === 'form'"
+          :param-schema="schema.param_schema"
+          :params="node.data?.params ?? {}"
+          @update-param="(key, value) => emit('update-param', key, value)"
+        />
+        <div v-else class="code-editor">
+          <textarea v-model="codeText" rows="12" class="mono" spellcheck="false" />
+          <div class="code-actions">
+            <button class="btn btn-primary" type="button" @click="applyCode">적용</button>
+            <span v-if="codeError" class="error">{{ codeError }}</span>
+          </div>
         </div>
-      </div>
+      </template>
     </template>
     <p v-else class="text-muted">캔버스에서 노드를 선택하면 속성을 편집할 수 있습니다.</p>
   </div>

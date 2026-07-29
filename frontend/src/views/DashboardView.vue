@@ -18,6 +18,7 @@ import type { AccountSummaryOut, PricePointOut, WatchlistItemOut, WorkflowOut, W
 import { useSymbolMasterStore } from '@/stores/symbolMaster'
 import { formatDateTimeKst, formatKrw } from '@/utils/format'
 import { formatSignedKrw, formatSignedPct, pnlClass } from '@/utils/pnl'
+import { workflowStatusLabel as statusLabel } from '@/utils/labels'
 import PriceChart from '@/components/PriceChart.vue'
 import PositionEditModal from '@/components/PositionEditModal.vue'
 import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
@@ -159,10 +160,6 @@ async function remove(wf: WorkflowOut) {
   if (!confirm(`'${wf.name}' 전략을 삭제할까요?`)) return
   await deleteWorkflow(wf.id)
   await load()
-}
-
-function statusLabel(status: string) {
-  return { draft: '초안', active: '실행 중', inactive: '중지' }[status] || status
 }
 
 onMounted(load)

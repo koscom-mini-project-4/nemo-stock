@@ -17,6 +17,7 @@ import {
 import { fetchBacktestNewsAll, fetchBacktestNewsSignal, fetchBacktestNewsUsed, fetchBacktestPrices } from '@/api/services'
 import type { BacktestExplainSelection, BacktestResultOut, NewsMarkerOut, PricePointOut, TradeOut } from '@/api/types'
 import { bollingerBands, rsi, sma } from '@/utils/indicators'
+import { tradeStatusLabel } from '@/utils/labels'
 
 Chart.register(
   CategoryScale,
@@ -238,7 +239,7 @@ function renderCharts() {
               const raw = ctx.raw
               if (raw?.trade) {
                 const t = raw.trade as TradeOut
-                return `${t.side === 'buy' ? '매수' : '매도'} ${t.qty}주 @ ${t.price.toLocaleString()} (${t.status})`
+                return `${t.side === 'buy' ? '매수' : '매도'} ${t.qty}주 @ ${t.price.toLocaleString()} (${tradeStatusLabel(t.status)})`
               }
               if (raw?.news) {
                 return `뉴스: ${(raw.news as NewsMarkerOut).title}`

@@ -32,6 +32,7 @@ class SentimentScoreNode(Node):
             "default": "news",
             "required": True,
             "options": ["news", "disclosure"],
+            "option_labels": ["뉴스", "공시"],
         },
     ]
 

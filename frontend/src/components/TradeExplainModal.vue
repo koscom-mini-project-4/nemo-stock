@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { explainBacktest, fetchRun } from '@/api/services'
 import type { NodeEventOut, TradeOut } from '@/api/types'
 import { decisionForSymbol } from '@/utils/decisions'
+import { tradeStatusLabel } from '@/utils/labels'
 
 // 매매 마커(▲/▼) 클릭 시 뜨는 팝업. 두 단계로 보여준다:
 // 1) 즉시(무료, AI 호출 없음): 그 거래일의 노드 실행 이벤트에서 trade.symbol에 해당하는
@@ -116,7 +117,7 @@ const STATUS_ICON: Record<string, string> = { running: '⏳', success: '✅', er
         <button class="btn" type="button" @click="emit('close')">닫기</button>
       </div>
       <p class="trade-summary text-muted">
-        {{ trade.qty }}주 @ {{ trade.price.toLocaleString() }}원 · 상태 {{ trade.status }}
+        {{ trade.qty }}주 @ {{ trade.price.toLocaleString() }}원 · 상태 {{ tradeStatusLabel(trade.status) }}
         <span v-if="trade.realized_pnl != null" :class="trade.realized_pnl >= 0 ? 'positive' : 'negative'">
           · 실현손익 {{ trade.realized_pnl >= 0 ? '+' : '' }}{{ trade.realized_pnl.toLocaleString() }}원
         </span>
