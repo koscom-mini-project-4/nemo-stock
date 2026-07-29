@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { CheckCircle2, Hourglass, SkipForward, XCircle } from '@lucide/vue'
 import { explainBacktest, fetchRun } from '@/api/services'
-import type { NodeEventOut, NodeTypeSchema, TradeOut } from '@/api/types'
+import type { NodeTypeSchema, TradeOut } from '@/api/types'
 import { decisionForSymbol } from '@/utils/decisions'
+import type { DecisionStep } from '@/utils/decisionTree'
+import { buildDecisionTree } from '@/utils/decisionTree'
 import { tradeStatusLabel } from '@/utils/labels'
+import TimelineTreeNode from './TimelineTreeNode.vue'
 
 // 매매 마커(▲/▼) 클릭 시 뜨는 팝업. 두 단계로 보여준다:
 // 1) 즉시(무료, AI 호출 없음): 그 거래일의 노드 실행 이벤트에서 trade.symbol에 해당하는
@@ -19,21 +22,26 @@ const props = defineProps<{
   workflowId: string
   backtestId: string
   nodeTypesByKey?: Map<string, NodeTypeSchema>
+  /** 워크플로 그래프 엣지(BacktestResultView.vue의 flowEdges 재사용, VueFlow Edge 형태) —
+   * 분기 트리를 그리는 데 쓴다. 없으면(아직 로딩 전 등) 평면 목록으로 폴백한다. */
+  edges?: { source: string; target: string }[]
 }>()
 
 const emit = defineEmits<{ close: [] }>()
 
-interface Step {
-  nodeId: string
-  nodeType: string
-  status: NodeEventOut['status']
-  pass?: boolean
-  reason?: string
-}
-
 const loadingSteps = ref(false)
 const loadError = ref('')
-const steps = ref<Step[]>([])
+const steps = ref<DecisionStep[]>([])
+
+// 실행된 노드들을 워크플로 그래프의 실제 분기 구조(트리)로 묶는다 — 같은 스케줄러에서 갈라진
+// 서로 다른 분기(예: 뉴스 신호 매수 분기 vs IF 조건 매도 분기)가 평면 목록에서 하나로 이어진
+// 것처럼 보이던 문제(사용자 신고)를 해결한다. edges가 없거나 그래프와 안 맞으면(루트를 하나도
+// 못 찾으면) 빈 배열이 되고, 그때는 기존 평면 목록으로 폴백한다.
+const tree = computed(() => {
+  if (!props.edges?.length) return []
+  const simpleEdges = props.edges.map((e) => ({ from: e.source, to: e.target }))
+  return buildDecisionTree(steps.value, simpleEdges)
+})
 
 const aiLoading = ref(false)
 const aiError = ref('')
@@ -136,7 +144,17 @@ function nodeDisplayName(nodeType: string): string {
       <p v-if="loadingSteps" class="text-muted">노드 실행 기록을 불러오는 중...</p>
       <p v-if="loadError" class="error">{{ loadError }}</p>
 
-      <ol v-if="steps.length" class="timeline">
+      <ul v-if="tree.length" class="tree-root">
+        <TimelineTreeNode
+          v-for="root in tree"
+          :key="root.step.nodeId"
+          :node="root"
+          :node-display-name="nodeDisplayName"
+          :depth="0"
+        />
+      </ul>
+
+      <ol v-else-if="steps.length" class="timeline">
         <li
           v-for="(step, i) in steps"
           :key="`${step.nodeId}-${i}`"
@@ -214,6 +232,12 @@ function nodeDisplayName(nodeType: string): string {
   color: var(--danger);
   margin: 0;
   font-size: 13px;
+}
+
+.tree-root {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
 }
 
 .timeline {
