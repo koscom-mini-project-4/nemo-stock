@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>네모네모 매매 · 제안 발표</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --pt: 1.3333px;                 /* 1pt = 1.333px @96dpi */
+    --ink:#14161A;
+    --ink-2:#3A4048;
+    --muted:#6B7280;
+    --muted-2:#9AA1AC;
+    --line:#E7E9EE;
+    --line-2:#EFF1F5;
+    --panel:#F6F7F9;
+    --panel-2:#FBFBFC;
+    --white:#FFFFFF;
+    --orange:#FF7F00;
+    --orange-d:#E86F00;
+    --orange-soft:#FFF1E2;
+    --orange-soft-2:#FFE4C7;
+    --loss:#E5484D;
+    --gain:#FF7F00;
+    --title: calc(42 * var(--pt));  /* 56px  중요 제목 */
+    --body:  calc(36 * var(--pt));  /* 48px  내용 */
+    --f-disp:"Pretendard Variable",Pretendard,"Space Grotesk",sans-serif;
+    --f-body:"Pretendard Variable",Pretendard,sans-serif;
+    --f-mono:"Space Grotesk","Pretendard Variable",Pretendard,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:#0E0F12;
+    font-family:var(--f-body);
+    color:var(--ink);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------- viewer chrome ---------- */
+  #viewport{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  #stage{
+    width:1280px;height:720px;position:relative;flex:none;
+    transform-origin:center center;
+  }
+  .slide{
+    position:absolute;inset:0;background:var(--white);
+    display:none;overflow:hidden;
+    border-radius:14px;
+    box-shadow:0 30px 80px rgba(0,0,0,.45);
+  }
+  .slide.active{display:block;animation:fade .45s ease both;}
+  @keyframes fade{from{opacity:0;transform:translateY(8px) scale(.997)}to{opacity:1;transform:none}}
+
+  /* nav controls */
+  #hud{position:fixed;left:0;right:0;bottom:18px;display:flex;gap:14px;align-items:center;justify-content:center;z-index:50;font-family:var(--f-mono);}
+  .nav-btn{
+    width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06);color:#fff;cursor:pointer;font-size:16px;
+    display:flex;align-items:center;justify-content:center;transition:.18s;backdrop-filter:blur(6px);
+  }
+  .nav-btn:hover{background:var(--orange);border-color:var(--orange);}
+  #counter{color:#C9CDD4;font-size:13px;letter-spacing:.14em;min-width:70px;text-align:center;font-weight:500;}
+  #counter b{color:#fff;}
+  #bar{position:fixed;left:0;top:0;height:3px;background:var(--orange);z-index:60;transition:width .4s cubic-bezier(.4,0,.1,1);}
+
+  /* ---------- shared slide layout ---------- */
+  .pad{position:absolute;inset:0;padding:66px 76px;display:flex;flex-direction:column;}
+  .eyebrow{display:flex;align-items:center;gap:16px;margin-bottom:26px;flex:none;}
+  .num-badge{
+    width:46px;height:46px;border-radius:11px;background:var(--orange);color:#fff;
+    font-family:var(--f-mono);font-weight:700;font-size:20px;
+    display:flex;align-items:center;justify-content:center;flex:none;
+    box-shadow:0 6px 18px rgba(255,127,0,.35);
+  }
+  .eyebrow .kr{font-size:19px;font-weight:700;color:var(--ink);}
+  .eyebrow .en{
+    font-family:var(--f-mono);font-size:12.5px;font-weight:600;letter-spacing:.22em;
+    color:var(--muted-2);text-transform:uppercase;margin-left:2px;
+    padding-left:16px;border-left:1px solid var(--line);
+  }
+  .headline{
+    font-family:var(--f-disp);font-weight:800;font-size:var(--title);line-height:1.16;
+    letter-spacing:-.02em;color:var(--ink);flex:none;
+  }
+  .headline .hl{color:var(--orange);}
+  .lead{font-size:var(--body);font-weight:600;line-height:1.34;letter-spacing:-.01em;color:var(--ink-2);}
+  .source{font-family:var(--f-mono);font-size:12px;color:var(--muted-2);letter-spacing:.02em;}
+  .sq{display:inline-block;width:.62em;height:.62em;background:var(--orange);border-radius:3px;vertical-align:middle;}
+
+  /* candlestick / grid backdrop */
+  .grid-bg{position:absolute;inset:0;background-image:linear-gradient(var(--line-2) 1px,transparent 1px),linear-gradient(90deg,var(--line-2) 1px,transparent 1px);background-size:44px 44px;opacity:.6;}
+
+  /* =====================================================
+     SLIDE 1 — TITLE
+  ===================================================== */
+  #s1{background:linear-gradient(160deg,#14161A 0%,#1B1E24 60%,#20242B 100%);color:#fff;}
+  #s1 .grid-bg{background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);opacity:1;}
+  #s1 .pad{justify-content:center;padding-left:86px;}
+  #s1 .brand{display:flex;align-items:center;gap:14px;margin-bottom:34px;}
+  #s1 .brand .modules{display:flex;gap:7px;}
+  #s1 .brand .m{width:22px;height:22px;border-radius:6px;background:var(--orange);}
+  #s1 .brand .m.o{background:transparent;border:2px solid var(--orange);}
+  #s1 .brand .tag{font-family:var(--f-mono);font-size:13px;letter-spacing:.26em;color:#9AA1AC;font-weight:500;}
+  #s1 h1{font-family:var(--f-disp);font-weight:800;font-size:92px;letter-spacing:-.03em;line-height:1.02;}
+  #s1 h1 .dot{color:var(--orange);}
+  #s1 .sub{font-size:30px;font-weight:600;color:#D5D9DF;margin-top:22px;letter-spacing:-.01em;}
+  #s1 .team{margin-top:52px;display:flex;align-items:center;gap:18px;color:#8A93A0;font-size:16px;}
+  #s1 .team .grp{color:#fff;font-weight:700;font-family:var(--f-mono);letter-spacing:.1em;background:rgba(255,127,0,.14);border:1px solid rgba(255,127,0,.4);color:var(--orange);padding:6px 12px;border-radius:8px;font-size:14px;}
+  #s1 .candles{position:absolute;right:70px;bottom:0;height:100%;width:420px;display:flex;align-items:flex-end;gap:14px;opacity:.9;padding-bottom:0;}
+  #s1 .candles .c{width:26px;position:relative;display:flex;flex-direction:column;align-items:center;}
+  #s1 .candles .wick{width:2px;background:#3A4048;}
+  #s1 .candles .body{width:100%;border-radius:3px;}
+
+  /* =====================================================
+     SLIDE 2 — CONTENTS
+  ===================================================== */
+  #s2 .pad{padding-top:70px;}
+  #s2 .top{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:40px;}
+  #s2 .en-big{font-family:var(--f-mono);font-weight:700;font-size:15px;letter-spacing:.28em;color:var(--muted-2);}
+  #s2 h2{font-family:var(--f-disp);font-weight:800;font-size:60px;letter-spacing:-.02em;}
+  #s2 .toc{display:flex;flex-direction:column;gap:0;border-top:1px solid var(--line);}
+  #s2 .row{display:flex;align-items:center;gap:30px;padding:22px 8px;border-bottom:1px solid var(--line);transition:.2s;}
+  #s2 .row:hover{padding-left:20px;background:var(--panel-2);}
+  #s2 .row .n{font-family:var(--f-mono);font-weight:700;font-size:26px;color:var(--orange);width:56px;}
+  #s2 .row .t{font-size:32px;font-weight:700;letter-spacing:-.01em;}
+  #s2 .row .arrow{margin-left:auto;color:var(--muted-2);font-size:22px;}
+
+  /* =====================================================
+     SECTION DIVIDERS
+  ===================================================== */
+  .divider{background:linear-gradient(155deg,#14161A 0%,#1C2027 100%);color:#fff;}
+  .divider .grid-bg{background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);opacity:1;}
+  .divider .pad{justify-content:center;padding-left:86px;}
+  .divider .sec-num{font-family:var(--f-mono);font-weight:700;font-size:150px;line-height:.9;color:rgba(255,255,255,.07);position:absolute;right:80px;bottom:40px;letter-spacing:-.04em;}
+  .divider .en{font-family:var(--f-mono);font-weight:600;font-size:16px;letter-spacing:.3em;color:var(--orange);margin-bottom:20px;}
+  .divider h2{font-family:var(--f-disp);font-weight:800;font-size:76px;letter-spacing:-.025em;line-height:1.08;}
+  .divider .mods{display:flex;gap:8px;margin-bottom:34px;}
+  .divider .mods span{width:16px;height:16px;border-radius:4px;background:rgba(255,255,255,.16);}
+  .divider .mods span.on{background:var(--orange);}
+
+  /* =====================================================
+     SLIDE 4 — MARKET STATS
+  ===================================================== */
+  #s4 .cols{display:flex;gap:34px;margin-top:34px;flex:1;}
+  #s4 .card{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:32px 34px;display:flex;flex-direction:column;}
+  #s4 .card .lbl{font-size:17px;font-weight:700;color:var(--muted);margin-bottom:6px;}
+  #s4 .card .src{margin-top:auto;padding-top:14px;}
+  /* growth bars */
+  #s4 .bars{display:flex;align-items:flex-end;gap:40px;height:210px;margin-top:20px;}
+  #s4 .barwrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+  #s4 .bar{width:78px;border-radius:10px 10px 0 0;position:relative;display:flex;align-items:flex-start;justify-content:center;}
+  #s4 .bar.old{background:#DDE1E7;height:43%;}
+  #s4 .bar.new{background:linear-gradient(180deg,var(--orange),#FF9E33);height:100%;box-shadow:0 8px 24px rgba(255,127,0,.28);}
+  #s4 .bar .v{position:absolute;top:-38px;font-family:var(--f-mono);font-weight:700;font-size:26px;color:var(--ink);white-space:nowrap;}
+  #s4 .bar.new .v{color:var(--orange-d);}
+  #s4 .yr{margin-top:12px;font-family:var(--f-mono);font-size:15px;color:var(--muted);font-weight:600;}
+  #s4 .grow-tag{position:absolute;right:34px;top:70px;background:var(--orange);color:#fff;font-family:var(--f-mono);font-weight:700;font-size:15px;padding:6px 12px;border-radius:20px;}
+  /* donut */
+  #s4 .donut-wrap{display:flex;align-items:center;gap:30px;margin-top:24px;}
+  #s4 .donut{width:190px;height:190px;flex:none;position:relative;}
+  #s4 .donut .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+  #s4 .donut .pct{font-family:var(--f-mono);font-weight:700;font-size:40px;color:var(--loss);line-height:1;}
+  #s4 .donut .pl{font-size:14px;color:var(--muted);font-weight:600;margin-top:4px;}
+  #s4 .legend{display:flex;flex-direction:column;gap:14px;}
+  #s4 .legend .li{display:flex;align-items:center;gap:12px;font-size:19px;font-weight:600;}
+  #s4 .legend .dot{width:14px;height:14px;border-radius:4px;}
+
+  /* =====================================================
+     SLIDE 5 — QUOTES
+  ===================================================== */
+  #s5 .qs{display:flex;flex-direction:column;gap:26px;margin-top:36px;}
+  #s5 .q{position:relative;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--orange);border-radius:0 16px 16px 0;padding:30px 38px 30px 42px;}
+  #s5 .q .mark{position:absolute;left:22px;top:6px;font-family:var(--f-mono);font-weight:700;font-size:60px;color:var(--orange-soft-2);line-height:1;}
+  #s5 .q p{font-size:33px;font-weight:600;line-height:1.4;letter-spacing:-.01em;color:var(--ink);padding-left:34px;}
+  #s5 .q .who{margin-top:14px;padding-left:34px;font-size:15px;color:var(--muted);font-weight:600;}
+
+  /* =====================================================
+     SLIDE 7 — PIPELINE
+  ===================================================== */
+  #s7 .flow{display:flex;align-items:stretch;gap:0;margin-top:46px;}
+  #s7 .step{flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;position:relative;padding:0 6px;}
+  #s7 .step .ic{width:84px;height:84px;border-radius:20px;background:var(--white);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px rgba(20,22,26,.06);}
+  #s7 .step.key .ic{background:var(--orange);border-color:var(--orange);box-shadow:0 12px 26px rgba(255,127,0,.32);}
+  #s7 .step .sn{font-family:var(--f-mono);font-weight:700;font-size:13px;color:var(--muted-2);margin-top:16px;letter-spacing:.1em;}
+  #s7 .step .st{font-size:21px;font-weight:700;margin-top:6px;letter-spacing:-.01em;line-height:1.25;}
+  #s7 .arrow{display:flex;align-items:center;color:var(--orange-soft-2);font-size:26px;padding-top:30px;}
+  #s7 .cap{margin-top:52px;text-align:center;font-size:22px;color:var(--muted);font-weight:600;}
+  #s7 .cap b{color:var(--orange-d);}
+
+  /* S7 — Final tuned scale (compact, fits slide) */
+  /* Reduced so icons/text fill the slide comfortably */
+  #s7 .eyebrow .num-badge{
+    width:70px;height:70px;border-radius:18px;font-size:26px;
+    box-shadow:0 8px 22px rgba(255,127,0,.28);
+  }
+  #s7 .headline{font-size:calc(var(--title) * 1.15);line-height:1.08}
+  #s7 .flow{gap:10px;justify-content:center;align-items:center}
+  #s7 .step .ic{width:100px;height:100px;border-radius:18px;box-shadow:0 10px 22px rgba(20,22,26,.06)}
+  #s7 .step.key .ic{background:var(--orange);border-color:var(--orange)}
+  #s7 .step .ic svg{width:52%;height:52%}
+  #s7 .step .sn{font-family:var(--f-mono);font-weight:700;font-size:16px;margin-top:14px;letter-spacing:.08em}
+  #s7 .step .st{font-size:24px;font-weight:700;margin-top:8px;line-height:1.2}
+  #s7 .arrow{font-size:32px;padding-top:28px;color:var(--orange-soft-2)}
+  #s7 .cap{margin-top:56px;font-size:30px;color:var(--muted);font-weight:600}
+
+  /* =====================================================
+     FEATURE SLIDES 8-12  (split layout)
+  ===================================================== */
+  .feat .pad{padding-bottom:0;}
+  .feat .split{display:flex;gap:48px;flex:1;align-items:center;margin-top:20px;padding-bottom:66px;}
+  .feat .left{flex:1;display:flex;flex-direction:column;justify-content:center;}
+  .feat .lead{margin-top:22px;max-width:520px;}
+  .feat .taglist{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px;}
+  .feat .tag{font-size:28px;font-weight:600;color:var(--orange-d);background:var(--orange-soft);border:1px solid var(--orange-soft-2);padding:8px 15px;border-radius:20px;}
+  .feat .right{flex:1.05;display:flex;align-items:center;justify-content:center;}
+  .mock{width:100%;max-width:520px;background:var(--white);border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 60px rgba(20,22,26,.10);overflow:hidden;}
+  .mock .bar{height:38px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:7px;padding:0 15px;}
+  .mock .bar i{width:10px;height:10px;border-radius:50%;background:#D6DAE0;display:inline-block;}
+  .mock .bar i:first-child{background:#FF9E9E;}
+  .mock .body{padding:22px;}
+
+  /* S8 chat->strategy */
+  .chat-in{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:16px;color:var(--ink);font-weight:500;}
+  .chat-in .cur{width:2px;height:20px;background:var(--orange);animation:blink 1s steps(1) infinite;}
+  @keyframes blink{50%{opacity:0}}
+  .chips{display:flex;flex-direction:column;gap:10px;margin-top:18px;}
+  .chip{display:flex;align-items:center;gap:10px;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:15px;font-weight:600;}
+  .chip .k{font-family:var(--f-mono);font-size:11px;font-weight:700;color:#fff;background:var(--orange);padding:3px 8px;border-radius:6px;letter-spacing:.05em;}
+  .chip .k.g{background:#2AA876;}
+  .chip .k.b{background:#3A4048;}
+  .flow-arrow{text-align:center;color:var(--orange);font-size:20px;margin:14px 0;}
+
+  /* S9 node editor */
+  .nodes{position:relative;height:280px;}
+  .node{position:absolute;background:var(--white);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;min-width:132px;box-shadow:0 6px 16px rgba(20,22,26,.07);}
+  .node .nt{font-size:11px;font-family:var(--f-mono);font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px;}
+  .node .nd{font-size:14px;font-weight:700;}
+  .node.orange{border-color:var(--orange);}
+  .node.orange .nt{color:var(--orange-d);}
+  .node .dotL,.node .dotR{position:absolute;top:50%;width:10px;height:10px;border-radius:50%;background:var(--orange);transform:translateY(-50%);}
+  .node .dotL{left:-5px}.node .dotR{right:-5px}
+
+  /* S10 news->score */
+  .news{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px;}
+  .news .src{font-family:var(--f-mono);font-size:11px;color:var(--muted-2);font-weight:700;letter-spacing:.06em;margin-bottom:6px;}
+  .news .hl{font-size:17px;font-weight:700;line-height:1.35;}
+  .gauge{display:flex;align-items:center;gap:18px;}
+  .gauge .meter{flex:1;height:14px;border-radius:8px;background:linear-gradient(90deg,#E5484D,#F0F0F0 50%,var(--orange));position:relative;}
+  .gauge .meter .pin{position:absolute;top:-6px;width:4px;height:26px;border-radius:3px;background:var(--ink);left:78%;}
+  .gauge .score{font-family:var(--f-mono);font-weight:700;font-size:34px;color:var(--orange-d);}
+  .gauge .score span{font-size:16px;color:var(--muted);}
+
+  /* S11 equity curve */
+  .metrics{display:flex;gap:12px;margin-top:16px;}
+  .metric{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center;}
+  .metric .mv{font-family:var(--f-mono);font-weight:700;font-size:26px;color:var(--orange-d);}
+  .metric .mv.loss{color:var(--loss);}
+  .metric .ml{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;}
+
+  /* S12 account link */
+  .link-flow{display:flex;flex-direction:column;gap:14px;}
+  .lf-row{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .lf-row .ic{width:44px;height:44px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex:none;}
+  .lf-row .tx b{font-size:17px;font-weight:700;display:block;}
+  .lf-row .tx span{font-size:13px;color:var(--muted);}
+  .lf-row .st{margin-left:auto;font-family:var(--f-mono);font-size:12px;font-weight:700;color:#2AA876;background:#E7F6EF;padding:5px 11px;border-radius:20px;}
+
+  /* =====================================================
+     SLIDE 14 — NL strategy
+  ===================================================== */
+  #s14 .demo{display:flex;flex-direction:column;gap:0;margin-top:36px;align-items:center;}
+  #s14 .nlbox{width:100%;max-width:900px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 30px;display:flex;align-items:center;gap:16px;}
+  #s14 .nlbox .q{font-family:var(--f-mono);font-weight:700;color:var(--orange);font-size:24px;}
+  #s14 .nlbox p{font-size:26px;font-weight:600;color:var(--ink);}
+  #s14 .down{color:var(--orange);font-size:26px;margin:16px 0;}
+  #s14 .outs{display:flex;gap:24px;width:100%;max-width:900px;align-items:stretch}
+  #s14 .out{flex:1;background:var(--white);border:1px solid var(--line);border-radius:16px;padding:28px 24px;text-align:center;box-shadow:0 12px 36px rgba(20,22,26,.08);display:flex;flex-direction:column;align-items:center;justify-content:flex-start}
+  #s14 .out .ic{width:78px;height:78px;border-radius:16px;background:var(--orange-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;flex:none}
+  #s14 .out .ic svg{width:58%;height:58%}
+  #s14 .out .t{font-size:26px;font-weight:800;margin-top:6px}
+  #s14 .out .d{font-size:18px;color:var(--muted);margin-top:10px;font-weight:600}
+
+  /* =====================================================
+     SLIDE 15 — big number
+  ===================================================== */
+  /* s15 — competitor gap split layout */
+  #s15 .pad{justify-content:flex-start}
+  #s15 .split15{display:flex;gap:56px;flex:1;align-items:stretch;margin-top:24px;overflow:hidden}
+  #s15 .txt15{flex:0 0 580px;display:flex;flex-direction:column;justify-content:center;gap:28px}
+  #s15 .txt15 .label15{font-family:var(--f-mono);font-size:14px;font-weight:700;letter-spacing:.22em;color:var(--muted-2);text-transform:uppercase}
+  #s15 .txt15 .point{display:flex;flex-direction:column;gap:28px}
+  #s15 .txt15 .pt{display:flex;align-items:center;gap:26px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:40px 36px}
+  #s15 .txt15 .pt .ico{width:72px;height:72px;border-radius:18px;background:var(--orange-soft);display:flex;align-items:center;justify-content:center;flex:none}
+  #s15 .txt15 .pt .ico svg{width:60%;height:60%}
+  #s15 .txt15 .pt .ptxt b{display:block;font-size:36px;font-weight:800;color:var(--ink);line-height:1.2}
+  #s15 .txt15 .pt .ptxt span{font-size:24px;color:var(--muted);font-weight:600;margin-top:10px;display:block}
+  #s15 .img15{flex:0 0 480px;display:flex;align-items:center;justify-content:flex-end;min-width:0;margin-left:auto}
+  #s15 .img15 img{width:100%;max-height:400px;object-fit:contain;object-position:center;border-radius:14px;border:1.5px solid var(--line);box-shadow:0 20px 50px rgba(20,22,26,.12)}
+
+  /* =====================================================
+     SLIDE 16 — two cards
+  ===================================================== */
+  #s16 .cards{display:flex;gap:28px;margin-top:36px;flex:1;}
+  #s16 .c{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:34px 32px;display:flex;flex-direction:column;}
+  #s16 .c .ic{width:60px;height:60px;border-radius:15px;background:var(--orange);display:flex;align-items:center;justify-content:center;margin-bottom:22px;box-shadow:0 10px 24px rgba(255,127,0,.3);}
+  #s16 .c h3{font-size:30px;font-weight:800;letter-spacing:-.01em;}
+  #s16 .c .en{font-family:var(--f-mono);font-size:12px;font-weight:600;letter-spacing:.16em;color:var(--muted-2);margin-top:4px;text-transform:uppercase;}
+  #s16 .c p{font-size:32px;font-weight:500;color:var(--ink-2);line-height:1.5;margin-top:20px;}
+  #s16 .c p b{color:var(--orange-d);font-weight:700;}
+
+  /* =====================================================
+     SLIDE 18 — PRICING
+  ===================================================== */
+  #s18 .plans{display:flex;gap:22px;margin-top:32px;flex:1;align-items:stretch;}
+  #s18 .plan{flex:1;background:var(--white);border:1px solid var(--line);border-radius:18px;padding:26px 24px;display:flex;flex-direction:column;position:relative;}
+  #s18 .plan.best{background:linear-gradient(180deg,#14161A,#1C2027);border:none;color:#fff;box-shadow:0 24px 54px rgba(20,22,26,.28);transform:translateY(-8px);}
+  #s18 .plan .best-tag{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--orange);color:#fff;font-family:var(--f-mono);font-weight:700;font-size:12px;letter-spacing:.14em;padding:6px 16px;border-radius:20px;box-shadow:0 6px 16px rgba(255,127,0,.4);}
+  #s18 .plan .pn{font-family:var(--f-mono);font-weight:700;font-size:16px;letter-spacing:.16em;color:var(--muted);}
+  #s18 .plan.best .pn{color:var(--orange);}
+  #s18 .plan .price{font-family:var(--f-disp);font-weight:800;font-size:44px;margin-top:8px;letter-spacing:-.02em;line-height:1;}
+  #s18 .plan .price small{font-size:16px;color:var(--muted);font-weight:600;}
+  #s18 .plan.best .price small{color:var(--muted-2);}
+  #s18 .plan .hr{height:1px;background:var(--line);margin:20px 0 18px;}
+  #s18 .plan.best .hr{background:rgba(255,255,255,.12);}
+  #s18 .plan ul{list-style:none;display:flex;flex-direction:column;gap:13px;}
+  #s18 .plan li{font-size:24px;font-weight:800;color:var(--ink-2);display:flex;align-items:flex-start;gap:9px;line-height:1.35;}
+  #s18 .plan.best li{color:#D5D9DF;}
+  #s18 .plan li::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--orange);flex:none;margin-top:7px;}
+  #s18 .plan li .off{color:var(--muted-2);}
+
+  /* =====================================================
+     SLIDE 19 — revenue flow
+  ===================================================== */
+  #s19 .rev{display:flex;align-items:center;justify-content:center;gap:28px;margin-top:36px;}
+  #s19 .rnode{width:320px;background:var(--white);border:1px solid var(--line);border-radius:20px;padding:36px 30px;text-align:center;box-shadow:0 18px 44px rgba(20,22,26,.10);}
+  #s19 .rnode.mid{background:var(--orange);border:none;color:#fff;box-shadow:0 20px 48px rgba(255,127,0,.36);}
+  #s19 .rnode .ic{width:110px;height:110px;border-radius:22px;background:var(--orange-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;}
+  #s19 .rnode .ic svg{width:60%;height:60%}
+  #s19 .rnode.mid .ic{background:rgba(255,255,255,.16);} 
+  #s19 .rnode .rt{font-size:30px;font-weight:800;}
+  #s19 .rnode .rd{font-size:18px;color:var(--muted);margin-top:8px;font-weight:600;}
+  #s19 .rnode.mid .rd{color:rgba(255,255,255,.95);}
+  #s19 .rarrow{width:110px;display:flex;flex-direction:column;align-items:center;color:var(--orange);gap:8px;font-size:28px}
+  #s19 .rarrow .lab{font-family:var(--f-mono);font-size:24px;font-weight:700;color:var(--muted);letter-spacing:.06em;}
+  #s19 .payoff{margin-top:48px;text-align:center;background:var(--orange-soft);border:1px solid var(--orange-soft-2);border-radius:18px;padding:26px 40px;font-size:28px;font-weight:800;color:var(--ink-2);} 
+  #s19 .payoff .amt{color:var(--orange);font-weight:900;margin:0 6px}
+  #s19 .payoff b{color:var(--ink-2);font-weight:900}
+
+  /* =====================================================
+     SLIDES 21-24 — impact
+  ===================================================== */
+  .impact .body-wrap{display:flex;gap:40px;flex:1;align-items:center;margin-top:22px;}
+  .impact .icon-col{flex:none;width:220px;display:flex;align-items:center;justify-content:center;}
+  .impact .big-ic{width:180px;height:180px;border-radius:40px;background:linear-gradient(160deg,var(--orange),#FF9E33);display:flex;align-items:center;justify-content:center;box-shadow:0 24px 54px rgba(255,127,0,.32);}
+  .impact .txt-col{flex:1;}
+  .impact .kicker{display:inline-block;font-size:16px;font-weight:700;color:var(--orange-d);background:var(--orange-soft);border:1px solid var(--orange-soft-2);padding:8px 16px;border-radius:22px;margin-bottom:20px;}
+  .impact .lead{font-size:var(--body);line-height:1.36;color:var(--ink);font-weight:600;}
+  .impact .lead b{color:var(--orange-d);}
+  .impact .prog{display:flex;gap:8px;margin-top:34px;}
+  .impact .prog span{width:34px;height:6px;border-radius:3px;background:var(--line);}
+  .impact .prog span.on{background:var(--orange);width:52px;}
+
+  /* footer brand on content slides */
+  .foot{position:absolute;right:34px;bottom:26px;display:flex;align-items:center;gap:8px;font-family:var(--f-mono);font-size:11px;color:var(--muted-2);letter-spacing:.12em;font-weight:600;}
+  .foot .m{width:11px;height:11px;border-radius:3px;background:var(--orange);}
+
+  @media (max-width:520px){
+    #hud{bottom:10px}
+  }
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="viewport">
+  <div id="stage">
+
+    <!-- ============ SLIDE 1 : TITLE ============ -->
+    <section class="slide" id="s1">
+      <div class="grid-bg"></div>
+      <div class="candles" id="candles"></div>
+      <div class="pad">
+        <div class="brand">
+          <div class="modules"><span class="m"></span><span class="m o"></span></div>
+          <span class="tag">NEMO · NEMO TRADING</span>
+        </div>
+        <h1>네모네모 매매<span class="dot">.</span></h1>
+        <p class="sub"><b style="color:#fff">노코드 알고리즘 트레이딩</b> 전략 생성 서비스</p>
+        <div class="team">
+          <span class="grp">4조</span>
+          <span>강준현 · 김도형 · 이서연 · 이혜리 · 전병현 · 주형준</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SLIDE 2 : CONTENTS ============ -->
+    <section class="slide" id="s2">
+      <div class="pad">
+        <div class="top">
+          <div>
+            <div class="en-big">CONTENTS</div>
+            <h2>목차</h2>
+          </div>
+          <div class="modules" style="display:flex;gap:7px">
+            <span style="width:18px;height:18px;border-radius:5px;background:var(--orange)"></span>
+            <span style="width:18px;height:18px;border-radius:5px;border:2px solid var(--orange)"></span>
+          </div>
+        </div>
+        <div class="toc">
+          <div class="row"><span class="n">01</span><span class="t">서비스 배경</span><span class="arrow">→</span></div>
+          <div class="row"><span class="n">02</span><span class="t">서비스 주요 기능</span><span class="arrow">→</span></div>
+          <div class="row"><span class="n">03</span><span class="t">기존 서비스와의 차별점</span><span class="arrow">→</span></div>
+          <div class="row"><span class="n">04</span><span class="t">요금제 및 수익 모델</span><span class="arrow">→</span></div>
+          <div class="row"><span class="n">05</span><span class="t">기대 효과</span><span class="arrow">→</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SLIDE 3 : DIVIDER 01 ============ -->
+    <section class="slide divider" id="s3">
+      <div class="grid-bg"></div>
+      <div class="pad">
+        <div class="mods"><span class="on"></span><span></span><span></span><span></span><span></span></div>
+        <div class="en">01 · SERVICE BACKGROUND</div>
+        <h2>서비스 배경</h2>
+      </div>
+      <div class="sec-num">01</div>
+    </section>
+
+    <!-- ============ SLIDE 4 : MARKET STATS ============ -->
+    <section class="slide" id="s4">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">01</div><span class="kr">서비스 배경</span><span class="en">Market</span></div>
+        <h1 class="headline"><span class="hl">1,442만</span> 투자자 시대,<br>수익의 문턱은 여전히 높다</h1>
+        <div class="cols">
+          <div class="card">
+            <div class="lbl">개인 주식 소유자 추이</div>
+            <div class="bars">
+              <div class="barwrap"><div class="bar old"><span class="v">619만</span></div><div class="yr">2019</div></div>
+              <div class="barwrap"><div class="bar new"><span class="v">1,442만</span></div><div class="yr">2025</div></div>
+            </div>
+            <div class="grow-tag">▲ 2.3배</div>
+            <div class="src source">출처 · 한국예탁결제원</div>
+          </div>
+          <div class="card">
+            <div class="lbl">개인 투자 손익 분포</div>
+            <div class="donut-wrap">
+              <div class="donut">
+                <svg viewBox="0 0 42 42" width="190" height="190">
+                  <circle cx="21" cy="21" r="15.9" fill="none" stroke="#E7E9EE" stroke-width="6"></circle>
+                  <circle cx="21" cy="21" r="15.9" fill="none" stroke="#E5484D" stroke-width="6"
+                    stroke-dasharray="49.9 50.1" stroke-dashoffset="25" stroke-linecap="round"></circle>
+                </svg>
+                <div class="center"><div class="pct">49.9%</div><div class="pl">손실 중</div></div>
+              </div>
+              <div class="legend">
+                <div class="li"><span class="dot" style="background:#E5484D"></span>손실 49.9%</div>
+                <div class="li"><span class="dot" style="background:#FF7F00"></span>수익 50.1%</div>
+                <div class="li" style="font-size:15px;color:var(--muted);font-weight:600;margin-top:4px">개인 투자자 절반이<br>손실을 경험</div>
+              </div>
+            </div>
+            <div class="src source">출처 · 인크루트</div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 5 : QUOTES ============ -->
+    <section class="slide" id="s5">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">01</div><span class="kr">서비스 배경</span><span class="en">Pain Point</span></div>
+        <h1 class="headline">투자 아이디어는 있지만,<br><span class="hl">전략</span>이 되긴 어렵습니다</h1>
+        <div class="qs">
+          <div class="q">
+            <span class="mark">“</span>
+            <p>많이 언급되길래 샀어요. 살 때 기준 같은 건 <b>없었습니다.</b></p>
+            <div class="who">— 감(感)에 의존하는 개인 투자자</div>
+          </div>
+          <div class="q">
+            <span class="mark">“</span>
+            <p>시세도 뉴스도 보며 투자하고 싶지만, <b>근무 중이라</b> 그럴 수 없어요.</p>
+            <div class="who">— 시간이 없는 직장인 투자자</div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 6 : DIVIDER 02 ============ -->
+    <section class="slide divider" id="s6">
+      <div class="grid-bg"></div>
+      <div class="pad">
+        <div class="mods"><span></span><span class="on"></span><span></span><span></span><span></span></div>
+        <div class="en">02 · SERVICE OVERVIEW</div>
+        <h2>서비스 주요 기능</h2>
+      </div>
+      <div class="sec-num">02</div>
+    </section>
+
+    <!-- ============ SLIDE 7 : PIPELINE ============ -->
+    <section class="slide" id="s7">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">02</div><span class="kr">서비스 주요 기능</span><span class="en">Overview</span></div>
+        <h1 class="headline">아이디어부터 <span class="hl">자동매매</span>까지, 한 흐름으로</h1>
+        <div class="flow">
+          <div class="step"><div class="ic">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div><div class="sn">STEP 01</div><div class="st">문장으로<br>전략 입력</div></div>
+          <div class="arrow">→</div>
+          <div class="step"><div class="ic">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4"/></svg>
+          </div><div class="sn">STEP 02</div><div class="st">UI로<br>전략 편집</div></div>
+          <div class="arrow">→</div>
+          <div class="step"><div class="ic">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 4-5"/></svg>
+          </div><div class="sn">STEP 03</div><div class="st">뉴스<br>지표화</div></div>
+          <div class="arrow">→</div>
+          <div class="step"><div class="ic">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10M6 20v-6M18 20V6"/></svg>
+          </div><div class="sn">STEP 04</div><div class="st">백테스트<br>검증</div></div>
+          <div class="arrow">→</div>
+          <div class="step key"><div class="ic">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+          </div><div class="sn">STEP 05</div><div class="st">자동매매<br>실행</div></div>
+        </div>
+        <div class="cap">코딩 지식 없이 <b>다섯 단계</b>로 나만의 알고리즘 매매를 완성합니다</div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 8 : SENTENCE -> STRATEGY ============ -->
+    <section class="slide feat" id="s8">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">02</div><span class="kr">서비스 주요 기능</span><span class="en">Feature 01</span></div>
+        <h1 class="headline">문장 한 줄로<br><span class="hl">전략 완성</span></h1>
+        <div class="split">
+          <div class="left">
+            <p class="lead">투자 아이디어를 입력하면<br>실행 가능한 전략으로 자동 변환합니다.</p>
+            <div class="taglist"><span class="tag">자연어 입력</span><span class="tag">AI 전략 변환</span><span class="tag">즉시 실행</span></div>
+          </div>
+          <div class="right">
+            <div class="mock">
+              <div class="bar"><i></i><i></i><i></i></div>
+              <div class="body">
+                <div class="chat-in">“RSI 30 이하면 매수, 뉴스 긍정도 높을 때만”<span class="cur"></span></div>
+                <div class="flow-arrow">↓ AI 변환</div>
+                <div class="chips">
+                  <div class="chip"><span class="k b">조건</span>RSI &lt; 30</div>
+                  <div class="chip"><span class="k">지표</span>뉴스 긍정도 &gt; 0.7</div>
+                  <div class="chip"><span class="k g">실행</span>시장가 매수</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 9 : NODE EDITOR ============ -->
+    <section class="slide feat" id="s9">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">02</div><span class="kr">서비스 주요 기능</span><span class="en">Feature 02</span></div>
+        <h1 class="headline">직관적인 UI로<br><span class="hl">전략 편집</span></h1>
+        <div class="split">
+          <div class="left">
+            <p class="lead">노드를 끌어다 연결하며<br>전략을 자유롭게 <br>조립합니다.</p>
+            <div class="taglist"><span class="tag">드래그 & 드롭</span><span class="tag">노드 조합</span><span class="tag">실시간 미리보기</span></div>
+          </div>
+          <div class="right">
+            <div class="mock">
+              <div class="bar"><i></i><i></i><i></i></div>
+              <div class="body">
+                <div class="nodes">
+                  <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" viewBox="0 0 460 280" preserveAspectRatio="none">
+                    <path d="M150 58 C210 58 210 140 250 140" fill="none" stroke="#FFCFA0" stroke-width="2.5"/>
+                    <path d="M150 210 C210 210 210 150 250 150" fill="none" stroke="#FFCFA0" stroke-width="2.5"/>
+                    <path d="M382 145 C410 145 410 145 430 145" fill="none" stroke="#FF7F00" stroke-width="2.5"/>
+                  </svg>
+                  <div class="node orange" style="left:8px;top:34px"><div class="nt">지표</div><div class="nd">RSI 14</div><span class="dotR"></span></div>
+                  <div class="node orange" style="left:8px;top:186px"><div class="nt">뉴스</div><div class="nd">긍정 점수</div><span class="dotR"></span></div>
+                  <div class="node" style="left:250px;top:116px"><div class="nt">조건 AND</div><div class="nd">매수 신호</div><span class="dotL"></span><span class="dotR"></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 10 : NEWS -> SCORE ============ -->
+    <section class="slide feat" id="s10">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">02</div><span class="kr">서비스 주요 기능</span><span class="en">Feature 03</span></div>
+        <h1 class="headline">뉴스와 공시를<br><span class="hl">정량 지표화</span></h1>
+        <div class="split">
+          <div class="left">
+            <p class="lead">비정형 뉴스·공시를 <br>숫자 지표로 바꿔 전략에 <br>바로 활용합니다.</p>
+            <div class="taglist"><span class="tag">감성 분석</span><span class="tag">공시 파싱</span><span class="tag">지표 노드화</span></div>
+          </div>
+          <div class="right">
+            <div class="mock">
+              <div class="bar"><i></i><i></i><i></i></div>
+              <div class="body">
+                <div class="news"><div class="src">실시간 뉴스</div><div class="hl">“○○전자, 신규 대규모 수주 계약 체결”</div></div>
+                <div class="flow-arrow">↓ 정량화</div>
+                <div class="gauge">
+                  <div class="meter"><div class="pin"></div></div>
+                  <div class="score">+ 긍정<span></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 11 : BACKTEST ============ -->
+    <section class="slide feat" id="s11">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">02</div><span class="kr">서비스 주요 기능</span><span class="en">Feature 04</span></div>
+        <h1 class="headline">백테스트로<br><span class="hl">수익률 확인</span></h1>
+        <div class="split">
+          <div class="left">
+            <p class="lead">과거 데이터로 전략 성과를<br>실행 전에 검증합니다.</p>
+            <div class="taglist"><span class="tag">과거 데이터</span><span class="tag">성과 리포트</span><span class="tag">리스크 진단</span></div>
+          </div>
+          <div class="right">
+            <div class="mock">
+              <div class="bar"><i></i><i></i><i></i></div>
+              <div class="body">
+                <svg viewBox="0 0 460 180" width="100%" height="150">
+                  <defs><linearGradient id="eq" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF7F00" stop-opacity=".28"/><stop offset="1" stop-color="#FF7F00" stop-opacity="0"/></linearGradient></defs>
+                  <line x1="0" y1="150" x2="460" y2="150" stroke="#E7E9EE"/>
+                  <path d="M0 140 L60 128 L120 132 L180 96 L240 104 L300 62 L360 70 L420 34 L460 26 L460 150 L0 150 Z" fill="url(#eq)"/>
+                  <path d="M0 140 L60 128 L120 132 L180 96 L240 104 L300 62 L360 70 L420 34 L460 26" fill="none" stroke="#FF7F00" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+                  <circle cx="460" cy="26" r="5" fill="#FF7F00"/>
+                </svg>
+                <div class="metrics">
+                  <div class="metric"><div class="mv">+38.4%</div><div class="ml">누적 수익률</div></div>
+                  <div class="metric"><div class="mv">61%</div><div class="ml">승률</div></div>
+                  <div class="metric"><div class="mv loss">-9.2%</div><div class="ml">최대 낙폭</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 12 : ACCOUNT LINK ============ -->
+    <section class="slide feat" id="s12">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">02</div><span class="kr">서비스 주요 기능</span><span class="en">Feature 05</span></div>
+        <h1 class="headline">계좌 연동 및<br><span class="hl">자동매매 실행</span></h1>
+        <div class="split">
+          <div class="left">
+            <p class="lead">증권사 계좌를 연동해<br>전략을 실제 주문까지 자동 실행합니다.</p>
+            <div class="taglist"><span class="tag">증권사 API</span><span class="tag">실시간 체결</span><span class="tag">무중단 실행</span></div>
+          </div>
+          <div class="right">
+            <div class="mock">
+              <div class="bar"><i></i><i></i><i></i></div>
+              <div class="body">
+                <div class="link-flow">
+                  <div class="lf-row"><div class="ic" style="background:var(--orange-soft)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div><div class="tx"><b>증권사 계좌 연동</b><span>제휴 증권사 · 안전 인증</span></div><div class="st">연결됨</div></div>
+                  <div class="lf-row"><div class="ic" style="background:var(--orange-soft)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><div class="tx"><b>전략 신호 발생</b><span>조건 충족 시 자동 감지</span></div><div class="st">감지</div></div>
+                  <div class="lf-row"><div class="ic" style="background:var(--orange)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div><div class="tx"><b>실시간 주문 체결</b><span>지연 없이 시장가 실행</span></div><div class="st">체결</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 13 : DIVIDER 03 ============ -->
+    <section class="slide divider" id="s13">
+      <div class="grid-bg"></div>
+      <div class="pad">
+        <div class="mods"><span></span><span></span><span class="on"></span><span></span><span></span></div>
+        <div class="en">03 · POINT OF DIFFERENCE</div>
+        <h2>기존 서비스와의 차별점</h2>
+      </div>
+      <div class="sec-num">03</div>
+    </section>
+
+    <!-- ============ SLIDE 14 : NL STRATEGY ============ -->
+    <section class="slide" id="s14">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">03</div><span class="kr">차별점</span><span class="en">Natural Language</span></div>
+        <h1 class="headline">자연어 한 문장이<br><span class="hl">전략 전 과정</span>이 됩니다</h1>
+        <div class="demo">
+          <div class="nlbox"><span class="q">“</span><p>실적 좋고 뉴스 반응 긍정적인 종목을 매수하고 싶어</p><span class="q">"</span></div>
+          <div class="down">↓</div>
+          <div class="outs">
+            <div class="out"><div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div><div class="t">종목 탐색</div><div class="d">조건에 맞는 종목 발굴</div></div>
+            <div class="out"><div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4"/></svg></div><div class="t">전략 구성</div><div class="d">매매 로직 자동 설계</div></div>
+            <div class="out"><div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 4-5"/></svg></div><div class="t">성과 시뮬레이션</div><div class="d">프롬프트 랭킹 제공</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 15 : BIG NUMBER ============ -->
+    <section class="slide" id="s15">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">03</div><span class="kr">차별점</span><span class="en">Competitor Gap</span></div>
+        <h1 class="headline">PORT.AI</h1>
+        <div class="split15">
+          <div class="txt15">
+
+            <div class="point">
+              <div class="pt">
+                <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+                <div class="ptxt"><b>시각적 노드 편집 불가</b><span>자연어로 다시 빌드해야 함</span></div>
+              </div>
+              <div class="pt">
+                <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 4-5"/></svg></div>
+                <div class="ptxt"><b>뉴스 데이터 반영 없음</b><span>비정형 뉴스를 전략 지표로 활용할 수 없음</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="img15">
+            <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ0dGAGS0B4Aminunj4eSMcnoYhV7W5d5Uejsg4mTxb2Q&s=10" alt="타 서비스 화면">
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 16 : CHECK API + EXPANSION ============ -->
+    <section class="slide" id="s16">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">03</div><span class="kr">차별점</span><span class="en">Data & Expansion</span></div>
+        <h1 class="headline">데이터 연동과 <span class="hl">확장성</span></h1>
+        <div class="cards">
+          <div class="c">
+            <div class="ic"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg></div>
+            <h3>CHECK API 연동</h3>
+            <div class="en">Koscom CHECK API</div>
+            <p>코스콤 CHECK API로 <b>뉴스·시장 데이터</b>를 수집하고, 향후 실시간 시세·공시·시장 지표까지 전략에 활용합니다.</p>
+          </div>
+          <div class="c">
+            <div class="ic"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div>
+            <h3>사업 확장성</h3>
+            <div class="en">Platform Scale-up</div>
+            <p>증권사 API와 연계해 <b>전략 설계 · 백테스트 · 실주문</b>까지 아우르는 종합 알고리즘 투자 플랫폼으로 확장합니다.</p>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 17 : DIVIDER 04 ============ -->
+    <section class="slide divider" id="s17">
+      <div class="grid-bg"></div>
+      <div class="pad">
+        <div class="mods"><span></span><span></span><span></span><span class="on"></span><span></span></div>
+        <div class="en">04 · PRICING</div>
+        <h2>요금제 및 수익 모델</h2>
+      </div>
+      <div class="sec-num">04</div>
+    </section>
+
+    <!-- ============ SLIDE 18 : PRICING ============ -->
+    <section class="slide" id="s18">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">04</div><span class="kr">요금제</span><span class="en">Plans</span></div>
+        <h1 class="headline">쓰는 만큼 <span class="hl">확장되는 요금제</span></h1>
+        <div class="plans">
+          <div class="plan">
+            <div class="pn">FREE</div>
+            <div class="price">무료</div>
+            <div class="hr"></div>
+            <ul>
+              <li>노드 최대 4개</li>
+              <li>백테스트 월 10회</li>
+              <li>전략 저장 3개</li>
+              <li>스케줄러 1분 단위</li>
+              <li class="off">AI 뉴스 분석 미제공</li>
+              <li>AI 전략 생성 3회 <span class="off">(체험)</span></li>
+            </ul>
+          </div>
+          <div class="plan">
+            <div class="pn">STANDARD</div>
+            <div class="price">15,000<small>원/월</small></div>
+            <div class="hr"></div>
+            <ul>
+              <li>노드 100개</li>
+              <li>백테스트 월 100회</li>
+              <li>전략 저장 20개</li>
+              <li>스케줄러 10초 단위</li>
+              <li>AI 뉴스 분석 월 100회</li>
+              <li>AI 전략 생성 10회</li>
+            </ul>
+          </div>
+          <div class="plan best">
+            <div class="best-tag">BEST</div>
+            <div class="pn">PRO</div>
+            <div class="price">29,000<small>원/월</small></div>
+            <div class="hr"></div>
+            <ul>
+              <li>노드 무제한</li>
+              <li>백테스트 월 300회</li>
+              <li>전략 저장 80개</li>
+              <li>스케줄러 10초 단위</li>
+              <li>AI 뉴스 분석 월 300회</li>
+              <li>AI 전략 생성 30회</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 19 : REVENUE FLOW ============ -->
+    <section class="slide" id="s19">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">04</div><span class="kr">수익 모델</span><span class="en">Revenue</span></div>
+        <h1 class="headline">증권사 제휴형 <span class="hl">매매 연동</span></h1>
+        <div class="rev">
+          <div class="rnode">
+            <div class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></div>
+            <div class="rt">유료 이용자</div><div class="rd">전략 실거래 연동</div>
+          </div>
+          <div class="rarrow"><span class="lab">계좌연동</span><span style="font-size:32px">→</span></div>
+          <div class="rnode mid">
+            <div class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4"/></svg></div>
+            <div class="rt">네모네모 매매</div><div class="rd">주문 신호 전달</div>
+          </div>
+          <div class="rarrow"><span class="lab">주문체결</span><span style="font-size:32px">→</span></div>
+          <div class="rnode">
+            <div class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01"/></svg></div>
+            <div class="rt">제휴 증권사</div><div class="rd">신규 계좌·트레이더 유치</div>
+          </div>
+        </div>
+        <div class="payoff">증권사 당 <span class="amt">월 30만원</span> <b>제휴 수수료 수취</b> &nbsp;<span>— 이용자·플랫폼·증권사 모두의 윈-윈 구조</span></div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 20 : DIVIDER 05 ============ -->
+    <section class="slide divider" id="s20">
+      <div class="grid-bg"></div>
+      <div class="pad">
+        <div class="mods"><span></span><span></span><span></span><span></span><span class="on"></span></div>
+        <div class="en">05 · EXPECTED IMPACT</div>
+        <h2>기대 효과</h2>
+      </div>
+      <div class="sec-num">05</div>
+    </section>
+
+    <!-- ============ SLIDE 21 : IMPACT 1 ============ -->
+    <section class="slide impact" id="s21">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">05</div><span class="kr">기대 효과</span><span class="en">Impact 01</span></div>
+        <div class="body-wrap">
+          <div class="icon-col"><div class="big-ic">
+            <svg width="86" height="86" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg>
+          </div></div>
+          <div class="txt-col">
+            <span class="kicker">CHECK API 활성화</span>
+            <p class="lead">CHECK API를 <b>뉴스 지표 노드</b>와 결합해, 이벤트 발생 시 관련 상품 정보를 전략 내에서 즉시 조회 → <b>API 사용률 제고.</b></p>
+            <div class="prog"><span class="on"></span><span></span><span></span><span></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 22 : IMPACT 2 ============ -->
+    <section class="slide impact" id="s22">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">05</div><span class="kr">기대 효과</span><span class="en">Impact 02</span></div>
+        <div class="body-wrap">
+          <div class="icon-col"><div class="big-ic">
+            <svg width="86" height="86" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 12 22 12A10 10 0 0 0 12 2z"/><path d="M7 15l3-3 2 2 4-5"/></svg>
+          </div></div>
+          <div class="txt-col">
+            <span class="kicker">비금융·금융 데이터 융합</span>
+            <p class="lead">뉴스·공시 등 <b>비정형 데이터를 정량화</b>해 가격·거래량과 결합 → 코스콤의 <b>데이터 활용 역량</b>을 실증합니다.</p>
+            <div class="prog"><span></span><span class="on"></span><span></span><span></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 23 : IMPACT 3 ============ -->
+    <section class="slide impact" id="s23">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">05</div><span class="kr">기대 효과</span><span class="en">Impact 03</span></div>
+        <div class="body-wrap">
+          <div class="icon-col"><div class="big-ic">
+            <svg width="86" height="86" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/><path d="M14 9h5v5"/></svg>
+          </div></div>
+          <div class="txt-col">
+            <span class="kicker">증권사 연계 · 사업 확장성</span>
+            <p class="lead">계좌연동으로 신호 제공을 넘어 <b>실매매까지 이어지는 선순환</b> → 금융 인프라 사업자 위상 강화, <b>신규 B2B 채널</b> 확보.</p>
+            <div class="prog"><span></span><span></span><span class="on"></span><span></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+    <!-- ============ SLIDE 24 : IMPACT 4 ============ -->
+    <section class="slide impact" id="s24">
+      <div class="pad">
+        <div class="eyebrow"><div class="num-badge">05</div><span class="kr">기대 효과</span><span class="en">Impact 04</span></div>
+        <div class="body-wrap">
+          <div class="icon-col"><div class="big-ic">
+            <svg width="86" height="86" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="m19 3 1.5 1.5L19 6"/></svg>
+          </div></div>
+          <div class="txt-col">
+            <span class="kicker">개인투자자 역량 제고</span>
+            <p class="lead">코딩 없이 <b>뉴스 기반 알고리즘 매매</b> 설계가 가능 → 개인의 데이터 기반 투자 역량 향상과 <b>알고리즘 트레이딩 대중화.</b></p>
+            <div class="prog"><span></span><span></span><span></span><span class="on"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+
+  </div><!--/#stage-->
+</div><!--/#viewport-->
+
+<div id="hud">
+  <button class="nav-btn" id="prev" aria-label="이전">‹</button>
+  <span id="counter"><b>01</b> / 24</span>
+  <button class="nav-btn" id="next" aria-label="다음">›</button>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  let cur = 0;
+  const bar = document.getElementById('bar');
+  const counter = document.getElementById('counter');
+
+  function pad(n){return String(n).padStart(2,'0');}
+  function show(i){
+    cur = Math.max(0, Math.min(total-1, i));
+    slides.forEach((s,idx)=>s.classList.toggle('active', idx===cur));
+    counter.innerHTML = '<b>'+pad(cur+1)+'</b> / '+total;
+    bar.style.width = ((cur+1)/total*100)+'%';
+  }
+  function next(){show(cur+1);}
+  function prev(){show(cur-1);}
+
+  document.getElementById('next').addEventListener('click',next);
+  document.getElementById('prev').addEventListener('click',prev);
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){show(0);}
+    else if(e.key==='End'){show(total-1);}
+  });
+  // click right/left half of stage to navigate
+  document.getElementById('stage').addEventListener('click',e=>{
+    const r = e.currentTarget.getBoundingClientRect();
+    if(e.clientX - r.left > r.width/2) next(); else prev();
+  });
+
+  // scale stage to fit viewport (contain), leaving room for HUD
+  function fit(){
+    const vw = window.innerWidth, vh = window.innerHeight - 70;
+    const scale = Math.min(vw/1280, vh/720);
+    document.getElementById('stage').style.transform = 'scale('+scale+')';
+  }
+  window.addEventListener('resize',fit);
+
+  // build title candlesticks
+  (function(){
+    const wrap = document.getElementById('candles');
+    const data = [
+      [55,90,'up'],[70,60,'dn'],[40,110,'up'],[80,70,'dn'],[50,130,'up'],
+      [95,80,'up'],[60,50,'dn'],[45,150,'up'],[85,95,'dn'],[55,180,'up'],[70,120,'up']
+    ];
+    data.forEach(([wick,body,dir])=>{
+      const c=document.createElement('div');c.className='c';
+      const w=document.createElement('div');w.className='wick';w.style.height=wick+'px';
+      const b=document.createElement('div');b.className='body';b.style.height=body+'px';
+      b.style.background = dir==='up' ? '#FF7F00' : '#2E333B';
+      c.appendChild(w);c.appendChild(b);wrap.appendChild(c);
+    });
+  })();
+
+  fit(); show(0);
+</script>
+</body>
+</html>

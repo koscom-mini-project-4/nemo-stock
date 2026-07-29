@@ -14,5 +14,4 @@ RUN npm install -g serve
 
 EXPOSE 5173
 
-# -s 옵션: Single Page Application 라우팅(index.html 폴백) 처리
-CMD ["serve", "-s", "dist", "-l", "5173"]
+CMD ["serve", "dist", "-l", "5173"]
