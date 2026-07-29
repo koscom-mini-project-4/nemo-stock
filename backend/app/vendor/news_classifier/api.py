@@ -59,12 +59,13 @@ class NewsTrader:
 
     # ------------------------------------------------------------ 갱신
     def update(self, force: bool = False, progress=None,
-               days: int = None, keywords: list = None) -> dict:
+               days: int = None, keywords: list = None, max_pages: int = None) -> dict:
         """크롤링 -> 분류 -> 정리. 실제로 한 일을 요약해서 돌려준다.
 
         force=False 면 마지막 갱신 후 update_interval_min 이 안 지났을 때 건너뛴다.
-        days/keywords(§0-12): 주어지면 이번 호출 1회만 Settings 기본값을 오버라이드한다
-        (전역 설정은 그대로 — 1회성 트리거용, 예: "최근 N일치만, 특정 키워드만").
+        days/keywords/max_pages(§0-12/nemo-stock 후속): 주어지면 이번 호출 1회만 Settings
+        기본값을 오버라이드한다(전역 설정은 그대로 — 1회성 트리거용, 예: "최근 N일치만,
+        특정 키워드만, 날짜당 최대 페이지 수를 늘려서").
         """
         s = self.settings
         since = crawler.minutes_since_last_crawl(self.conn)
@@ -75,7 +76,8 @@ class NewsTrader:
         crawled = crawler.crawl(
             self.conn,
             days=days if days is not None else s.crawl_days,
-            max_pages=s.crawl_max_pages, workers=s.crawl_workers, progress=progress,
+            max_pages=max_pages if max_pages is not None else s.crawl_max_pages,
+            workers=s.crawl_workers, progress=progress,
             keywords=keywords if keywords is not None else s.crawl_keywords,
         )
 

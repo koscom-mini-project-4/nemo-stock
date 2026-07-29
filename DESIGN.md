@@ -652,6 +652,96 @@ SSE 프레임(`chunk`→`result`)이 순서대로 오는 것을 라이브 확인
 성공하고 `/ai/workflow-chat`은 여전히 400) 확인. 백엔드 pytest 361→364개 전부 통과.
 `vue-tsc -b` 통과(프론트 변경 없음).
 
+## 0-20. 검색 기반 뉴스 딥 크롤러 + 뉴스 갱신 모델/페이지수 오버라이드 (2026-07-29 사용자 요청)
+
+사용자 요청: "아이씨에이치"가 제목/본문에 들어간 뉴스 8일치를 크롤링해 gpt-5-nano로
+DB에 추가. 기존 `POST /data/news/update`(`app/vendor/news_classifier/crawler.py`)로
+시도했으나 **경제 섹션(news.naver.com, sid1=101) 헤드라인만 훑는 구조라 코스닥 소형주
+뉴스가 0건**이었다(실측: 최근 크롤링된 1,192건 중 제목/본문 어디에도 "아이씨에이치"
+없음). 사용자가 "검색어로 최신순 딥 서치"를 요청해 네이버 뉴스 검색(`search.naver.com`)
+기반의 새 크롤 경로를 추가했다.
+
+- `app/vendor/news_classifier/search_crawler.py`(신규): `crawl_search(conn, query, days,
+  max_results, workers, progress)`. 검색 결과는 news.naver.com이 아니라 각 언론사
+  자체 사이트로 연결되고, 네이버 검색 페이지 자체도 최근 컴포넌트 시스템
+  (`fds-*`/`sds-comps-*`)으로 개편돼 클래스명이 빌드마다 바뀌는 해시라 셀렉터로
+  기사를 구분할 수 없었다 — 대신 실측으로 확인한 안정적인 속성 조합(`nocr="1"` +
+  경로 있음 + naver.com 아님)으로 기사 링크만 골라낸다. 언론사마다 HTML 구조가 달라
+  `crawler.py`의 Naver 전용 셀렉터를 재사용할 수 없어, 다수 언론사(뉴스프라임/필드뉴스/
+  이코노뉴스/컨슈머타임스/전자신문 등) 표본 조사로 확인한 범용 규칙(og:title/
+  og:description + 흔한 본문 셀렉터 후보 목록 + `article:published_time` 메타 우선,
+  없으면 본문 텍스트에서 날짜 정규식)으로 제네릭 추출한다. 제목/본문/**날짜** 중
+  하나라도 못 찾으면 그 기사는 건너뛴다 — 날짜를 신뢰할 수 없는 기사를 억지로
+  포함시키지 않는다(§0-12-1에서 겪은 "발행일시 파싱 실패 시 수집 시점으로 잘못
+  채워짐" 사고를 반복하지 않기 위함). `crawler.py`는 그대로 유지(기존 30분 자동
+  갱신/`ai.news_signal` 경로 무변경), 완전히 별도 파일로 추가해 회귀 위험을 없앴다.
+- `app/cli/ingest_news_search.py`(신규): 위 크롤러 + `pipeline.classify_many`를 묶어
+  터미널에서 바로 실행하는 CLI(`python -m app.cli.ingest_news_search --query <검색어>
+  --days 8 --model gpt-5-nano`). `app/cli/ingest_prices.py`와 동일한 패턴(앱 컨테이너
+  전체를 안 띄우고 필요한 리포지토리만 직접 구성). AI 사용량은 기존 사용량 로그
+  (`AIUsageRepository`)에 동일하게 남도록 `newsstock_classifier.set_usage_sink()`를
+  독립적으로 재등록.
+- **모델/페이지수 1회성 오버라이드**: `Container.news_trader_factory`에 `model:
+  str | None = None` 파라미터 추가(§0-19의 `model_override` 패턴과 동일 — 전역
+  `openai_model`은 안 바꾸고 이번 팩토리 호출 1건만 다른 모델). `NewsTrader.update()`에
+  `max_pages: int | None = None` 파라미터 추가(기존 `days`/`keywords`와 동일한
+  1회성 오버라이드 패턴, §0-12). `NewsUpdateRequest`에 `model`/`max_pages` 필드 추가해
+  `POST /data/news/update`로도 노출(경제 섹션 크롤을 계속 쓰고 싶은 경우를 위해 유지,
+  이번 작업의 주 경로는 아님).
+- **실사용 검증**: `crawl_search`를 임시 DB로 소규모 드라이런(15건 후보)해 13건 성공
+  수집(진짜 "아이씨에이치" 관련 기사 — 삼성 폴더블 소재 공급 소식, 투자경고종목 지정
+  등 실제 매매 판단에 쓸 만한 내용) 확인 후, 실제 `newsstock.db`에
+  `--query 아이씨에이치 --days 8 --max-results 100 --model gpt-5-nano`로 본 실행(신규
+  59건 수집 → AI 분류는 백그라운드 진행, 완료 결과는 다음 세션/후속 기록에 반영).
+- **클러스터링 확인**(사용자 질문에 대한 답): 종목코드(368600)가 아니라 AI가 기사에서
+  추출한 종목명 문자열(`stock` 필드, 예: "아이씨에이치")을 키로 `group_a` 테이블에
+  들어간다. `app/market_data/symbol_master.py`에 이미 `368600 ↔ 아이씨에이치` 매핑이
+  있어(§0-10-1 KOSCOM 동기화로 4,297개 전 종목 확보) `ai.news_signal` 노드가 종목코드만
+  받아도 자동으로 이름으로 변환해 같은 키를 조회한다.
+
+**검증**: 백엔드 pytest 372개 전부 통과(기존 `FakeNewsTraderFactory`/
+`test_news_signal_node.py` 두 곳이 `news_trader_factory` 시그니처 변경에 맞춰 `model`
+키를 추가로 검증하도록 함께 수정). `vue-tsc -b`는 이 작업과 무관(백엔드 전용 변경).
+
+## 0-21. 대시보드 일봉 조회 기간 90일→180일 + Docker 배포 버그 2건 수정 (2026-07-29 사용자 요청)
+
+사용자 요청 두 가지: (1) 대시보드 보유/관심종목 캔들차트가 최근 90일치만 보여주는데
+180일로 늘려달라, (2) `npm run build` 후 Docker로 띄우고 `/strategies/new`에서 F5(새로고침)
+하면 404가 뜬다 — 원인 확인 후 다른 배포 문제도 같이 점검해달라는 후속 요청.
+
+- **일봉 180일**: `frontend/src/api/services.ts::fetchPrices` 기본값과
+  `frontend/src/views/DashboardView.vue::loadPriceSeries`의 호출 인자를 90→180으로,
+  백엔드 `GET /data/prices/{symbol}`(`app/api/routers/data.py`)의 `days` 기본값도
+  90→180으로 맞춰 변경(호출부가 명시적으로 180을 넘기므로 기본값 자체는 이 흐름에
+  직접 영향 없지만, 다른 잠재 호출자를 위해 일관성 있게 맞춤). `PriceChart.vue`는
+  캔들스틱 차트라 180개 포인트도 렌더링에 문제없음(차트 라이브러리 자체 스크롤/축
+  처리).
+- **SPA 새로고침 404**: 원인은 `frontend/Dockerfile`이 `serve dist -l 5173`로
+  정적 파일을 서빙하는데, `frontend/src/router/index.ts`가 `createWebHistory()`
+  (HTML5 히스토리 모드)를 쓰기 때문. 브라우저 클릭 이동은 Vue Router가 가로채 문제가
+  안 보이지만, F5처럼 서버에 실제 요청이 가면 `serve`가 `dist/strategies/new`라는
+  실재하지 않는 파일을 찾다 404를 낸다. `serve -s dist`(`-s`/`--single`: 없는 경로를
+  전부 `index.html`로 리라이트)로 수정.
+- **점검 중 추가로 발견한 배포 버그**: `frontend/Dockerfile`이 `COPY .env ./`로
+  존재하지 않는 파일을 복사하려 해, `frontend/.env`가 로컬에 없는 새 클론
+  환경에서는 **`docker build` 자체가 실패**하는 문제를 발견(`.env`는
+  `frontend/.gitignore`에 등록돼 있어 저장소엔 `.env.development`만 커밋돼 있고
+  프로덕션 빌드가 실제로 쓰는 `.env`/`.env.production`은 없음). `frontend/src/api/
+  client.ts`에 이미 `VITE_API_BASE_URL` 없을 때의 안전한 기본값(`http://localhost:8000`,
+  docker-compose 구성과 정확히 일치)이 있어 그냥 이 `COPY` 줄을 제거(`COPY . .`가
+  실제로 존재하는 `.env*`는 알아서 포함하므로 사용자 정의 오버라이드 능력은 그대로
+  유지).
+- **부가 개선**: `backend/`, `frontend/` 둘 다 `.dockerignore`가 없어 `.venv`
+  (macOS 컴파일 바이너리)/`node_modules`가 매번 통째로 빌드 컨텍스트로 올라가던
+  문제 확인 → 각각 `.dockerignore` 신규 추가. `backend/Dockerfile`의 apt 캐시 정리
+  경로 오타(`/var/lib/apt-get/lists/*` → 올바른 `/var/lib/apt/lists/*`, 원래도
+  에러는 안 났지만 정리가 실제로는 아무 효과가 없었음)도 함께 수정.
+
+**검증**: 백엔드 pytest 372개 전부 통과, 프론트 `vue-tsc -b` 통과. Docker 데몬이 이
+환경(로컬 개발 세션)에 떠 있지 않아 `docker build`/실제 컨테이너 기동으로는 검증하지
+못함 — 논리적 분석(Dockerfile 문법, Vite 환경변수 로딩 순서, `serve` 공식 옵션)으로만
+확인했고, 사용자가 재배포 후 최종 확인 필요.
+
 ---
 
 ## 1. 목표와 PoC 범위

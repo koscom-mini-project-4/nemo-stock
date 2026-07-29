@@ -58,7 +58,7 @@ export async function removeWatchlistItem(symbol: string): Promise<void> {
   await apiClient.delete(`/account/watchlist/${symbol}`)
 }
 
-export async function fetchPrices(symbol: string, days = 90): Promise<PricePointOut[]> {
+export async function fetchPrices(symbol: string, days = 180): Promise<PricePointOut[]> {
   const { data } = await apiClient.get(`/data/prices/${symbol}`, { params: { days } })
   return data
 }

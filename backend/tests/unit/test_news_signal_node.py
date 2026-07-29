@@ -123,7 +123,7 @@ def test_indicator_calc_params_are_forwarded_to_factory():
     )
 
     assert factory.calls == [
-        {"auto_update": True, "threshold": 0.25, "decay_base": 0.5, "include_zero": False, "decay_from": "start"}
+        {"auto_update": True, "threshold": 0.25, "decay_base": 0.5, "include_zero": False, "decay_from": "start", "model": None}
     ]
 
 
@@ -134,7 +134,7 @@ def test_indicator_calc_params_default_when_not_set():
     _run({"axis": "종목"}, factory, {"005930": {}})
 
     assert factory.calls == [
-        {"auto_update": True, "threshold": 0.1, "decay_base": 0.3, "include_zero": True, "decay_from": "end"}
+        {"auto_update": True, "threshold": 0.1, "decay_base": 0.3, "include_zero": True, "decay_from": "end", "model": None}
     ]
 
 

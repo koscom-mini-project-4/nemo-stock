@@ -116,7 +116,7 @@ def get_symbols_stats(container: Container = Depends(get_container)) -> dict[str
 @router.get("/prices/{symbol}", response_model=list[PricePointOut])
 def get_prices(
     symbol: str,
-    days: int = 90,
+    days: int = 180,
     container: Container = Depends(get_container),
     intraday_repo: IntradayPriceBarRepository = Depends(get_intraday_price_bar_repo),
     price_client: NaverStockChartClient = Depends(get_price_ingest_client),
@@ -286,7 +286,7 @@ def update_news_signal(payload: NewsUpdateRequest, container: Container = Depend
     스스로 이 갱신을 수행하지만(내부적으로 30분 쓰로틀), auto_update=false로 꺼둔 워크플로(예:
     백테스트처럼 실행 중 네트워크/AI 호출을 원치 않는 경우)나 다른 기능(대시보드 새로고침 등)이
     독립적으로 크롤링을 트리거하고 싶을 때 이 엔드포인트를 쓴다."""
-    trader = container.news_trader_factory(auto_update=False)
+    trader = container.news_trader_factory(auto_update=False, model=payload.model)
     try:
         result = trader.update(force=payload.force, days=payload.days, keywords=payload.keywords)
     finally:

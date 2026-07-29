@@ -210,11 +210,12 @@ def _build_news_trader_factory(settings: Settings) -> Callable[..., NewsTrader]:
         decay_base: float = 0.3,
         include_zero: bool = True,
         decay_from: str = "end",
+        model: str | None = None,
     ) -> NewsTrader:
         return NewsTrader(
             db_path=settings.newsstock_db_path,
             api_key=settings.openai_api_key or "",
-            model=settings.openai_model,
+            model=model or settings.openai_model,
             auto_update=auto_update,
             threshold=threshold,
             decay_base=decay_base,

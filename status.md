@@ -1316,6 +1316,42 @@ splice해 순서 변경 — 백엔드에 순서 저장 필드가 없어 화면 �
 `vue-tsc -b` 통과. dev 서버에서 playwright로 실제 AI 초안 생성 → 설명 텍스트 + 캔버스
 미리보기 표시 → "캔버스에서 편집" 클릭 시 정상적으로 편집 캔버스로 넘어가는 것까지 확인.
 
+## 2026-07-29 후속 작업 5: 검색 기반 뉴스 딥 크롤러 + 대시보드 일봉 180일 + Docker 배포 버그 2건 (DESIGN.md §0-20, §0-21)
+
+사용자 요청: (1) "아이씨에이치"가 제목/본문에 들어간 뉴스 8일치를 크롤링해 gpt-5-nano로
+DB에 추가하고 매매 판단 가능한 수준으로 분석, (2) 대시보드 일봉 조회 기간 90일→180일,
+(3) `npm run build` 후 Docker 배포 시 `/strategies/new`에서 F5 하면 404, 다른 배포
+문제도 점검.
+
+**뉴스**: 기존 `POST /data/news/update`(경제 섹션 헤드라인만 훑는 크롤러)로 시도했으나
+실제 크롤링 이력 1,192건 중 "아이씨에이치" 관련이 0건 — 코스닥 소형주는 이 소스에
+잘 안 실린다는 구조적 한계를 발견. 사용자가 "검색어로 최신순 딥 서치"를 요청해
+`app/vendor/news_classifier/search_crawler.py`(신규, 네이버 뉴스 검색 기반) +
+`app/cli/ingest_news_search.py`(신규 CLI)를 추가했고, `Container.news_trader_factory`/
+`NewsTrader.update()`/`NewsUpdateRequest`에 `model`/`max_pages` 1회성 오버라이드도
+추가(§0-20 상세 참조). 소규모 드라이런(15건 후보 중 13건 성공, 실제 관련 기사 확인)
+후 본 실행(`--query 아이씨에이치 --days 8 --max-results 100 --model gpt-5-nano`)을
+백그라운드로 트리거 — 크롤링은 신규 59건 수집 완료, gpt-5-nano AI 분류 단계가
+예상보다 느려(첫 호출부터 20분 이상) 이번 세션 종료 시점까지 완료를 확인하지 못함.
+다음 세션에서 `newsstock.db`의 분류 완료 여부(`SELECT COUNT(*) FROM crawled WHERE
+classified=0`)를 먼저 확인할 것.
+
+**일봉 180일**: `frontend/src/api/services.ts::fetchPrices` 기본값 +
+`DashboardView.vue::loadPriceSeries` 호출 인자 + 백엔드 `GET /data/prices/{symbol}`
+기본값을 90→180으로 일괄 변경.
+
+**Docker 배포 버그**: (1) `frontend/Dockerfile`이 `serve dist`(SPA fallback 미설정)로
+서빙해 히스토리 모드 라우터(`createWebHistory()`)의 새로고침이 404 → `serve -s dist`로
+수정. (2) 점검 중 `COPY .env ./`가 존재하지 않는(gitignore된) 파일을 참조해 **새 클론
+환경에서는 `docker build` 자체가 실패**하는 버그를 추가로 발견 → 코드에 이미 있던 안전한
+기본값(`client.ts`의 `VITE_API_BASE_URL` 폴백)에 의존하도록 해당 COPY 줄 제거.
+(3) 부가로 `backend/`/`frontend/` `.dockerignore` 신규 추가(`.venv`/`node_modules`가
+매번 빌드 컨텍스트에 올라가던 문제), `backend/Dockerfile`의 apt 캐시 정리 경로 오타 수정.
+Docker 데몬이 이 세션 환경에 없어 실제 빌드로 검증하지 못함 — 사용자가 재배포 후 최종
+확인 필요.
+
+**검증**: 백엔드 pytest 372개 전부 통과, 프론트 `vue-tsc -b` 통과.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

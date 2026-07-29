@@ -76,7 +76,7 @@ function positionReturn(symbol: string, qty: number, avgPrice: number): { amount
   return { amount: (current - avgPrice) * qty, pct: (current / avgPrice - 1) * 100 }
 }
 
-/** 보유 종목 + 관심종목 최근 90일 시세를 병렬로 조회한다. 종목 하나가 실패해도 나머지 차트는 보인다. */
+/** 보유 종목 + 관심종목 최근 180일 시세를 병렬로 조회한다. 종목 하나가 실패해도 나머지 차트는 보인다. */
 async function loadPriceSeries() {
   const symbols = new Set<string>()
   account.value?.positions.forEach((p) => symbols.add(p.symbol))
@@ -88,7 +88,7 @@ async function loadPriceSeries() {
   const entries = await Promise.all(
     [...symbols].map(async (symbol) => {
       try {
-        return [symbol, await fetchPrices(symbol, 90)] as const
+        return [symbol, await fetchPrices(symbol, 180)] as const
       } catch {
         return [symbol, []] as const
       }

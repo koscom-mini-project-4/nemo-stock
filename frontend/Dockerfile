@@ -3,7 +3,6 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package*.json ./
-COPY .env ./
 RUN npm install
 
 COPY . .
@@ -14,4 +13,4 @@ RUN npm install -g serve
 
 EXPOSE 5173
 
-CMD ["serve", "dist", "-l", "5173"]
+CMD ["serve", "-s", "dist", "-l", "5173"]

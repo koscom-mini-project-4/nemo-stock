@@ -188,6 +188,7 @@ class FakeNewsTraderFactory:
         decay_base: float = 0.3,
         include_zero: bool = True,
         decay_from: str = "end",
+        model: str | None = None,
     ) -> FakeNewsTrader:
         self.auto_update_calls.append(auto_update)
         self.calls.append(
@@ -197,6 +198,7 @@ class FakeNewsTraderFactory:
                 "decay_base": decay_base,
                 "include_zero": include_zero,
                 "decay_from": decay_from,
+                "model": model,
             }
         )
         return self.trader

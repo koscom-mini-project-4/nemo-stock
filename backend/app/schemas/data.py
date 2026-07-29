@@ -73,6 +73,12 @@ class NewsUpdateRequest(BaseModel):
     # 설정은 안 바꿈). days=최근 며칠치, keywords=헤드라인 부분일치 필터.
     days: int | None = None
     keywords: list[str] | None = None
+    # 주어지면 이번 1회 AI 분류 호출만 다른 모델을 쓴다(전역 openai_model은 안 바꿈,
+    # §0-19 model_override 패턴과 동일).
+    model: str | None = None
+    # 주어지면 날짜당 최대 목록 페이지 수를 이번 1회만 오버라이드한다(기본 crawl_max_pages=5,
+    # 특정 키워드 검색 시 페이지 더 깊이 훑고 싶을 때).
+    max_pages: int | None = None
 
 
 class NewsUpdateResponse(BaseModel):
