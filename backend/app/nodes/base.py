@@ -94,8 +94,12 @@ class Node(ABC):
     def validate_params(self) -> list[str]:
         errors: list[str] = []
         for spec in self.param_schema:
-            if spec.get("required") and spec["key"] not in self.params:
-                errors.append(f"'{spec['key']}' 파라미터가 필요합니다 ({self.display_name}).")
+            if not spec.get("required") or spec["key"] in self.params:
+                continue
+            show_if = spec.get("show_if")
+            if show_if and str(self.get_param(show_if["param"])) != str(show_if["equals"]):
+                continue  # show_if 조건 미충족 시 화면에 노출되지 않으므로 필수 체크 제외
+            errors.append(f"'{spec['key']}' 파라미터가 필요합니다 ({self.display_name}).")
         return errors
 
     def get_param(self, key: str, default: Any = None) -> Any:
