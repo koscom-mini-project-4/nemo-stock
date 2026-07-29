@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, Callable
 
 from app.ai.base import AIClient, AIUnavailableError
 
 
 class FakeAIClient(AIClient):
-    """complete_json은 responses 큐를, complete_with_tools는 tool_scripts 큐를 하나씩 소비한다.
+    """complete_json/complete_json_stream은 responses 큐를, complete_with_tools는
+    tool_scripts 큐를 하나씩 소비한다.
 
     tool_scripts의 각 항목은 "라운드 리스트"다: {"tool_calls": [{"name","arguments"}, ...]}면
     실제 tool_executor를 호출해 결과를 기록하고 다음 라운드로, {"tool_calls"} 없는 plain dict면
@@ -29,6 +31,7 @@ class FakeAIClient(AIClient):
         self.calls: list[tuple[str, str]] = []
         self.purposes: list[str] = []
         self.tool_calls: list[tuple[str, str, dict]] = []  # (tool_name, arguments) 실행 이력
+        self.stream_chunks: list[str] = []  # complete_json_stream이 on_chunk로 넘긴 조각 이력
 
     @property
     def available(self) -> bool:
@@ -48,6 +51,23 @@ class FakeAIClient(AIClient):
         if not self._responses:
             raise AssertionError("FakeAIClient: 더 이상 준비된 응답이 없습니다.")
         return self._responses.pop(0)
+
+    def complete_json_stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.2,
+        purpose: str = "unknown",
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> dict:
+        """실제 스트리밍 타이밍을 재현하진 않고, 최종 JSON 텍스트를 단일 청크로 on_chunk에
+        한 번 넘겨 인터페이스 계약만 만족시킨다(테스트에서 진짜 델타 단위 검증은 불필요)."""
+        result = self.complete_json(system_prompt, user_prompt, temperature, purpose)
+        if on_chunk is not None:
+            text = json.dumps(result, ensure_ascii=False)
+            self.stream_chunks.append(text)
+            on_chunk(text)
+        return result
 
     def complete_with_tools(
         self,

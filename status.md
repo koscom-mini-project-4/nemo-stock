@@ -1109,6 +1109,25 @@ pytest 340→350개 전부 통과(`test_koscom_live.py`는 실 시장 상황에 
 **검증**: 백엔드 pytest 359→350개 전부 통과. `vue-tsc -b` 통과. 인증 관련 잔여 참조 없음을
 grep으로 재확인.
 
+## 2026-07-29 후속 작업 21: AI 배치 호출을 스트리밍으로 전환 (DESIGN.md §0-18)
+
+사용자 요청: "전략 생성이나 대화 등 빠르게 요청받아야 하는 것들은 배치가 아닌 stream으로
+바꿔줘." AI 응답이 `{"reply","changed","nodes","edges"}`가 한 JSON에 같이 담기는 구조라
+"순수 대화 텍스트만 깔끔하게 스트리밍"(프롬프트 계약 변경 필요, 검증/재시도 로직 리스크)과
+"원문 텍스트 실시간 미리보기"(저위험, 기존 로직 무변경) 중 선택하도록 확인 질문 →
+저위험 옵션으로 확정 후 EnterPlanMode로 계획 승인 후 진행.
+
+- `AIClient.complete_json_stream(..., on_chunk=None)` 신규(OpenAI/Claude 둘 다 구현, Claude는
+  공식 문서 스트리밍 패턴을 직접 대조해 확인). `generate_workflow_draft`/`chat_about_workflow`/
+  `explain_backtest`가 첫 시도만 스트리밍하고 재시도 경로는 기존 블로킹 유지.
+- `POST /ai/{generate-draft,workflow-chat,backtest-explain}/stream` 3개 신규(SSE, 기존
+  블로킹 엔드포인트는 무수정 유지 — 순수 추가라 리스크 최소).
+- 프론트: `postSSE()` 유틸 신규, AIGenerateView/ChatPanel/BacktestAskPanel이 스트리밍 중
+  누적 원문을 실시간으로 보여주다 완료 시 기존 UI로 전환.
+
+**검증**: 신규 유닛/통합 테스트 포함 백엔드 pytest 350→361개 전부 통과. `vue-tsc -b` 통과.
+curl/TestClient로 실제 SSE 프레임 순서(chunk→result) 라이브 확인.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

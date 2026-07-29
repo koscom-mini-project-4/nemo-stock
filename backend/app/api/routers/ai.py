@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+import queue
+import threading
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app.ai.backtest_explain import BacktestExplainError, explain_backtest
 from app.ai.base import AIClient, AIUnavailableError
@@ -41,6 +45,50 @@ def _usage_delta(container: Container, since: datetime) -> AIUsageDelta | None:
     )
 
 
+def _error_frame(exc: Exception) -> dict:
+    """블로킹 엔드포인트의 HTTPException 매핑(§0-11 이전부터 있던 것)과 동일한 상태/문구를
+    SSE 프레임 안에 담는다 — 스트림 중에는 HTTP 상태 코드로 에러를 표현할 수 없어서다."""
+    if isinstance(exc, AIUnavailableError):
+        return {"status": 400, "detail": str(exc)}
+    if hasattr(exc, "attempts"):  # WorkflowDraftError/WorkflowChatError/BacktestExplainError 공통
+        return {"status": 422, "detail": {"message": str(exc), "attempts": exc.attempts}}  # type: ignore[attr-defined]
+    return {"status": 500, "detail": str(exc)}
+
+
+def _stream_sse(worker: Callable[[Callable[[str], None]], dict]) -> Iterator[str]:
+    """worker(on_chunk)를 별도 스레드에서 실행하며 원문 텍스트 조각을 실시간 SSE로 흘려보내고
+    (§0-18), 완료되면 worker의 반환값을 최종 result 프레임으로, 예외는 error 프레임으로
+    변환한다. FastAPI가 동기 제너레이터를 자동으로 스레드풀에서 돌려주므로 async 불필요."""
+    q: queue.Queue = queue.Queue()
+    outcome: dict[str, Any] = {}
+
+    def on_chunk(text: str) -> None:
+        q.put({"type": "chunk", "text": text})
+
+    def run() -> None:
+        try:
+            outcome["result"] = worker(on_chunk)
+        except Exception as exc:  # noqa: BLE001 - 어떤 예외든 error 프레임으로 변환해 스트림을 정상 종료해야 한다
+            outcome["error"] = exc
+        finally:
+            q.put(None)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+    thread.join()
+
+    if "error" in outcome:
+        frame = {"type": "error", **_error_frame(outcome["error"])}
+    else:
+        frame = {"type": "result", **outcome["result"]}
+    yield f"data: {json.dumps(frame, ensure_ascii=False, default=str)}\n\n"
+
+
 @router.post("/generate-draft", response_model=GenerateDraftResponse)
 def generate_draft(
     payload: GenerateDraftRequest,
@@ -66,6 +114,33 @@ def generate_draft(
         ) from exc
 
     return GenerateDraftResponse(**draft, usage=_usage_delta(container, called_at))
+
+
+@router.post("/generate-draft/stream")
+def generate_draft_stream(
+    payload: GenerateDraftRequest,
+    ai_client: AIClient = Depends(get_ai_client),
+    container: Container = Depends(get_container),
+) -> StreamingResponse:
+    """generate_draft(§0-11 이전)와 동일한 로직이지만 생성 중인 원문을 SSE로 실시간
+    전송한다(§0-18). chunk 프레임을 여러 번 보낸 뒤 result/error 프레임 하나로 끝난다."""
+    if not ai_client.available:
+        raise HTTPException(status_code=400, detail="OPENAI_API_KEY가 설정되지 않았습니다.")
+
+    called_at = datetime.now()
+    default_universe = ",".join(payload.universe) if payload.universe else None
+
+    def worker(on_chunk: Callable[[str], None]) -> dict:
+        if default_universe:
+            draft = generate_workflow_draft(
+                ai_client, payload.idea, default_universe=default_universe, on_chunk=on_chunk
+            )
+        else:
+            draft = generate_workflow_draft(ai_client, payload.idea, on_chunk=on_chunk)
+        usage = _usage_delta(container, called_at)
+        return {**draft, "usage": usage.model_dump() if usage else None}
+
+    return StreamingResponse(_stream_sse(worker), media_type="text/event-stream")
 
 
 @router.post("/workflow-chat", response_model=WorkflowChatResponse)
@@ -96,6 +171,34 @@ def workflow_chat(
         ) from exc
 
     return WorkflowChatResponse(**result, usage=_usage_delta(container, called_at))
+
+
+@router.post("/workflow-chat/stream")
+def workflow_chat_stream(
+    payload: WorkflowChatRequest,
+    ai_client: AIClient = Depends(get_ai_client),
+    container: Container = Depends(get_container),
+) -> StreamingResponse:
+    """workflow_chat과 동일한 로직이지만 생성 중인 원문을 SSE로 실시간 전송한다(§0-18)."""
+    if not ai_client.available:
+        raise HTTPException(status_code=400, detail="OPENAI_API_KEY가 설정되지 않았습니다.")
+
+    called_at = datetime.now()
+
+    def worker(on_chunk: Callable[[str], None]) -> dict:
+        result = chat_about_workflow(
+            ai_client,
+            payload.name,
+            payload.graph,
+            payload.message,
+            history=[m.model_dump() for m in payload.history],
+            last_run=payload.last_run,
+            on_chunk=on_chunk,
+        )
+        usage = _usage_delta(container, called_at)
+        return {**result, "usage": usage.model_dump() if usage else None}
+
+    return StreamingResponse(_stream_sse(worker), media_type="text/event-stream")
 
 
 def _summarize_day_events(events: list[NodeEventRecord]) -> dict[str, Any]:
@@ -233,3 +336,34 @@ def backtest_explain(
         ) from exc
 
     return BacktestExplainResponse(**result, usage=_usage_delta(container, called_at))
+
+
+@router.post("/backtest-explain/stream")
+def backtest_explain_stream(
+    payload: BacktestExplainRequest,
+    ai_client: AIClient = Depends(get_ai_client),
+    container: Container = Depends(get_container),
+) -> StreamingResponse:
+    """backtest_explain과 동일한 로직이지만 생성 중인 원문을 SSE로 실시간 전송한다(§0-18).
+    selection 조립(404 가능성 있음)은 스트림 시작 전에 끝내 일반 HTTPException으로 처리하고,
+    AI 호출 이후의 오류만 error 프레임으로 표현한다."""
+    if not ai_client.available:
+        raise HTTPException(status_code=400, detail="OPENAI_API_KEY가 설정되지 않았습니다.")
+
+    called_at = datetime.now()
+    workflow_name, graph, selection = _build_backtest_selection(payload, container)
+
+    def worker(on_chunk: Callable[[str], None]) -> dict:
+        result = explain_backtest(
+            ai_client,
+            workflow_name,
+            graph,
+            selection,
+            payload.message,
+            history=[m.model_dump() for m in payload.history],
+            on_chunk=on_chunk,
+        )
+        usage = _usage_delta(container, called_at)
+        return {**result, "usage": usage.model_dump() if usage else None}
+
+    return StreamingResponse(_stream_sse(worker), media_type="text/event-stream")

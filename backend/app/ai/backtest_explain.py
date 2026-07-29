@@ -12,7 +12,7 @@ selection(거래 내역/노드 실행 요약/시세/참고 뉴스)을 조립해 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 
 from app.ai.base import AIClient
 from app.nodes.base import node_registry_schema
@@ -109,13 +109,16 @@ def explain_backtest(
     selection: dict[str, Any],
     message: str,
     history: list[dict] | None = None,
+    on_chunk: Callable[[str], None] | None = None,
 ) -> dict:
+    """on_chunk가 주어지면 첫 번째 시도만 실시간 스트리밍한다(§0-18) — 검증 실패 시의 재시도는
+    드문 경로라 스트리밍하지 않고 기존과 동일하게 블로킹으로 처리한다."""
     system_prompt = _build_system_prompt()
     user_prompt = _build_user_prompt(workflow_name, graph, selection, message, history or [])
 
     attempts: list[dict] = []
 
-    raw = ai_client.complete_json(system_prompt, user_prompt, purpose="backtest_explain")
+    raw = ai_client.complete_json_stream(system_prompt, user_prompt, purpose="backtest_explain", on_chunk=on_chunk)
     if not raw.get("changed"):
         attempts.append({"raw": raw})
         return _unchanged_result(raw)

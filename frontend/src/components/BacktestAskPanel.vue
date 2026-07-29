@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { explainBacktest } from '@/api/services'
+import { postSSE } from '@/api/sse'
 import { useDraftStore } from '@/stores/draft'
-import type { BacktestExplainSelection, ChatMessage, WorkflowGraph } from '@/api/types'
+import type { BacktestExplainResponse, BacktestExplainSelection, ChatMessage, WorkflowGraph } from '@/api/types'
 
 const props = defineProps<{
   backtestId: string
@@ -18,6 +18,7 @@ interface DisplayMessage extends ChatMessage {
   pendingGraph?: WorkflowGraph
   pendingName?: string
   opened?: boolean
+  streaming?: boolean
 }
 
 const messages = ref<DisplayMessage[]>([])
@@ -60,31 +61,50 @@ async function send() {
   input.value = ''
   sending.value = true
   scrollToBottom()
-  try {
-    const result = await explainBacktest({
-      backtest_id: props.backtestId,
-      message: text,
-      history,
-      selection: props.selection,
-    })
-    messages.value.push({
-      role: 'assistant',
-      content: result.reply,
-      pendingGraph: result.changed ? (result.graph ?? undefined) : undefined,
-      pendingName: result.changed ? (result.name ?? undefined) : undefined,
-    })
-  } catch (err) {
-    const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+
+  // 스트리밍 중(§0-18)에는 원문(JSON 파싱 전)을 이 말풍선에 그대로 누적해 보여준다.
+  const assistantMsg: DisplayMessage = { role: 'assistant', content: '', streaming: true }
+  messages.value.push(assistantMsg)
+  scrollToBottom()
+
+  let result: BacktestExplainResponse | null = null
+  let errorDetail: unknown = null
+  await postSSE<BacktestExplainResponse>(
+    '/ai/backtest-explain/stream',
+    { backtest_id: props.backtestId, message: text, history, selection: props.selection },
+    {
+      onChunk: (delta) => {
+        assistantMsg.content += delta
+        scrollToBottom()
+      },
+      onResult: (r) => {
+        result = r
+      },
+      onError: (detail) => {
+        errorDetail = detail
+      },
+    },
+  )
+
+  if (errorDetail || !result) {
+    messages.value.pop()
+    const detail = errorDetail
     errorMessage.value =
       typeof detail === 'string'
         ? detail
         : detail
           ? JSON.stringify(detail)
           : 'AI 응답에 실패했습니다. OPENAI_API_KEY 설정을 확인하세요.'
-  } finally {
-    sending.value = false
-    scrollToBottom()
+  } else {
+    // onResult 콜백(클로저) 안에서만 대입되는 변수라 TS의 제어흐름 narrowing이 안 통한다.
+    const finalResult = result as BacktestExplainResponse
+    assistantMsg.content = finalResult.reply
+    assistantMsg.streaming = false
+    assistantMsg.pendingGraph = finalResult.changed ? (finalResult.graph ?? undefined) : undefined
+    assistantMsg.pendingName = finalResult.changed ? (finalResult.name ?? undefined) : undefined
   }
+  sending.value = false
+  scrollToBottom()
 }
 
 function openInBuilder(msg: DisplayMessage) {
@@ -109,7 +129,8 @@ function discardPending(msg: DisplayMessage) {
         근거로 AI에게 물어볼 수 있습니다.
       </p>
       <div v-for="(msg, idx) in messages" :key="idx" :class="['chat-msg', `chat-msg-${msg.role}`]">
-        <div class="chat-bubble">{{ msg.content }}</div>
+        <div class="chat-bubble" :class="{ 'chat-bubble-streaming': msg.streaming }">{{ msg.content }}</div>
+        <div v-if="msg.streaming" class="text-muted chat-typing">AI가 작성 중...</div>
         <div v-if="msg.pendingGraph && !msg.opened" class="chat-pending">
           <div class="chat-pending-label">
             수정 제안 — 노드 {{ msg.pendingGraph.nodes.length }}개, 엣지 {{ msg.pendingGraph.edges.length }}개
@@ -121,7 +142,6 @@ function discardPending(msg: DisplayMessage) {
         </div>
         <div v-else-if="msg.opened" class="chat-applied text-muted">✓ 전략 빌더로 이동해 확인하세요</div>
       </div>
-      <p v-if="sending" class="text-muted chat-typing">AI가 응답 중...</p>
     </div>
     <p v-if="errorMessage" class="error chat-error">{{ errorMessage }}</p>
     <div class="chat-input-row">
@@ -207,6 +227,12 @@ function discardPending(msg: DisplayMessage) {
   background: var(--surface);
   border: 1px solid var(--border);
   border-bottom-left-radius: 2px;
+}
+
+.chat-bubble-streaming {
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
 .chat-pending {

@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
-import { chatAboutWorkflow } from '@/api/services'
-import type { AIUsageDelta, ChatMessage, NodeTypeSchema, WorkflowChatLastRun, WorkflowGraph } from '@/api/types'
+import { postSSE } from '@/api/sse'
+import type {
+  AIUsageDelta,
+  ChatMessage,
+  NodeTypeSchema,
+  WorkflowChatLastRun,
+  WorkflowChatResponse,
+  WorkflowGraph,
+} from '@/api/types'
 import GraphDiffModal from '@/components/GraphDiffModal.vue'
 
 const props = defineProps<{
@@ -20,6 +27,7 @@ interface DisplayMessage extends ChatMessage {
   pendingName?: string
   applied?: boolean
   usage?: AIUsageDelta | null
+  streaming?: boolean
 }
 
 const messages = ref<DisplayMessage[]>([])
@@ -60,22 +68,47 @@ async function sendMessage(text: string, graphOverride?: WorkflowGraph) {
   const history: ChatMessage[] = messages.value.map(({ role, content }) => ({ role, content }))
   messages.value.push({ role: 'user', content: text })
   scrollToBottom()
-  const result = await chatAboutWorkflow({
-    name: props.name,
-    graph: graphOverride ?? props.graph,
-    message: text,
-    history,
-    last_run: props.lastRun,
-  })
-  messages.value.push({
-    role: 'assistant',
-    content: result.reply,
-    pendingGraph: result.changed ? (result.graph ?? undefined) : undefined,
-    pendingName: result.changed ? (result.name ?? undefined) : undefined,
-    usage: result.usage,
-  })
+
+  // 스트리밍 중(§0-18)에는 원문(JSON 파싱 전)을 이 말풍선에 그대로 누적해 보여준다 —
+  // 완료되면 content를 실제 reply로 교체하고 streaming을 끈다.
+  const assistantMsg: DisplayMessage = { role: 'assistant', content: '', streaming: true }
+  messages.value.push(assistantMsg)
   scrollToBottom()
-  return result
+
+  let result: WorkflowChatResponse | null = null
+  let errorDetail: unknown = null
+  await postSSE<WorkflowChatResponse>(
+    '/ai/workflow-chat/stream',
+    { name: props.name, graph: graphOverride ?? props.graph, message: text, history, last_run: props.lastRun },
+    {
+      onChunk: (delta) => {
+        assistantMsg.content += delta
+        scrollToBottom()
+      },
+      onResult: (r) => {
+        result = r
+      },
+      onError: (detail) => {
+        errorDetail = detail
+      },
+    },
+  )
+
+  if (errorDetail || !result) {
+    messages.value.pop() // 실패한 스트리밍 말풍선은 지우고, 기존 catch 로직이 errorMessage로 안내한다.
+    throw { response: { data: { detail: errorDetail } } }
+  }
+
+  // onResult 콜백(클로저) 안에서만 대입되는 변수라 TS의 제어흐름 narrowing이 안 통한다 —
+  // 위에서 이미 null이 아님을 확인했으니 명시적으로 단언한다.
+  const finalResult = result as WorkflowChatResponse
+  assistantMsg.content = finalResult.reply
+  assistantMsg.streaming = false
+  assistantMsg.pendingGraph = finalResult.changed ? (finalResult.graph ?? undefined) : undefined
+  assistantMsg.pendingName = finalResult.changed ? (finalResult.name ?? undefined) : undefined
+  assistantMsg.usage = finalResult.usage
+  scrollToBottom()
+  return finalResult
 }
 
 function extractErrorMessage(err: unknown): string {
@@ -161,7 +194,8 @@ async function refineDiff(instruction: string) {
         전략은 지금 뭘 하는거야?").
       </p>
       <div v-for="(msg, idx) in messages" :key="idx" :class="['chat-msg', `chat-msg-${msg.role}`]">
-        <div class="chat-bubble">{{ msg.content }}</div>
+        <div class="chat-bubble" :class="{ 'chat-bubble-streaming': msg.streaming }">{{ msg.content }}</div>
+        <div v-if="msg.streaming" class="text-muted chat-typing">AI가 작성 중... ({{ elapsedSec }}초 경과)</div>
         <div v-if="msg.role === 'assistant' && msg.usage" class="chat-usage text-muted">
           토큰 {{ msg.usage.total_tokens.toLocaleString() }}개 사용
         </div>
@@ -173,7 +207,6 @@ async function refineDiff(instruction: string) {
         </div>
         <div v-else-if="msg.applied" class="chat-applied text-muted">✓ 확정 적용됨</div>
       </div>
-      <p v-if="sending" class="text-muted chat-typing">AI가 응답 중... ({{ elapsedSec }}초 경과)</p>
     </div>
     <p v-if="errorMessage" class="error chat-error">{{ errorMessage }}</p>
     <div class="chat-input-row">
@@ -262,6 +295,12 @@ async function refineDiff(instruction: string) {
   background: var(--surface);
   border: 1px solid var(--border);
   border-bottom-left-radius: 2px;
+}
+
+.chat-bubble-streaming {
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
 .chat-pending {

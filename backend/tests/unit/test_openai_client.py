@@ -12,6 +12,7 @@ import httpx
 import pytest
 from openai import BadRequestError
 
+from app.ai.base import AIUnavailableError
 from app.ai.openai_client import OpenAIClient
 from app.dao.base import AIUsageRecord, AIUsageRepository
 
@@ -64,6 +65,22 @@ def _fake_openai_response(content: str, usage: MagicMock | None = None) -> Magic
     resp.choices = [MagicMock(message=MagicMock(content=content))]
     resp.usage = usage
     return resp
+
+
+def _fake_stream_chunk(content: str | None, usage: MagicMock | None = None, has_choice: bool = True) -> MagicMock:
+    """stream=True 응답의 청크(ChatCompletionChunk) 더블. stream_options=include_usage로
+    요청하면 usage는 보통 choices가 빈 마지막 청크에만 실린다(has_choice=False)."""
+    chunk = MagicMock()
+    if has_choice:
+        delta = MagicMock()
+        delta.content = content
+        choice = MagicMock()
+        choice.delta = delta
+        chunk.choices = [choice]
+    else:
+        chunk.choices = []
+    chunk.usage = usage
+    return chunk
 
 
 def _fake_usage(prompt: int, completion: int, total: int) -> MagicMock:
@@ -230,6 +247,68 @@ def test_complete_with_tools_retries_with_reasoning_effort_none_on_unsupported_v
     assert create_mock.call_count == 2
     assert "reasoning_effort" not in create_mock.call_args_list[0].kwargs
     assert create_mock.call_args_list[1].kwargs["reasoning_effort"] == "none"
+
+
+def test_complete_json_stream_calls_on_chunk_and_returns_parsed_result():
+    client = OpenAIClient(api_key="sk-test", model="gpt-5.6-luna")
+    chunks = [
+        _fake_stream_chunk('{"ok"'),
+        _fake_stream_chunk(': true}'),
+        _fake_stream_chunk(None, usage=_fake_usage(10, 5, 15), has_choice=False),
+    ]
+    client._client.chat.completions.create = MagicMock(return_value=chunks)  # type: ignore[union-attr]
+    received: list[str] = []
+
+    result = client.complete_json_stream("system", "user", on_chunk=received.append)
+
+    assert result == {"ok": True}
+    assert received == ['{"ok"', ': true}']
+
+
+def test_complete_json_stream_requests_stream_options_with_usage():
+    client = OpenAIClient(api_key="sk-test", model="gpt-5.6-luna")
+    create_mock = MagicMock(return_value=[_fake_stream_chunk('{"ok": true}')])
+    client._client.chat.completions.create = create_mock  # type: ignore[union-attr]
+
+    client.complete_json_stream("system", "user")
+
+    kwargs = create_mock.call_args.kwargs
+    assert kwargs["stream"] is True
+    assert kwargs["stream_options"] == {"include_usage": True}
+
+
+def test_complete_json_stream_records_usage_from_final_chunk():
+    repo = _FakeUsageRepo()
+    client = OpenAIClient(api_key="sk-test", model="gpt-5.6-luna", usage_repo=repo)
+    chunks = [
+        _fake_stream_chunk('{"ok": true}'),
+        _fake_stream_chunk(None, usage=_fake_usage(10, 5, 15), has_choice=False),
+    ]
+    client._client.chat.completions.create = MagicMock(return_value=chunks)  # type: ignore[union-attr]
+
+    client.complete_json_stream("system", "user", purpose="workflow_draft")
+
+    assert len(repo.saved) == 1
+    record = repo.saved[0]
+    assert record.purpose == "workflow_draft"
+    assert (record.prompt_tokens, record.completion_tokens, record.total_tokens) == (10, 5, 15)
+
+
+def test_complete_json_stream_works_without_on_chunk():
+    client = OpenAIClient(api_key="sk-test", model="gpt-5.6-luna")
+    client._client.chat.completions.create = MagicMock(  # type: ignore[union-attr]
+        return_value=[_fake_stream_chunk('{"ok": true}')]
+    )
+
+    result = client.complete_json_stream("system", "user")
+
+    assert result == {"ok": True}
+
+
+def test_complete_json_stream_requires_api_key():
+    client = OpenAIClient(api_key=None, model="gpt-5.6-luna")
+    with pytest.raises(AIUnavailableError):
+        client.complete_json_stream("system", "user")
 
 
 def test_usage_save_failure_does_not_break_ai_response():

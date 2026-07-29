@@ -120,6 +120,66 @@ def test_usage_save_failure_does_not_break_ai_response():
     assert result == {"ok": True}
 
 
+def _fake_stream_context(text_chunks: list[str], final_message: MagicMock) -> MagicMock:
+    """client.messages.stream(...)의 반환값(컨텍스트 매니저) 더블. 공식 문서 패턴(with ... as
+    stream: for text in stream.text_stream ... ; stream.get_final_message())을 그대로 흉내."""
+    stream_obj = MagicMock()
+    stream_obj.text_stream = iter(text_chunks)
+    stream_obj.get_final_message.return_value = final_message
+    ctx = MagicMock()
+    ctx.__enter__ = MagicMock(return_value=stream_obj)
+    ctx.__exit__ = MagicMock(return_value=False)
+    return ctx
+
+
+def test_complete_json_stream_calls_on_chunk_and_returns_parsed_result():
+    client = ClaudeClient(api_key="sk-ant-test", model="claude-sonnet-5")
+    final_message = _fake_response([_text_block('{"ok": true}')], usage=_fake_usage(10, 5))
+    client._client.messages.stream = MagicMock(  # type: ignore[union-attr]
+        return_value=_fake_stream_context(['{"ok"', ': true}'], final_message)
+    )
+    received: list[str] = []
+
+    result = client.complete_json_stream("system", "user", on_chunk=received.append)
+
+    assert result == {"ok": True}
+    assert received == ['{"ok"', ': true}']
+
+
+def test_complete_json_stream_records_usage_from_final_message():
+    repo = _FakeUsageRepo()
+    client = ClaudeClient(api_key="sk-ant-test", model="claude-sonnet-5", usage_repo=repo)
+    final_message = _fake_response([_text_block('{"ok": true}')], usage=_fake_usage(10, 5))
+    client._client.messages.stream = MagicMock(  # type: ignore[union-attr]
+        return_value=_fake_stream_context(['{"ok": true}'], final_message)
+    )
+
+    client.complete_json_stream("system", "user", purpose="workflow_draft")
+
+    assert len(repo.saved) == 1
+    record = repo.saved[0]
+    assert record.purpose == "workflow_draft"
+    assert (record.prompt_tokens, record.completion_tokens, record.total_tokens) == (10, 5, 15)
+
+
+def test_complete_json_stream_works_without_on_chunk():
+    client = ClaudeClient(api_key="sk-ant-test", model="claude-sonnet-5")
+    final_message = _fake_response([_text_block('{"ok": true}')])
+    client._client.messages.stream = MagicMock(  # type: ignore[union-attr]
+        return_value=_fake_stream_context(['{"ok": true}'], final_message)
+    )
+
+    result = client.complete_json_stream("system", "user")
+
+    assert result == {"ok": True}
+
+
+def test_complete_json_stream_requires_api_key():
+    client = ClaudeClient(api_key=None, model="claude-sonnet-5")
+    with pytest.raises(AIUnavailableError):
+        client.complete_json_stream("system", "user")
+
+
 def test_complete_with_tools_requires_api_key():
     client = ClaudeClient(api_key=None, model="claude-sonnet-5")
     with pytest.raises(AIUnavailableError):

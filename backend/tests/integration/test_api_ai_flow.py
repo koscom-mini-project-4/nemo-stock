@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_ai_client
@@ -110,6 +112,44 @@ def test_generate_draft_usage_is_null_when_nothing_recorded(app_client: TestClie
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["usage"] is None
+
+
+def _read_sse_frames(response) -> list[dict]:
+    frames = []
+    for line in response.iter_lines():
+        if line.startswith("data: "):
+            frames.append(json.loads(line[len("data: "):]))
+    return frames
+
+
+def test_generate_draft_stream_sends_chunk_frames_then_result(app_client: TestClient, auth_headers: dict):
+    """§0-18: /ai/generate-draft/stream이 chunk 프레임을 실시간으로 보내고 마지막에 기존
+    블로킹 엔드포인트와 동일한 필드를 담은 result 프레임 하나로 끝나는지 확인한다."""
+    fake_client = FakeAIClient(responses=[_VALID_DRAFT_RESPONSE])
+    app_client.app.dependency_overrides[get_ai_client] = lambda: fake_client
+    try:
+        with app_client.stream(
+            "POST", "/ai/generate-draft/stream", json={"idea": "긍정 뉴스 나온 종목을 산다"}, headers=auth_headers
+        ) as resp:
+            assert resp.status_code == 200
+            frames = _read_sse_frames(resp)
+    finally:
+        app_client.app.dependency_overrides.pop(get_ai_client, None)
+
+    assert len(frames) >= 2
+    assert all(f["type"] in ("chunk", "result") for f in frames)
+    assert frames[-1]["type"] == "result"
+    assert frames[-1]["name"] == "뉴스 긍정 매수 전략"
+    assert len(frames[-1]["graph"]["nodes"]) == 3
+    # chunk 프레임들을 이어붙이면 최종 결과와 동일한 원문 JSON이 나와야 한다(FakeAIClient가
+    # 단일 청크로 흉내내지만 인터페이스 계약은 동일).
+    assert any(f["type"] == "chunk" for f in frames)
+
+
+def test_generate_draft_stream_without_api_key_returns_400(app_client: TestClient, auth_headers: dict):
+    """스트림 시작 전에 available 체크가 먼저 실패하므로 일반 HTTPException(400)으로 응답한다."""
+    resp = app_client.post("/ai/generate-draft/stream", json={"idea": "테스트"}, headers=auth_headers)
+    assert resp.status_code == 400
 
 
 def test_workflow_chat_without_api_key_returns_400(app_client: TestClient, auth_headers: dict):

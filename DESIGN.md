@@ -567,6 +567,56 @@ mock 기반 유닛 테스트로 구조/필드만 확인.
 정상 등록 확인. 백엔드 pytest 359→350개 전부 통과(인증-요구 테스트 9개 삭제 반영). `vue-tsc -b`
 통과, `useAuthStore`/`stores/auth`/`LoginView`/`/auth/login` 잔여 참조 없음을 grep으로 재확인.
 
+## 0-18. AI 배치 호출을 스트리밍으로 전환 (2026-07-29 사용자 요청)
+
+사용자 요청: "현재 배치로 실행되는 ai 있으면 ai 전략 생성이나 대화 등 빠르게 요청받아야 하는
+것들은 배치가 아닌 stream 등으로 바꿔 줘." 대상은 `POST /ai/generate-draft`(전략 생성)/
+`workflow-chat`(캔버스 챗봇)/`backtest-explain`(§0-14 매매 근거 팝업) 셋 — 전부
+`AIClient.complete_json()`으로 응답이 통째로 완성될 때까지 기다렸다 한 번에 받고 있었다.
+
+**범위 확인(질문으로 확정)**: 이 세 엔드포인트의 AI 응답은 `{"reply", "changed", "name",
+"nodes", "edges"}`가 하나의 JSON에 같이 담겨 있어, 답변 텍스트만 깔끔하게 스트리밍하려면
+프롬프트 계약 자체를 바꿔야 해서(reply를 순수 텍스트로 먼저 뽑고 그래프 수정은 별도 호출로
+분리) 기존 검증/재시도 로직(`WorkflowGraph.validate()` 실패 시 1회 재시도, 3곳에 이미 있음)
+을 건드려야 하는 더 위험한 변경이 된다. 사용자가 **저위험 옵션(원문 텍스트 실시간
+미리보기)**을 선택 — 생성 중인 원문(JSON 파싱 전)을 SSE로 실시간 전송해 "AI가 작성 중"
+미리보기로 보여주고, 완료되면 기존과 동일하게 파싱된 결과로 전환한다. 검증/재시도 로직은
+전혀 안 건드림.
+
+- `app/ai/base.py::AIClient`에 새 추상 메서드 `complete_json_stream(..., on_chunk=None)` 추가
+  — `complete_json`과 동일 계약(파싱된 dict 반환)에 `on_chunk`만 더함. `OpenAIClient`는
+  `stream=True, stream_options={"include_usage": True}` + `delta.content` 누적(사용량은
+  choices가 빈 마지막 청크에 실림). `ClaudeClient`는 공식 문서
+  (`platform.claude.com/docs/en/api/messages-streaming`)로 확인한 패턴 그대로
+  `with client.messages.stream(...) as stream: for text in stream.text_stream: ...`,
+  `stream.get_final_message()`로 usage 포함 전체 Message. 둘 다 `_record_usage`를
+  `response` 대신 `usage` 객체를 직접 받도록 소폭 리팩터링(스트림엔 단일 response가 없어서).
+  `FakeAIClient`(테스트 더블)는 `responses` 큐를 그대로 재사용하되 `on_chunk`엔 최종 JSON을
+  단일 청크로 한 번만 넘겨 인터페이스 계약만 만족.
+- `generate_workflow_draft`/`chat_about_workflow`/`explain_backtest` 각각에 `on_chunk` 파라미터
+  추가(기본 None → 기존 블로킹 동작 100% 그대로). **첫 번째** 시도만 `complete_json_stream`으로
+  교체하고, 검증 실패 시의 재시도(repair) 호출은 드문 경로라 스트리밍하지 않고 기존
+  `complete_json` 유지 — 리스크 최소화.
+- `app/api/routers/ai.py`에 `_stream_sse(worker)` 헬퍼 신규: 별도 스레드에서
+  `worker(on_chunk=queue.put)`을 실행하고, 메인 제너레이터가 큐에서 꺼내
+  `chunk`/`result`/`error` SSE 프레임을 yield. FastAPI `StreamingResponse`가 동기 제너레이터를
+  자동으로 스레드풀에서 돌려줘 `async def` 불필요. 기존 블로킹 엔드포인트 3개는 무수정 유지,
+  `POST /ai/{generate-draft,workflow-chat,backtest-explain}/stream` 3개를 순수 추가.
+- `frontend/src/api/sse.ts` 신규: `postSSE(url, body, {onChunk, onResult, onError})` — POST라
+  네이티브 `EventSource`(GET 전용) 대신 `fetch()` + `getReader()`로 직접 스트림 파싱.
+  `AIGenerateView.vue`는 스트리밍 중 누적 원문을 `<pre>` 미리보기로 보여주다 `result` 도착 시
+  기존 카드로 전환. `ChatPanel.vue`/`BacktestAskPanel.vue`는 어시스턴트 말풍선에 스트리밍 중
+  원문을 모노스페이스 스타일로 채워나가다 완료 시 `reply`로 교체 — TypeScript가 클로저 안에서만
+  대입되는 변수의 control-flow narrowing을 못 해서(`onResult` 콜백 안에서만 값이 들어옴) `as`
+  단언으로 우회.
+
+**검증**: `test_openai_client.py`/`test_claude_client.py`에 스트리밍 유닛 테스트 추가(청크
+전달/사용량 매핑/on_chunk 없이도 동작/api_key 없을 때 에러), `test_api_ai_flow.py`에
+`/ai/generate-draft/stream` SSE 통합 테스트 추가(chunk 프레임들 + 마지막 result 프레임 검증).
+백엔드 pytest 350→361개 전부 통과. `vue-tsc -b` 통과. `curl`/`TestClient.stream()`으로 실제
+SSE 프레임(`chunk`→`result`)이 순서대로 오는 것을 라이브 확인. 브라우저 자동화 도구가 없어
+실제 화면 렌더링 라이브 확인은 못함(기존 세션과 동일 제약).
+
 ---
 
 ## 1. 목표와 PoC 범위
