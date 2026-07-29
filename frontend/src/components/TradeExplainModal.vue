@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { CheckCircle2, Hourglass, SkipForward, XCircle } from '@lucide/vue'
 import { explainBacktest, fetchRun } from '@/api/services'
-import type { NodeEventOut, TradeOut } from '@/api/types'
+import type { NodeEventOut, NodeTypeSchema, TradeOut } from '@/api/types'
 import { decisionForSymbol } from '@/utils/decisions'
 import { tradeStatusLabel } from '@/utils/labels'
 
@@ -17,6 +18,7 @@ const props = defineProps<{
   trade: TradeOut | null
   workflowId: string
   backtestId: string
+  nodeTypesByKey?: Map<string, NodeTypeSchema>
 }>()
 
 const emit = defineEmits<{ close: [] }>()
@@ -45,16 +47,20 @@ async function loadSteps() {
   steps.value = []
   try {
     const run = await fetchRun(props.workflowId, props.trade.run_id)
-    steps.value = run.events.map((evt) => {
-      const decision = decisionForSymbol(evt, props.trade!.symbol)
-      return {
-        nodeId: evt.node_id,
-        nodeType: evt.node_type,
-        status: evt.status,
-        pass: decision?.pass,
-        reason: decision?.reason,
-      }
-    })
+    // 각 노드는 "실행 중" → 최종상태(완료/오류/건너뜀) 두 이벤트를 순서대로 남긴다. 이 팝업은
+    // 근거 요약이 목적이라 "실행 중" 행은 숨기고 노드당 최종 상태 한 줄만 보여준다.
+    steps.value = run.events
+      .filter((evt) => evt.status !== 'running')
+      .map((evt) => {
+        const decision = decisionForSymbol(evt, props.trade!.symbol)
+        return {
+          nodeId: evt.node_id,
+          nodeType: evt.node_type,
+          status: evt.status,
+          pass: decision?.pass,
+          reason: decision?.reason,
+        }
+      })
   } catch {
     loadError.value = '이 매매의 노드 실행 기록을 불러오지 못했습니다.'
   } finally {
@@ -102,7 +108,11 @@ watch(
   },
 )
 
-const STATUS_ICON: Record<string, string> = { running: '⏳', success: '✅', error: '⛔', skipped: '⏭️' }
+const STATUS_ICON = { running: Hourglass, success: CheckCircle2, error: XCircle, skipped: SkipForward }
+
+function nodeDisplayName(nodeType: string): string {
+  return props.nodeTypesByKey?.get(nodeType)?.display_name ?? nodeType
+}
 </script>
 
 <template>
@@ -132,13 +142,17 @@ const STATUS_ICON: Record<string, string> = { running: '⏳', success: '✅', er
           :key="`${step.nodeId}-${i}`"
           :class="['timeline-step', `status-${step.status}`, { 'has-decision': step.pass !== undefined }]"
         >
-          <span class="timeline-icon">{{ STATUS_ICON[step.status] ?? '•' }}</span>
+          <span class="timeline-icon">
+            <component :is="STATUS_ICON[step.status] ?? CheckCircle2" :size="15" :stroke-width="2.2" />
+          </span>
           <div class="timeline-body">
             <div class="timeline-title">
-              <span class="mono">{{ step.nodeId }}</span>
-              <span class="text-muted">{{ step.nodeType }}</span>
+              <span class="node-type">{{ nodeDisplayName(step.nodeType) }}</span>
+              <span class="mono text-muted">{{ step.nodeId }}</span>
               <span v-if="step.pass !== undefined" :class="step.pass ? 'badge-pass' : 'badge-fail'">
-                {{ step.pass ? '✅ 통과' : '⛔ 탈락' }}
+                <CheckCircle2 v-if="step.pass" :size="12" :stroke-width="2.5" />
+                <XCircle v-else :size="12" :stroke-width="2.5" />
+                {{ step.pass ? '통과' : '탈락' }}
               </span>
             </div>
             <div v-if="step.reason" class="timeline-reason">{{ step.reason }}</div>
@@ -229,8 +243,27 @@ const STATUS_ICON: Record<string, string> = { running: '⏳', success: '✅', er
 .timeline-icon {
   flex-shrink: 0;
   width: 20px;
-  text-align: center;
-  font-size: 13px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.status-running .timeline-icon {
+  color: var(--running);
+}
+
+.status-success .timeline-icon {
+  color: var(--success);
+}
+
+.status-error .timeline-icon {
+  color: var(--danger);
+}
+
+.node-type {
+  font-weight: 600;
 }
 
 .timeline-body {
@@ -255,6 +288,9 @@ const STATUS_ICON: Record<string, string> = { running: '⏳', success: '✅', er
 
 .badge-pass,
 .badge-fail {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;

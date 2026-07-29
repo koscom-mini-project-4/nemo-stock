@@ -1543,6 +1543,30 @@ fixed`로 컬럼폭 고정 + `word-break: keep-all` + `overflow-wrap: break-word
 신뢰하려면 각각 다시 실행해야 한다 — 사용자에게 안내했고 일괄 재실행 여부는 아직 미결정
 (요청 시 진행).
 
+## 2026-07-29 후속 작업 5: 매매 근거 팝업(TradeExplainModal) 정리 + lucide 아이콘 도입
+
+사용자가 스크린샷으로 지적 — "매수/매도 근거" 팝업(`TradeExplainModal.vue`)에서 같은 노드가
+"실행 중"/"완료" 두 줄로 중복 표시되고, 노드 이름이 `scheduler.interval` 같은 원본 타입
+코드로 나오며, 상태 아이콘이 이모지(⏳✅⛔⏭️)라 지저분해 보인다는 요청. `@lucide/vue`(신규
+의존성, deprecated된 `lucide-vue-next` 대신 유지보수 중인 후속 패키지 사용) 설치해 세 가지
+모두 반영.
+
+- `TradeExplainModal.vue`: `run.events`에서 `status !== 'running'`만 남겨 노드당 최종 상태
+  한 줄만 보여주도록 필터링(이 팝업은 "근거 요약"이 목적이라 실행 중 상태는 불필요 — 반면
+  `DebugPanel.vue`의 "일자별 노드 그래프" 이벤트 로그는 실행 과정 자체를 보여주는 게 목적이라
+  거기는 손대지 않음). `nodeTypesByKey` prop을 새로 받아(BacktestResultView.vue가 이미 갖고
+  있던 것 재사용) 노드 타입 코드 대신 한글 `display_name`을 보여주도록 변경. 이모지 아이콘을
+  `Hourglass`/`CheckCircle2`/`XCircle`/`SkipForward`(lucide)로 교체, 상태별 색상(성공=초록/
+  오류=빨강/실행중=노랑)을 아이콘에도 적용.
+- `DebugPanel.vue`(일자별 노드 그래프 이벤트 로그, 판단결과 표): 같은 이모지→lucide 아이콘
+  교체를 일관성 있게 적용(구조/축약 로직은 변경 없음, 아이콘만 정리).
+- `BacktestResultView.vue`: `TradeExplainModal`에 `nodeTypesByKey` prop 전달 추가.
+
+**검증**: `vue-tsc -b` + `npm run build` 통과. Playwright로 실제 백테스트 결과 페이지에서
+매수 마커를 클릭해 팝업을 직접 렌더링 — 이전엔 노드 8개가 실행중+완료 중복으로 16줄이었을
+것이, 수정 후 8줄(노드당 1줄)로 줄고 전부 한글 노드명 + lucide 체크 아이콘으로 표시됨을
+확인, 콘솔 에러 0건.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

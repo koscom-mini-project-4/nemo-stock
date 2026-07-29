@@ -434,6 +434,7 @@ onUnmounted(() => {
         :trade="tradeModalTrade"
         :workflow-id="result.workflow_id"
         :backtest-id="result.id"
+        :node-types-by-key="nodeTypesByKey"
         @close="tradeModalVisible = false"
       />
     </div>

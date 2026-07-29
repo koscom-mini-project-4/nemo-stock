@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { CheckCircle2, Hourglass, SkipForward, XCircle } from '@lucide/vue'
 import type { NodeEventOut, NodeTypeSchema } from '@/api/types'
 import { decisionsForEvent } from '@/utils/decisions'
 
@@ -15,12 +16,7 @@ function select(i: number) {
   selectedIndex.value = i
 }
 
-const STATUS_ICON: Record<string, string> = {
-  running: '⏳',
-  success: '✅',
-  error: '⛔',
-  skipped: '⏭️',
-}
+const STATUS_ICON = { running: Hourglass, success: CheckCircle2, error: XCircle, skipped: SkipForward }
 
 const STATUS_LABEL: Record<string, string> = {
   running: '실행 중',
@@ -58,7 +54,9 @@ defineExpose({ select })
         :class="[`status-${evt.status}`, { selected: selectedIndex === i }]"
         @click="select(i)"
       >
-        <span class="icon">{{ STATUS_ICON[evt.status] ?? '•' }}</span>
+        <span class="icon">
+          <component :is="STATUS_ICON[evt.status] ?? CheckCircle2" :size="16" :stroke-width="2.2" />
+        </span>
         <span class="status-label" :class="`status-label-${evt.status}`">{{ statusLabel(evt.status) }}</span>
         <span class="node-type">{{ nodeDisplayName(evt) }}</span>
         <span class="node-id mono text-muted">{{ evt.node_id }}</span>
@@ -79,7 +77,11 @@ defineExpose({ select })
               :class="row.pass ? 'decision-pass' : 'decision-fail'"
             >
               <td class="mono decision-symbol">{{ row.symbol }}</td>
-              <td class="decision-badge">{{ row.pass ? '✅ 통과' : '⛔ 탈락' }}</td>
+              <td class="decision-badge">
+                <CheckCircle2 v-if="row.pass" :size="13" :stroke-width="2.5" />
+                <XCircle v-else :size="13" :stroke-width="2.5" />
+                {{ row.pass ? '통과' : '탈락' }}
+              </td>
               <td class="decision-reason">{{ row.reason }}</td>
             </tr>
           </tbody>
@@ -149,7 +151,21 @@ defineExpose({ select })
 }
 
 .icon {
-  font-size: 16px;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.status-running .icon {
+  color: var(--running);
+}
+
+.status-success .icon {
+  color: var(--success);
+}
+
+.status-error .icon {
+  color: var(--danger);
 }
 
 .status-label {
@@ -203,6 +219,11 @@ defineExpose({ select })
 .decision-table .decision-badge {
   width: 12%;
   white-space: nowrap;
+}
+
+.decision-badge svg {
+  vertical-align: -2px;
+  margin-right: 3px;
 }
 
 .decision-table .decision-reason {
