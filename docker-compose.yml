@@ -10,8 +10,7 @@ services:
       - ./backend/.env
     volumes:
       # SQLite DB 파일을 호스트와 바인딩하여 컨테이너 재시작 후에도 유저/데이터 유지
-      - ./backend/nemo_stock.db:/app/nemo_stock.db
-      - ./backend/nemo-stock.md:/app/nemo-stock.md
+      - ./backend:/app
     restart: unless-stopped
 
   frontend:
