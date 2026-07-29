@@ -23,6 +23,7 @@ import type {
   PendingNewsResult,
   SymbolStats,
 } from '@/api/types'
+import { formatUsd } from '@/utils/format'
 
 type Section = 'usage' | 'symbols' | 'news' | 'explore' | 'analyzed' | 'pending'
 
@@ -313,34 +314,48 @@ onMounted(() => {
                   {{ metrics.ai_usage.completion_tokens.toLocaleString() }}
                 </div>
               </div>
+              <div class="metric">
+                <div class="text-muted">추정 비용(USD)</div>
+                <div class="metric-value">{{ formatUsd(metrics.ai_usage.total_cost_usd) }}</div>
+              </div>
             </div>
+            <p v-if="metrics.ai_usage.total_unpriced_tokens > 0" class="text-muted cost-note">
+              가격표에 없는 모델의 토큰 {{ metrics.ai_usage.total_unpriced_tokens.toLocaleString() }}개는
+              위 추정 비용에 포함되지 않았습니다(하한 추정치). 또한 캐시 히트 여부를 기록하지 않아
+              prompt 토큰 전체를 표준(비캐시) 단가로 계산합니다 — 실제 비용은 이보다 낮을 수 있습니다.
+            </p>
 
             <div class="breakdown-row">
               <div class="breakdown">
                 <div class="breakdown-title">목적별</div>
                 <table>
-                  <thead><tr><th>purpose</th><th>호출</th><th>토큰</th></tr></thead>
+                  <thead><tr><th>purpose</th><th>호출</th><th>토큰</th><th>비용(USD)</th></tr></thead>
                   <tbody>
                     <tr v-for="b in metrics.ai_usage.by_purpose" :key="b.purpose">
                       <td class="mono">{{ b.purpose }}</td>
                       <td>{{ b.calls }}</td>
                       <td>{{ b.total_tokens.toLocaleString() }}</td>
+                      <td>
+                        {{ formatUsd(b.cost_usd ?? 0) }}
+                        <span v-if="b.unpriced_tokens" class="text-muted small">(+{{ b.unpriced_tokens.toLocaleString() }} 미가격)</span>
+                      </td>
                     </tr>
-                    <tr v-if="metrics.ai_usage.by_purpose.length === 0"><td colspan="3" class="text-muted">기록 없음</td></tr>
+                    <tr v-if="metrics.ai_usage.by_purpose.length === 0"><td colspan="4" class="text-muted">기록 없음</td></tr>
                   </tbody>
                 </table>
               </div>
               <div class="breakdown">
                 <div class="breakdown-title">모델별</div>
                 <table>
-                  <thead><tr><th>model</th><th>호출</th><th>토큰</th></tr></thead>
+                  <thead><tr><th>model</th><th>호출</th><th>토큰</th><th>비용(USD)</th></tr></thead>
                   <tbody>
                     <tr v-for="b in metrics.ai_usage.by_model" :key="b.model">
                       <td class="mono">{{ b.model }}</td>
                       <td>{{ b.calls }}</td>
                       <td>{{ b.total_tokens.toLocaleString() }}</td>
+                      <td>{{ b.cost_usd === null ? '가격 미상' : formatUsd(b.cost_usd) }}</td>
                     </tr>
-                    <tr v-if="metrics.ai_usage.by_model.length === 0"><td colspan="3" class="text-muted">기록 없음</td></tr>
+                    <tr v-if="metrics.ai_usage.by_model.length === 0"><td colspan="4" class="text-muted">기록 없음</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -658,6 +673,11 @@ h2 {
 
 .metric-value.small {
   font-size: 14px;
+}
+
+.cost-note {
+  font-size: 12px;
+  margin: -8px 0 16px;
 }
 
 .breakdown-row {

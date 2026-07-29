@@ -20,6 +20,17 @@ export function formatKrw(value: number): string {
   return KRW_FORMATTER.format(value)
 }
 
+const USD_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 4,
+})
+
+/** AI 사용량 추정 비용처럼 소액(센트 미만)이 흔한 값을 위해 소수점 4자리까지 표시한다. */
+export function formatUsd(value: number): string {
+  return USD_FORMATTER.format(value)
+}
+
 /** "YYYY-MM-DDTHH:mm:ss(.ffffff)?" (naive, 이미 KST) -> "YYYY.MM.DD HH:mm". 파싱 실패 시 원문 반환. */
 export function formatDateTimeKst(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(iso)
