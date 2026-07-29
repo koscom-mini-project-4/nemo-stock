@@ -1331,10 +1331,12 @@ DB에 추가하고 매매 판단 가능한 수준으로 분석, (2) 대시보드
 `NewsTrader.update()`/`NewsUpdateRequest`에 `model`/`max_pages` 1회성 오버라이드도
 추가(§0-20 상세 참조). 소규모 드라이런(15건 후보 중 13건 성공, 실제 관련 기사 확인)
 후 본 실행(`--query 아이씨에이치 --days 8 --max-results 100 --model gpt-5-nano`)을
-백그라운드로 트리거 — 크롤링은 신규 59건 수집 완료, gpt-5-nano AI 분류 단계가
-예상보다 느려(첫 호출부터 20분 이상) 이번 세션 종료 시점까지 완료를 확인하지 못함.
-다음 세션에서 `newsstock.db`의 분류 완료 여부(`SELECT COUNT(*) FROM crawled WHERE
-classified=0`)를 먼저 확인할 것.
+백그라운드로 트리거 — 신규 59건 수집, gpt-5-nano로 전부 분류 완료(pending=0), 이벤트
+클러스터 23개가 "아이씨에이치" 키로 태깅됨(2026-07-21~29, 김영훈 대표 책임경영 매수/
+갤럭시 Z 폴더블·옵티머스·아틀라스 로봇 소재 공급 확정/투자경고종목 지정 등 실제 주가
+변동과 연결되는 사건 위주 — `trader.stock()` 평균 0.0879, DESIGN.md §0-20 상세 참조).
+`ai.news_signal` 노드(code=368600 또는 key=아이씨에이치)로 워크플로에서 바로 소비
+가능.
 
 **일봉 180일**: `frontend/src/api/services.ts::fetchPrices` 기본값 +
 `DashboardView.vue::loadPriceSeries` 호출 인자 + 백엔드 `GET /data/prices/{symbol}`
@@ -1347,10 +1349,18 @@ classified=0`)를 먼저 확인할 것.
 기본값(`client.ts`의 `VITE_API_BASE_URL` 폴백)에 의존하도록 해당 COPY 줄 제거.
 (3) 부가로 `backend/`/`frontend/` `.dockerignore` 신규 추가(`.venv`/`node_modules`가
 매번 빌드 컨텍스트에 올라가던 문제), `backend/Dockerfile`의 apt 캐시 정리 경로 오타 수정.
-Docker 데몬이 이 세션 환경에 없어 실제 빌드로 검증하지 못함 — 사용자가 재배포 후 최종
-확인 필요.
 
-**검증**: 백엔드 pytest 372개 전부 통과, 프론트 `vue-tsc -b` 통과.
+**후속 정정**: 사용자가 `frontend/public/presentation/`이 `/presentation`으로 접근하면
+index.html로 가버려 안 보일 것 같다고 지적 — `vercel/serve` 소스(`main.ts`/`index.js`)를
+직접 추적해 `-s`가 확장자 없는 경로를 실제 파일 존재 여부와 무관하게 전부 index.html로
+rewrite한다는 걸 확인(새로고침 404는 고치지만 정적 서브패스 접근을 막는 부작용).
+`frontend/Dockerfile`을 nginx 기반으로 교체(`frontend/nginx.conf` 신규,
+`try_files $uri $uri/ /index.html`)해 "실제 파일/디렉토리 우선, 없을 때만 폴백"으로
+두 요구를 함께 해결(DESIGN.md §0-21-1).
+
+**검증**: 백엔드 pytest 372개 전부 통과, 프론트 `vue-tsc -b` 통과. Docker 데몬이 이
+세션 환경에 없어 실제 빌드로는 검증하지 못함(소스 코드 추적으로 원인/해법 확인) —
+사용자가 재배포 후 최종 확인 필요.
 
 ## 커밋 이력 참고
 

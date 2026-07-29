@@ -691,8 +691,16 @@ DB에 추가. 기존 `POST /data/news/update`(`app/vendor/news_classifier/crawle
 - **실사용 검증**: `crawl_search`를 임시 DB로 소규모 드라이런(15건 후보)해 13건 성공
   수집(진짜 "아이씨에이치" 관련 기사 — 삼성 폴더블 소재 공급 소식, 투자경고종목 지정
   등 실제 매매 판단에 쓸 만한 내용) 확인 후, 실제 `newsstock.db`에
-  `--query 아이씨에이치 --days 8 --max-results 100 --model gpt-5-nano`로 본 실행(신규
-  59건 수집 → AI 분류는 백그라운드 진행, 완료 결과는 다음 세션/후속 기록에 반영).
+  `--query 아이씨에이치 --days 8 --max-results 100 --model gpt-5-nano`로 본 실행 —
+  신규 59건 수집, gpt-5-nano로 전부 분류 완료(pending=0), 이벤트 클러스터 23개가
+  "아이씨에이치" 키로 태깅됨(2026-07-21~29). 내용은 김영훈 대표 책임경영 매수(+0.3~0.6),
+  갤럭시 Z 폴더블/옵티머스·아틀라스 로봇 소재 공급 확정(+0.3~1.0, 상한가 다수),
+  투자경고종목 지정(-0.3, -0.6) 등 실제 주가 변동과 연결되는 사건들로 구성돼 있어
+  단순 홍보성 뉴스가 아니라 매매 판단에 쓸 만한 신호임을 확인. `trader.stock("아이씨에이치",
+  start="2026-07-21", period=9)`로 조회하면 평균 0.0879(기본 threshold 0.1 미만이라
+  판정은 "n" 중립이지만, 최근 3~4일 구간만 좁혀 보면 +1.0대 사건이 몰려 있어 단기
+  모멘텀은 뚜렷함) — `ai.news_signal` 노드(axis=종목, code=368600 또는 key=아이씨에이치)로
+  워크플로에서 바로 소비 가능한 상태.
 - **클러스터링 확인**(사용자 질문에 대한 답): 종목코드(368600)가 아니라 AI가 기사에서
   추출한 종목명 문자열(`stock` 필드, 예: "아이씨에이치")을 키로 `group_a` 테이블에
   들어간다. `app/market_data/symbol_master.py`에 이미 `368600 ↔ 아이씨에이치` 매핑이
@@ -741,6 +749,31 @@ DB에 추가. 기존 `POST /data/news/update`(`app/vendor/news_classifier/crawle
 환경(로컬 개발 세션)에 떠 있지 않아 `docker build`/실제 컨테이너 기동으로는 검증하지
 못함 — 논리적 분석(Dockerfile 문법, Vite 환경변수 로딩 순서, `serve` 공식 옵션)으로만
 확인했고, 사용자가 재배포 후 최종 확인 필요.
+
+### 0-21-1. 정정 — `serve -s`가 `frontend/public/presentation/` 정적 페이지를 막는 부작용 발견 (2026-07-29 후속)
+
+사용자가 "public/presentation은 /presentation으로 가면 index.html로 가버려서 볼 수
+없을 것 같다"고 지적. `vercel/serve`/`serve-handler`의 실제 소스(`main.ts`/`index.js`,
+GitHub에서 직접 확인)를 추적한 결과, `-s`/`--single`은 `rewrites: [{source: '**',
+destination: '/index.html'}]`를 **최우선 규칙으로 주입**하고, 확장자 없는 경로는
+`applyRewrites`가 원래 경로의 실제 파일 존재 여부를 아예 확인하지 않고 rewrite된
+목적지(`/index.html`)만 시도하는 것을 확인했다(`findRelated()`가 `rewrittenPath`가
+있으면 원래 경로 후보를 아예 안 만듦) — 즉 `-s`는 "실제로 없을 때만 폴백"이 아니라
+확장자 없는 요청을 **전부 무조건** `index.html`로 바꿔버려, `/strategies/new` 새로고침
+404는 고쳤지만 `public/presentation/index.html`처럼 실재하는 정적 서브패스도 함께
+막는 부작용이 있었다.
+
+- `frontend/Dockerfile`을 nginx 기반으로 교체(빌드 스테이지는 기존과 동일하게
+  `node:20-alpine`으로 `npm run build`, 런타임 스테이지만 `nginx:alpine`으로 교체).
+  `frontend/nginx.conf` 신규 — `location / { try_files $uri $uri/ /index.html; }`.
+  nginx의 `try_files`는 "실제 파일 → 실제 디렉토리(index.html) → 폴백" 순서로 실제
+  존재를 먼저 확인하므로, `serve -s`가 가진 "무조건 rewrite" 결함 없이 새로고침 404와
+  정적 서브패스 접근을 동시에 만족한다. `serve` npm 전역 설치도 더 이상 불필요해 제거.
+- **검증**: 이 환경에 Docker 데몬이 없어 실제 컨테이너로 확인하지 못함 —
+  `serve-handler`의 `applyRewrites`/`findRelated` 소스 코드를 직접 읽고 로직을
+  추적해 원인과 수정 방향을 확인했다(추측이 아니라 실제 GitHub 소스 대조). 사용자가
+  재배포 후 `/strategies/new` 새로고침과 `/presentation` 둘 다 정상 동작하는지 최종
+  확인 필요.
 
 ---
 
