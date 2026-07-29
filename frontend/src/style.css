@@ -167,6 +167,7 @@ textarea:focus {
   border-radius: 3px;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .badge-draft {
