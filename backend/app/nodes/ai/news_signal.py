@@ -9,7 +9,7 @@ t(호재)/n(중립)/f(악재) 판정을 돌려준다. 우리 NewsRepository/ai.s
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Callable
 
 from app.market_data.symbol_master import get_symbol_name
@@ -48,10 +48,12 @@ def resolve_news_signal_clusters(
     decay_from = str(node.params.get("decay_from", "end") or "end")
     method_name = AXIS_METHOD.get(axis, "stock")
 
-    # 노드는 매 거래일 start=그날, period=period_days(그날부터 앞으로 period_days)로 조회한다.
-    # [start_date, end_date] 전체를 한 번에 커버하려면 start=start_date, period=
-    # (구간 길이 + 노드의 조회기간)으로 넓혀서 조회하면 각 거래일이 봤을 구간의 합집합을
-    # 충분히 덮는다(경계 며칠 정도 더 넓게 잡히는 건 무해하다).
+    # newsstock-lib의 indicator.window(start, period)는 [start, start+period]로 "앞으로"
+    # 조회한다(node.execute()와 동일한 주의사항 — 위 주석 참조). 노드는 매 거래일마다
+    # [그날-period_days, 그날]을 본다. [start_date, end_date] 전체를 커버하려면 가장 이른
+    # 거래일(start_date)이 봤을 구간의 시작(start_date-period_days)부터 가장 늦은 거래일
+    # (end_date)이 봤을 구간의 끝(end_date)까지를 한 번에 조회하면 된다.
+    window_start = start_date - timedelta(days=period_days)
     span_days = (end_date - start_date).days + period_days
 
     trader = news_trader_factory(
@@ -59,7 +61,7 @@ def resolve_news_signal_clusters(
         include_zero=include_zero, decay_from=decay_from,
     )
     try:
-        result = getattr(trader, method_name)(key, start=start_date.isoformat(), period=span_days)
+        result = getattr(trader, method_name)(key, start=window_start.isoformat(), period=span_days)
     finally:
         trader.close()
 
@@ -211,7 +213,16 @@ class NewsSignalNode(Node):
         # context.timestamp 기준으로 조회해야 백테스트(과거 날짜로 리플레이)에서 그날 시점의
         # 뉴스 창을 본다. start를 안 주면 라이브러리가 항상 "실제 오늘"을 기준으로 계산해
         # 백테스트의 각 거래일이 전부 동일한(가장 최근) 결과를 받는 문제가 생긴다.
-        start_date = context.timestamp.date().isoformat()
+        #
+        # 중요: newsstock-lib(app/vendor/news_classifier/indicator.py::window)의 start/period는
+        # "start부터 앞으로 period일"(forward window, CLI 원본이 --from/--period로 부르는 그대로의
+        # 의미)이다. as-of 날짜를 그대로 start로 넘기면 [그날, 그날+period_days]가 되어 백테스트가
+        # 미래(그날 이후 실제로 크롤링된 뉴스)를 보고 판단하는 룩어헤드 버그가 생긴다(실사용 중 발견
+        # — 삼성전자 백테스트가 미래 뉴스를 참고한 것처럼 보인다는 신고로 확인). as-of 날짜가 그
+        # 구간의 "끝"이 되도록 period_days만큼 앞당긴 날짜를 start로 넘겨야 [그날-period_days, 그날]
+        # 이 되어 과거 데이터만 본다.
+        as_of_date = context.timestamp.date()
+        window_start = (as_of_date - timedelta(days=period_days)).isoformat()
 
         out = context.clone()
         passed: dict[str, dict] = {}
@@ -236,7 +247,7 @@ class NewsSignalNode(Node):
                     continue
 
                 try:
-                    result = getattr(trader, method_name)(key, start=start_date, period=period_days)
+                    result = getattr(trader, method_name)(key, start=window_start, period=period_days)
                 except Exception as exc:  # noqa: BLE001 - 조회 실패는 해당 종목 탈락으로 처리
                     out.meta.setdefault("errors", []).append(f"{self.node_id}:{symbol}: {exc}")
                     decisions[symbol] = {"pass": False, "reason": f"조회 오류: {exc}"}

@@ -1498,6 +1498,51 @@ fixed`로 컬럼폭 고정 + `word-break: keep-all` + `overflow-wrap: break-word
 표 줄무늬, 디테일 카드 스타일 등 시각적 정리도 함께 진행. `vue-tsc -b` 통과, Playwright로
 실제 렌더링해 줄바꿈/레이아웃 확인.
 
+## 2026-07-29 후속 작업 4: ai.news_signal 룩어헤드(미래 데이터 참조) 버그 수정
+
+사용자가 `/backtests/9703d210-...`(아이씨에이치 368600, 7/16~7/29)를 보다가 "왜 미래의
+뉴스를 보고 있는 것 같지?"라고 신고 — 실제로 심각한 버그였다.
+
+**근본 원인**: `app/vendor/news_classifier/indicator.py::window(start, period_days)`는
+`[start, start+period_days]`로 **앞으로**(forward) 조회하는 라이브러리다(CLI 원본 플래그가
+`--from`/`--period`인 것과 일치하는 원래 설계 — 라이브러리 자체의 버그는 아님). 그런데
+`app/nodes/ai/news_signal.py`의 두 호출부가 모두 "as-of 날짜"를 그대로 `start`로 넘기고
+있었다: (1) `NewsSignalNode.execute()`가 `start=context.timestamp.date()`(백테스트가
+리플레이 중인 그날)를 그대로 넘겨 `[그날, 그날+7일]`을 조회 — 백테스트가 실행 시점(실제
+오늘, 2026-07-29)까지 이미 크롤링된 진짜 미래 뉴스를 보고 매매를 판단하는 룩어헤드가
+발생했다. (2) `resolve_news_signal_clusters()`(차트 뉴스마커 + AI 설명 컨텍스트가 공유하는
+헬퍼)도 `start=start_date`(백테스트 시작일)를 그대로 넘겨 `[start_date, end_date+period_days]`
+를 조회 — `end_date` 이후로 새는 것도 방향이 반대였다(가장 이른 거래일이 필요로 하는
+`start_date-period_days` 이전 구간은 못 보고 있었음).
+
+**재현 확인**: 2026-07-16 백테스트 일(period_days=7 기본값)이 참고한 "주요 근거" 클러스터의
+실제 `first_seen_at`이 2026-07-23(7일 뒤)이었음을 `newsstock.db` 직접 조회로 확인 —
+`start+period_days = 7/16+7 = 7/23`과 정확히 일치, 원인 확정.
+
+**수정**: 두 호출부 모두 as-of/시작일 대신 `period_days`만큼 앞당긴 날짜를 `start`로 넘기도록
+변경 — `NewsSignalNode.execute()`는 `window_start = as_of_date - period_days`(구간이
+`[그날-period_days, 그날]`이 되어 그날 시점 과거만 봄), `resolve_news_signal_clusters()`는
+`window_start = start_date - period_days`(구간이 `[start_date-period_days, end_date]`가
+되어 전체 백테스트 기간을 정확히 커버). 노드의 `description`(사용자向 설명 문구)은 애초에
+"최근 period_days일"이라고 의도를 정확히 서술하고 있었으므로 변경 없음 — 구현만 그 의도에
+맞게 고침.
+
+**검증**: `tests/unit/test_news_signal_node.py`의 관련 단정문(예상 `start` 값)을 전부 올바른
+방향으로 갱신 + 회귀 테스트 이름/독스트링을 룩어헤드 버그를 명시하도록 개선. 백엔드 pytest
+**377개 전부 통과**. 실 서버(uvicorn --reload)에서 동일 백테스트(아이씨에이치, 7/16~7/29)를
+재실행해 실측 검증: 수정 전 7/16일에 (미래 데이터로) "호재 통과"였던 것이 수정 후
+"클러스터 0건 → 탈락"(그 주에는 실제로 이 종목 뉴스가 없었음, 타당함)으로 바뀌었고, 7/24·
+7/28일은 그날 실제 발생한 뉴스(같은 날 첫 발생)를 정확히 참고함을 확인. 검증용으로 재실행한
+백테스트 결과는 정리 후 삭제(원본 `9703d210-...` 등 기존 저장 결과는 건드리지 않음 — DB
+직접 수정 없이 코드만 고쳤으므로 그대로 남아 있음, 사용자가 확인용으로 보고 있던 URL 포함).
+
+**영향 범위(중요, 후속 조치 필요)**: `ai.news_signal` 노드를 쓰는 워크플로로 실행된 기존
+저장 백테스트 결과 **16건**이 이 버그의 영향을 받았을 수 있다(모두 2026-07-29에 생성됨,
+`SELECT ... FROM backtest_results JOIN workflows WHERE graph_json LIKE '%ai.news_signal%'`로
+조회 가능). 코드 수정만으로는 이미 저장된 과거 결과가 자동으로 갱신되지 않으므로, 그 결과들을
+신뢰하려면 각각 다시 실행해야 한다 — 사용자에게 안내했고 일괄 재실행 여부는 아직 미결정
+(요청 시 진행).
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.
