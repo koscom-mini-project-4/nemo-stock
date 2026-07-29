@@ -58,9 +58,12 @@ const replayError = ref('')
 // 매매 시점 시각화 + AI 진단/수정 제안(BacktestChart/BacktestAskPanel) — 차트에서 매매 지점 클릭 또는
 // 구간 드래그로 선택하면 그 근거로 AI에게 물어볼 수 있다.
 const chartSelection = ref<BacktestExplainSelection | null>(null)
+// AI 사이드바(BacktestAskPanel)는 기본 닫힘 — 차트에서 매매/구간을 선택하면 물어볼 수 있도록 자동으로 연다.
+const askPanelOpen = ref(false)
 
 function onChartSelect(selection: BacktestExplainSelection) {
   chartSelection.value = selection
+  askPanelOpen.value = true
 }
 
 function onChartSelectDay(date: string) {
@@ -359,7 +362,12 @@ onUnmounted(() => {
       </div>
 
       <div class="card">
-        <h2>매매 시점 · 시세 · 보조지표</h2>
+        <div class="card-header-row">
+          <h2>매매 시점 · 시세 · 보조지표</h2>
+          <button class="btn btn-ask-toggle" type="button" @click="askPanelOpen = !askPanelOpen">
+            {{ askPanelOpen ? 'AI 도우미 닫기 ▸' : '◂ AI 도우미 열기' }}
+          </button>
+        </div>
         <div class="chart-ask-body">
           <div class="chart-pane">
             <BacktestChart
@@ -369,7 +377,7 @@ onUnmounted(() => {
               @open-trade="onOpenTrade"
             />
           </div>
-          <div class="ask-pane">
+          <div v-if="askPanelOpen" class="ask-pane">
             <BacktestAskPanel
               :backtest-id="result.id"
               :workflow-id="result.workflow_id"
@@ -416,7 +424,7 @@ onUnmounted(() => {
             </VueFlow>
           </div>
           <div class="replay-debug">
-            <DebugPanel :events="debugEvents" :playing="replaying" />
+            <DebugPanel :events="debugEvents" :playing="replaying" :node-types-by-key="nodeTypesByKey" />
           </div>
         </div>
       </div>
@@ -505,6 +513,24 @@ h2 {
   color: var(--negative);
 }
 
+.card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.card-header-row h2 {
+  margin: 0;
+}
+
+.btn-ask-toggle {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  padding: 5px 10px;
+}
+
 .chart-ask-body {
   display: flex;
   gap: 12px;
@@ -537,13 +563,12 @@ h2 {
 
 .replay-body {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  height: 380px;
 }
 
 .replay-canvas {
-  flex: 1.4;
-  min-width: 0;
+  height: 340px;
   position: relative;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -554,8 +579,7 @@ h2 {
 }
 
 .replay-debug {
-  flex: 1;
-  min-width: 0;
+  height: 420px;
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;

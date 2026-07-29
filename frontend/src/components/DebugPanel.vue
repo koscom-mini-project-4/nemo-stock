@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { NodeEventOut } from '@/api/types'
+import type { NodeEventOut, NodeTypeSchema } from '@/api/types'
 import { decisionsForEvent } from '@/utils/decisions'
 
-defineProps<{
+const props = defineProps<{
   events: NodeEventOut[]
   playing: boolean
+  nodeTypesByKey?: Map<string, NodeTypeSchema>
 }>()
 
 const selectedIndex = ref<number | null>(null)
@@ -19,6 +20,21 @@ const STATUS_ICON: Record<string, string> = {
   success: '✅',
   error: '⛔',
   skipped: '⏭️',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  running: '실행 중',
+  success: '완료',
+  error: '오류',
+  skipped: '건너뜀',
+}
+
+function statusLabel(status: string): string {
+  return STATUS_LABEL[status] ?? status
+}
+
+function nodeDisplayName(evt: NodeEventOut): string {
+  return props.nodeTypesByKey?.get(evt.node_type)?.display_name ?? evt.node_type
 }
 
 function decisionSummary(evt: NodeEventOut): string | null {
@@ -43,8 +59,9 @@ defineExpose({ select })
         @click="select(i)"
       >
         <span class="icon">{{ STATUS_ICON[evt.status] ?? '•' }}</span>
-        <span class="node-id mono">{{ evt.node_id }}</span>
-        <span class="node-type text-muted">{{ evt.node_type }}</span>
+        <span class="status-label" :class="`status-label-${evt.status}`">{{ statusLabel(evt.status) }}</span>
+        <span class="node-type">{{ nodeDisplayName(evt) }}</span>
+        <span class="node-id mono text-muted">{{ evt.node_id }}</span>
         <span v-if="decisionSummary(evt)" class="decision-summary">{{ decisionSummary(evt) }}</span>
         <span v-if="evt.duration_ms != null" class="text-muted">{{ Math.round(evt.duration_ms) }}ms</span>
       </div>
@@ -93,11 +110,12 @@ defineExpose({ select })
 .debug-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 10px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .debug-item:hover,
@@ -105,20 +123,40 @@ defineExpose({ select })
   background: var(--bg);
 }
 
-.status-error {
+.icon {
+  font-size: 16px;
+}
+
+.status-label {
+  font-weight: 700;
+  font-size: 14px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.status-label-error {
   color: var(--danger);
 }
 
-.status-success {
+.status-label-success {
   color: var(--success);
 }
 
-.status-running {
+.status-label-running {
   color: var(--running);
 }
 
+.status-label-skipped {
+  color: var(--text-muted);
+}
+
+.node-type {
+  font-weight: 600;
+}
+
 .decision-summary {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
   padding: 1px 6px;
   border-radius: 4px;
@@ -129,7 +167,7 @@ defineExpose({ select })
   width: 100%;
   margin-top: 4px;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .decision-table td {

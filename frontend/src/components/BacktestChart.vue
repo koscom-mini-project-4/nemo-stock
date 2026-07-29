@@ -69,9 +69,12 @@ async function loadSymbolData() {
   loading.value = true
   loadError.value = ''
   try {
-    // 시간봉을 먼저 시도하고(짧은 최근 구간에만 존재, §0-2 실측 한계), 없으면 일봉으로 폴백한다.
+    // 시간봉을 먼저 시도하되(짧은 최근 구간에만 존재, §0-2 실측 한계), 조회된 시간봉의 가장
+    // 이른 날짜가 백테스트 첫 실행일보다 늦으면(=기간 전체를 커버하지 못하면) 그보다 앞선 날짜의
+    // 매매/뉴스가 차트 라벨에서 통째로 사라지는 문제가 있어, 그 경우엔 일봉으로 폴백한다.
     const intraday = await fetchBacktestPrices(props.result.id, selectedSymbol.value, 'minute60')
-    intradayMode.value = intraday.length > 0
+    const earliestNeeded = props.result.daily_runs[0]?.date ?? props.result.start_date
+    intradayMode.value = intraday.length > 0 && dayPrefix(intraday[0].date) <= earliestNeeded
     pricePoints.value = intradayMode.value
       ? intraday
       : await fetchBacktestPrices(props.result.id, selectedSymbol.value, 'day')
