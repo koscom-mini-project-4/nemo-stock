@@ -11,6 +11,7 @@ import { fetchBacktest, fetchNodeTypes, fetchRun, fetchWorkflow, runBacktest } f
 import { subscribeRunEvents } from '@/api/ws'
 import type { BacktestExplainSelection, BacktestResultOut, NodeEventOut, NodeTypeSchema, TradeOut } from '@/api/types'
 import { graphToFlowElements, type FlowNodeData } from '@/utils/flowAdapter'
+import { categoryColor } from '@/utils/categoryColors'
 import BacktestChart from '@/components/BacktestChart.vue'
 import BacktestAskPanel from '@/components/BacktestAskPanel.vue'
 import BacktestProgressPanel from '@/components/BacktestProgressPanel.vue'
@@ -300,8 +301,11 @@ onUnmounted(() => {
       <div class="metric-grid">
         <div class="card metric">
           <div class="text-muted">누적수익률</div>
-          <div class="metric-value" :class="{ negative: result.total_return_pct < 0 }">
-            {{ result.total_return_pct.toFixed(2) }}%
+          <div
+            class="metric-value"
+            :class="{ positive: result.total_return_pct >= 0, negative: result.total_return_pct < 0 }"
+          >
+            {{ result.total_return_pct >= 0 ? '+' : '' }}{{ result.total_return_pct.toFixed(2) }}%
           </div>
         </div>
         <div class="card metric">
@@ -374,9 +378,13 @@ onUnmounted(() => {
               :default-viewport="{ zoom: 0.85 }"
             >
               <template #node-workflow="nodeProps">
-                <div class="wf-node">
+                <div class="wf-node" :style="{ borderLeftColor: categoryColor(nodeProps.data.category) }">
                   <Handle type="target" :position="Position.Left" />
                   <div class="wf-node-header">
+                    <span
+                      class="wf-node-dot"
+                      :style="{ background: categoryColor(nodeProps.data.category) }"
+                    />
                     <span class="wf-node-title">{{ nodeProps.data.displayName }}</span>
                     <span class="wf-node-type mono">{{ nodeProps.data.nodeType }}</span>
                   </div>
@@ -469,8 +477,12 @@ h2 {
   margin-top: 4px;
 }
 
+.metric-value.positive {
+  color: var(--positive);
+}
+
 .metric-value.negative {
-  color: var(--danger);
+  color: var(--negative);
 }
 
 .chart-ask-body {
@@ -488,7 +500,7 @@ h2 {
   flex: 1;
   min-width: 280px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -514,7 +526,7 @@ h2 {
   min-width: 0;
   position: relative;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 .replay-canvas :deep(.vue-flow) {
@@ -525,23 +537,32 @@ h2 {
   flex: 1;
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
 }
 
 .wf-node {
   min-width: 160px;
   border: 1.5px solid var(--border);
-  border-radius: 8px;
+  border-left-width: 4px;
+  border-radius: 3px;
   background: var(--surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 3px 10px rgba(17, 38, 75, 0.1);
 }
 
 .wf-node-header {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px 6px;
   padding: 8px 10px;
+}
+
+.wf-node-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 
 .wf-node-title {
@@ -560,7 +581,7 @@ h2 {
    StrategyBuilderView.vue와 동일한 클래스명이지만, 이 뷰가 단독으로 로드될 수도 있어(빌더를 거치지
    않고 바로 백테스트 결과 페이지로 진입) 여기서도 동일하게 정의해둔다. */
 .flow-status {
-  border-radius: 8px;
+  border-radius: 3px;
   transition: box-shadow 0.2s, border-color 0.2s;
 }
 

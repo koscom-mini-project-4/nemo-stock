@@ -20,6 +20,7 @@ import {
 } from '@/api/services'
 import type { NodeEventOut, NodeTypeSchema, ValidationResult, WorkflowGraph, WorkflowStatus } from '@/api/types'
 import { flowElementsToGraph, graphToFlowElements, type FlowNodeData } from '@/utils/flowAdapter'
+import { categoryColor } from '@/utils/categoryColors'
 import { useDraftStore } from '@/stores/draft'
 import NodePalette, { PALETTE_DRAG_MIME } from '@/components/NodePalette.vue'
 import PropertyPanel from '@/components/PropertyPanel.vue'
@@ -420,9 +421,13 @@ onMounted(load)
           @node-click="onNodeClick"
         >
           <template #node-workflow="nodeProps">
-            <div class="wf-node">
+            <div class="wf-node" :style="{ borderLeftColor: categoryColor(nodeProps.data.category) }">
               <Handle type="target" :position="Position.Left" />
               <div class="wf-node-header">
+                <span
+                  class="wf-node-dot"
+                  :style="{ background: categoryColor(nodeProps.data.category) }"
+                />
                 <span class="wf-node-title">{{ nodeProps.data.displayName }}</span>
                 <span class="wf-node-type mono">{{ nodeProps.data.nodeType }}</span>
               </div>
@@ -581,20 +586,29 @@ onMounted(load)
   min-width: 190px;
   max-width: 240px;
   border: 1.5px solid var(--border);
-  border-radius: 8px;
+  border-left-width: 4px;
+  border-radius: 3px;
   background: var(--surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 3px 10px rgba(17, 38, 75, 0.1);
   cursor: grab;
 }
 
 .wf-node-header {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px 6px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
-  border-radius: 7px 7px 0 0;
+  border-radius: 0 2px 0 0;
+}
+
+.wf-node-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 
 .wf-node-title {
@@ -621,7 +635,7 @@ onMounted(load)
 <style>
 /* Vue Flow가 내부적으로 렌더링하는 노드 DOM에는 scoped 속성이 적용되지 않으므로 전역 스타일로 정의한다. */
 .flow-status {
-  border-radius: 8px;
+  border-radius: 3px;
   transition: box-shadow 0.2s, border-color 0.2s;
 }
 

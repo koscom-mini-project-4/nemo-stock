@@ -237,7 +237,7 @@ function onCheckbox(key: string, event: Event) {
 
 .param-fields.compact .param-field.is-expression {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border-radius: 5px;
+  border-radius: 3px;
   padding: 4px 6px;
 }
 

@@ -1149,6 +1149,53 @@ curl/TestClient로 실제 SSE 프레임 순서(chunk→result) 라이브 확인.
 의존성만 변경). 두 클라이언트가 독립적으로 주입되는지 확인하는 통합 테스트 신규 추가.
 백엔드 pytest 361→364개 전부 통과. `vue-tsc -b` 통과(프론트 변경 없음).
 
+## 2026-07-29 후속 작업 23: 프론트엔드 디자인 리뉴얼 (nemo-poc 참고) + 새 전략 페이지 통합
+
+사용자 요청: `koscom-mini-project-4/nemo-poc`(React/Vite 버전) 프론트 CSS를 참고해 색상·로고·
+버튼·화면 비율을 비슷하게 가져오고, 노드 빌더 노드마다 카테고리별 외곽선 색, 손익/매수·매도
+색상, "nemo-stock PoC" 문구 삭제. 이어서 버튼/노드를 각진 사각형으로, 배경에 은은한 그래디언트,
+화면 전반에 shadow 추가 요청. 마지막으로 "새 전략" 페이지를 nemo-poc의 NewStrategyPage처럼
+빈 캔버스/AI 초안/템플릿 3가지 시작 방법을 한 페이지에 모으고, 대시보드의 "템플릿으로 시작하기"
+섹션은 제거, 기존 AI 전략 생성 페이지의 예시 프롬프트 자동완성 버튼은 유지하도록 요청.
+
+**색상/디자인 시스템**: `frontend/src/style.css`의 CSS 변수를 nemo-poc 팔레트로 교체(주황
+`--accent #f26a21` + 남색 `--secondary`, `--bg`/`--surface`/`--border` 등). 한국 증시 관례에
+맞춰 `--positive`(빨강, 상승/매수/이익)·`--negative`(파랑, 하락/매도/손실) 신설 — 기존엔
+매수=초록/매도=빨강(서구식)으로 뒤섞여 있던 것을 통일: `BacktestChart.vue` 매매 마커(범례도
+매수/매도 데이터셋으로 분리)·`PriceChart.vue` 캔들 upColor/downColor·`BacktestResultView.vue`
+누적수익률·`TradeExplainModal.vue` 매수/매도 라벨+실현손익에 전부 적용.
+
+**노드 카테고리 색상**: `frontend/src/utils/categoryColors.ts` 신규(scheduler=보라/data=파랑/
+indicator=청록/ai=핑크/logic=주황/risk=빨강/execution=남보라) — `NodePalette.vue` 아이템
+좌측 테두리, `StrategyBuilderView.vue`/`BacktestResultView.vue`의 캔버스 노드 카드(`.wf-node`)
+좌측 굵은 테두리 + 색 점에 공통 적용.
+
+**로고/브랜딩**: nemo-poc의 `logo2.png`를 `frontend/public/logo.png`로 복사해 헤더 로고 +
+파비콘으로 사용. `App.vue`에서 "nemo-stock PoC" 문구 삭제, `index.html` title을
+"네모네모매매"로 변경.
+
+**각진 스타일 + shadow + 그래디언트**: 프로젝트 전역 `border-radius`를 python 스크립트로
+일괄 정규화(6~12px/999px → 4px, 5px → 3px; 버튼/입력/배지는 3px, 카드/노드는 4px 또는 3px)해
+전체적으로 각진 느낌으로 통일. `.btn`에 `text-decoration: none` 명시(RouterLink 기반 버튼의
+밑줄 제거), `.card`/`.btn`/`.btn-primary`/`.wf-node`/`.node-palette`에 은은한 box-shadow 추가.
+배경 그래디언트는 처음에 `.app-main`(내부 스크롤 컨테이너)에 넣었더니 스크롤 시 중간에 끊기는
+문제가 있어(요소 자체 높이 기준으로만 그려짐) `body`로 옮기고 `background-attachment: fixed`로
+변경 — 뷰포트 기준 한 번만 그려져 내부 콘텐츠가 아무리 길어도 끊기지 않음.
+
+**"새 전략" 페이지 통합**: 기존엔 빈 캔버스(`/strategies/new`가 캔버스를 바로 염) / AI 생성
+(`/ai/generate` 별도 페이지) / 템플릿(대시보드에 섹션)이 흩어져 있었음. nemo-poc의
+NewStrategyPage 구조를 참고해 `frontend/src/views/NewStrategyView.vue` 신규 — 빈 전략 배너 +
+AI 초안 폼(기존 `AIGenerateView.vue`의 스트리밍 생성/예시 프롬프트 자동완성 버튼 9종/디스클레이머
+로직을 그대로 이식) + 템플릿 그리드(대시보드에서 이전)를 한 페이지에 배치. 라우팅 변경:
+`/strategies/new` = 새 랜딩 페이지, `/strategies/new/canvas` = 실제 빌더 캔버스(신규 경로),
+`/ai/generate` 경로와 `AIGenerateView.vue` 삭제(기능은 새 페이지로 이식됨), 헤더 네비게이션의
+"AI 전략 생성" 링크 제거. `DashboardView.vue`에서 템플릿 fetch/상태/그리드 섹션 전부 제거하고
+"새 전략 만들기" 버튼 하나만 남김(기존 "AI로 전략 생성" 버튼도 중복이라 제거).
+
+**검증**: `vue-tsc -b`(`noUnusedLocals` 포함) + `npm run build` 통과. Playwright로 대시보드/
+새 전략 페이지/캔버스 실제 렌더링 확인(콘솔 에러 0건) — 카테고리별 노드 테두리 색, 캔들
+빨강/파랑, 각진 버튼/카드, 그래디언트 배경 정상 표시. 백엔드 변경 없음(pytest 재실행 생략).
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

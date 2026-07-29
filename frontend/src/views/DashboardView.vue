@@ -9,19 +9,11 @@ import {
   fetchPrices,
   fetchWatchlist,
   fetchWorkflows,
-  fetchWorkflowTemplates,
   removeWatchlistItem,
   updateWorkflow,
   upsertPosition,
 } from '@/api/services'
-import type {
-  AccountSummaryOut,
-  PricePointOut,
-  WatchlistItemOut,
-  WorkflowOut,
-  WorkflowTemplateOut,
-} from '@/api/types'
-import { useDraftStore } from '@/stores/draft'
+import type { AccountSummaryOut, PricePointOut, WatchlistItemOut, WorkflowOut } from '@/api/types'
 import { useSymbolMasterStore } from '@/stores/symbolMaster'
 import { formatDateTimeKst, formatKrw } from '@/utils/format'
 import PriceChart from '@/components/PriceChart.vue'
@@ -29,28 +21,24 @@ import PositionEditModal from '@/components/PositionEditModal.vue'
 import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
 
 const workflows = ref<WorkflowOut[]>([])
-const templates = ref<WorkflowTemplateOut[]>([])
 const account = ref<AccountSummaryOut | null>(null)
 const watchlist = ref<WatchlistItemOut[]>([])
 const priceSeries = ref<Record<string, PricePointOut[]>>({})
 const loading = ref(true)
 const router = useRouter()
-const draftStore = useDraftStore()
 const symbolMaster = useSymbolMasterStore()
 
 async function load() {
   loading.value = true
   try {
-    const [wf, acc, tpl, wl] = await Promise.all([
+    const [wf, acc, wl] = await Promise.all([
       fetchWorkflows(),
       fetchAccountSummary().catch(() => null),
-      fetchWorkflowTemplates().catch(() => []),
       fetchWatchlist().catch(() => []),
       symbolMaster.ensureLoaded().then(() => undefined),
     ] as const)
     workflows.value = wf
     account.value = acc
-    templates.value = tpl
     watchlist.value = wl
     await loadPriceSeries()
   } finally {
@@ -144,11 +132,6 @@ async function remove(wf: WorkflowOut) {
   await load()
 }
 
-function useTemplate(template: WorkflowTemplateOut) {
-  draftStore.setDraft(template.name, template.graph)
-  router.push('/strategies/new')
-}
-
 function statusLabel(status: string) {
   return { draft: '초안', active: '실행 중', inactive: '중지' }[status] || status
 }
@@ -161,7 +144,6 @@ onMounted(load)
     <div class="dashboard-header">
       <h1>전략 대시보드</h1>
       <div class="actions">
-        <RouterLink class="btn" to="/ai/generate">AI로 전략 생성</RouterLink>
         <RouterLink class="btn btn-primary" to="/strategies/new">새 전략 만들기</RouterLink>
       </div>
     </div>
@@ -258,21 +240,9 @@ onMounted(load)
       />
 
       <section>
-        <h2>템플릿으로 시작하기</h2>
-        <p v-if="templates.length === 0" class="text-muted">불러올 템플릿이 없습니다.</p>
-        <div v-else class="template-grid">
-          <div v-for="tpl in templates" :key="tpl.id" class="card template-card">
-            <h3>{{ tpl.name }}</h3>
-            <p class="text-muted">{{ tpl.description }}</p>
-            <button class="btn btn-primary" type="button" @click="useTemplate(tpl)">이 템플릿으로 시작하기</button>
-          </div>
-        </div>
-      </section>
-
-      <section>
         <h2>내 전략 ({{ workflows.length }})</h2>
         <p v-if="workflows.length === 0" class="text-muted">
-          아직 전략이 없습니다. 위 템플릿이나 "새 전략 만들기"로 시작하세요.
+          아직 전략이 없습니다. "새 전략 만들기"로 시작하세요.
         </p>
 
         <div v-else class="workflow-grid">
@@ -416,29 +386,6 @@ section h2 {
 
 .watch-add :deep(.symbol-autocomplete) {
   width: 220px;
-}
-
-.template-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 14px;
-}
-
-.template-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.template-card h3 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.template-card p {
-  flex: 1;
-  margin: 0;
-  line-height: 1.5;
 }
 
 .workflow-grid {

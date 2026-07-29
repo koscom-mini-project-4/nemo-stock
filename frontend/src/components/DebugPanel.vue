@@ -95,7 +95,7 @@ defineExpose({ select })
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
 }
@@ -121,7 +121,7 @@ defineExpose({ select })
   font-size: 11px;
   color: var(--text-muted);
   padding: 1px 6px;
-  border-radius: 10px;
+  border-radius: 4px;
   background: var(--bg);
 }
 
@@ -162,7 +162,7 @@ defineExpose({ select })
   margin: 4px 0 0;
   background: var(--bg);
   padding: 8px;
-  border-radius: 6px;
+  border-radius: 4px;
   max-height: 180px;
   overflow: auto;
 }

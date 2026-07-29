@@ -185,7 +185,7 @@ function submitRefine() {
   flex-direction: column;
   gap: 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 10px;
 }
 

@@ -278,7 +278,7 @@ async function refineDiff(instruction: string) {
 .chat-bubble {
   max-width: 92%;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   font-size: 13px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -305,7 +305,7 @@ async function refineDiff(instruction: string) {
 
 .chat-pending {
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 8px;
   font-size: 12.5px;
   width: 100%;

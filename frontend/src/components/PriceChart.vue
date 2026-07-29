@@ -104,14 +104,14 @@ function buildChart() {
   priceSeries =
     props.mode === 'candlestick'
       ? chart.addSeries(CandlestickSeries, {
-          upColor: '#dc2626',
-          downColor: '#4f46e5',
+          upColor: '#d8394c',
+          downColor: '#155bd7',
           borderVisible: false,
-          wickUpColor: '#dc2626',
-          wickDownColor: '#4f46e5',
+          wickUpColor: '#d8394c',
+          wickDownColor: '#155bd7',
           priceFormat,
         })
-      : chart.addSeries(LineSeries, { color: '#4f46e5', lineWidth: 2, priceFormat })
+      : chart.addSeries(LineSeries, { color: '#f26a21', lineWidth: 2, priceFormat })
   priceSeries.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.3 } })
 
   volumeSeries = chart.addSeries(HistogramSeries, {
@@ -149,7 +149,7 @@ function renderData() {
     sorted.map((b) => ({
       time: toChartTime(b.date),
       value: b.volume,
-      color: b.close >= b.open ? 'rgba(220,38,38,0.5)' : 'rgba(79,70,229,0.5)',
+      color: b.close >= b.open ? 'rgba(216,57,76,0.5)' : 'rgba(21,91,215,0.5)',
     })),
   )
 

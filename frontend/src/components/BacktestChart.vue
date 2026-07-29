@@ -163,9 +163,9 @@ function renderCharts() {
 
   if (showMA.value) {
     datasets.push(
-      { type: 'line', label: 'MA5', data: ma5, yAxisID: 'yPrice', borderColor: '#f59e0b', pointRadius: 0, borderWidth: 1, tension: 0.1 },
-      { type: 'line', label: 'MA20', data: ma20, yAxisID: 'yPrice', borderColor: '#16a34a', pointRadius: 0, borderWidth: 1, tension: 0.1 },
-      { type: 'line', label: 'MA60', data: ma60, yAxisID: 'yPrice', borderColor: '#dc2626', pointRadius: 0, borderWidth: 1, tension: 0.1 },
+      { type: 'line', label: 'MA5', data: ma5, yAxisID: 'yPrice', borderColor: '#f5a623', pointRadius: 0, borderWidth: 1, tension: 0.1 },
+      { type: 'line', label: 'MA20', data: ma20, yAxisID: 'yPrice', borderColor: '#4f7df3', pointRadius: 0, borderWidth: 1, tension: 0.1 },
+      { type: 'line', label: 'MA60', data: ma60, yAxisID: 'yPrice', borderColor: '#9333ea', pointRadius: 0, borderWidth: 1, tension: 0.1 },
     )
   }
   if (showBollinger.value) {
@@ -175,16 +175,27 @@ function renderCharts() {
     )
   }
 
-  const tradeScatter = props.result.trades
+  // 한국 증시 관례: 매수(상승/이익) = 빨강, 매도(하락/손실) = 파랑. 범례에서도 매수/매도를
+  // 구분해 보여주기 위해 하나의 '매매' 데이터셋 대신 두 개로 분리한다.
+  const tradesForSymbol = props.result.trades
     .filter((t) => t.symbol === selectedSymbol.value)
     .map((t) => ({ label: lastLabelForDay(labels, t.date), trade: t }))
     .filter((d): d is { label: string; trade: TradeOut } => d.label !== null)
+  const buyScatter = tradesForSymbol
+    .filter((d) => d.trade.side === 'buy')
+    .map((d) => ({ x: d.label, y: d.trade.price, trade: d.trade }))
+  const sellScatter = tradesForSymbol
+    .filter((d) => d.trade.side === 'sell')
     .map((d) => ({ x: d.label, y: d.trade.price, trade: d.trade }))
   datasets.push({
-    type: 'scatter', label: '매매', yAxisID: 'yPrice', data: tradeScatter, showLine: false,
+    type: 'scatter', label: '매수', yAxisID: 'yPrice', data: buyScatter, showLine: false,
     pointStyle: 'triangle', pointRadius: 7, pointBorderColor: '#fff', pointBorderWidth: 1,
-    rotation: tradeScatter.map((d: { trade: TradeOut }) => (d.trade.side === 'buy' ? 0 : 180)),
-    pointBackgroundColor: tradeScatter.map((d: { trade: TradeOut }) => (d.trade.side === 'buy' ? '#16a34a' : '#dc2626')),
+    rotation: 0, pointBackgroundColor: '#d8394c',
+  })
+  datasets.push({
+    type: 'scatter', label: '매도', yAxisID: 'yPrice', data: sellScatter, showLine: false,
+    pointStyle: 'triangle', pointRadius: 7, pointBorderColor: '#fff', pointBorderWidth: 1,
+    rotation: 180, pointBackgroundColor: '#155bd7',
   })
 
   const validCloses = closes.filter((c): c is number => c != null)
@@ -305,7 +316,10 @@ function updateOverlay(a: number | null, b: number | null) {
 function onMouseDown(e: MouseEvent) {
   if (!mainChart) return
   const elements = mainChart.getElementsAtEventForMode(e, 'nearest', { intersect: true } as any, true)
-  const tradeHit = elements.find((el) => (mainChart!.data.datasets[el.datasetIndex] as any)?.label === '매매')
+  const tradeHit = elements.find((el) => {
+    const label = (mainChart!.data.datasets[el.datasetIndex] as any)?.label
+    return label === '매수' || label === '매도'
+  })
   if (tradeHit) {
     const point = (mainChart.data.datasets[tradeHit.datasetIndex].data as any[])[tradeHit.index]
     const trade = point.trade as TradeOut
@@ -381,7 +395,7 @@ onBeforeUnmount(destroyCharts)
       </span>
     </div>
     <p class="text-muted hint">
-      ▲매수 / ▼매도 지점을 클릭하면 AI에게 물어볼 수 있고, 빈 구간을 드래그해 선택해도 물어볼 수 있습니다.
+      <span class="positive">▲매수</span> / <span class="negative">▼매도</span> 지점을 클릭하면 AI에게 물어볼 수 있고, 빈 구간을 드래그해 선택해도 물어볼 수 있습니다.
       시간봉은 최근 약 8거래일치만 제공되어(네이버 API 실측 한계) 그 기간을 벗어나면 자동으로
       일봉으로 표시됩니다.
     </p>
@@ -433,7 +447,7 @@ onBeforeUnmount(destroyCharts)
 
 .interval-badge {
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
   background: var(--bg);
@@ -461,7 +475,7 @@ onBeforeUnmount(destroyCharts)
 .chart-wrap {
   position: relative;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--surface);
 }
 

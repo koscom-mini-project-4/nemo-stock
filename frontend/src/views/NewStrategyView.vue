@@ -1,22 +1,41 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+/**
+ * "새 전략" 시작 페이지 — nemo-poc의 NewStrategyPage처럼 빈 캔버스/AI 초안/템플릿 세 가지
+ * 시작 방법을 한 페이지에 모은다(기존에는 빈 캔버스는 /strategies/new가 바로 열고, AI 생성은
+ * /ai/generate 별도 페이지, 템플릿은 대시보드에 흩어져 있었음).
+ */
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { fetchWorkflowTemplates } from '@/api/services'
 import { postSSE } from '@/api/sse'
-import type { GenerateDraftResponse } from '@/api/types'
+import type { GenerateDraftResponse, WorkflowTemplateOut } from '@/api/types'
 import { useDraftStore } from '@/stores/draft'
 import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
 
+const router = useRouter()
+const draftStore = useDraftStore()
+
+function goBlankCanvas() {
+  router.push('/strategies/new/canvas')
+}
+
+// 템플릿으로 시작하기
+const templates = ref<WorkflowTemplateOut[]>([])
+async function loadTemplates() {
+  templates.value = await fetchWorkflowTemplates().catch(() => [])
+}
+function useTemplate(template: WorkflowTemplateOut) {
+  draftStore.setDraft(template.name, template.graph)
+  router.push('/strategies/new/canvas')
+}
+
+// AI로 초안 만들기 (기존 AIGenerateView.vue 로직 그대로 이식 — 예시 프롬프트 자동완성 버튼 포함)
 const idea = ref('')
 const universeText = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const draft = ref<GenerateDraftResponse | null>(null)
-// 스트리밍 중(§0-18) 실시간으로 누적되는 원문(JSON 파싱 전) — AI가 아직 작성 중임을 바로
-// 체감할 수 있게 보여준다. 완료되면 draft로 교체되고 이 미리보기는 지운다.
 const streamingPreview = ref('')
-
-const router = useRouter()
-const draftStore = useDraftStore()
 
 interface IdeaTemplate {
   label: string
@@ -142,19 +161,31 @@ async function submit() {
 function editOnCanvas() {
   if (!draft.value) return
   draftStore.setDraft(draft.value.name, draft.value.graph)
-  router.push('/strategies/new')
+  router.push('/strategies/new/canvas')
 }
+
+onMounted(loadTemplates)
 </script>
 
 <template>
-  <div class="ai-generate">
-    <h1>AI 전략 초안 생성</h1>
-    <p class="text-muted">
-      투자 아이디어를 자연어로 입력하면 AI가 노드 워크플로 초안을 만듭니다. 생성된 초안은 저장되지
-      않으며, 검토 후 캔버스에서 수정해 저장해야 합니다.
-    </p>
+  <div class="new-strategy">
+    <div class="quickstart-blank">
+      <div class="quickstart-blank__text">
+        <h2>빈 전략 만들기</h2>
+        <p class="text-muted">아무것도 없는 캔버스에서 노드를 직접 배치하며 자유롭게 전략을 설계합니다.</p>
+      </div>
+      <button class="btn btn-primary btn-lg" type="button" @click="goBlankCanvas">빈 캔버스 열기</button>
+    </div>
 
-    <div class="card form">
+    <div class="quickstart-ai">
+      <div>
+        <h2>AI로 초안 만들기</h2>
+        <p class="text-muted">
+          투자 아이디어를 자연어로 입력하면 AI가 노드 워크플로 초안을 만듭니다. 생성된 초안은 저장되지
+          않으며, 검토 후 캔버스에서 수정해 저장해야 합니다.
+        </p>
+      </div>
+
       <div class="templates">
         <span class="templates-label">예시로 시작하기</span>
         <div class="templates-buttons">
@@ -169,78 +200,122 @@ function editOnCanvas() {
           </button>
         </div>
       </div>
-      <label>
-        투자 아이디어
-        <textarea
-          v-model="idea"
-          rows="3"
-          placeholder="예) 최근 뉴스가 긍정적이고 전일 대비 상승한 종목을 매수하고 싶다"
-        />
-      </label>
-      <label>
-        대상 종목코드 (콤마 구분, 선택)
-        <SymbolAutocomplete v-model="universeText" />
-      </label>
-      <button class="btn btn-primary" :disabled="loading || !idea.trim()" @click="submit">
-        {{ loading ? '생성 중...' : '초안 생성' }}
-      </button>
+
+      <div class="quickstart-ai__form">
+        <label class="ai-field">
+          투자 아이디어
+          <textarea
+            v-model="idea"
+            class="quickstart-ai__input"
+            rows="3"
+            placeholder="예) 최근 뉴스가 긍정적이고 전일 대비 상승한 종목을 매수하고 싶다"
+          />
+        </label>
+        <label class="ai-field">
+          대상 종목코드 (콤마 구분, 선택)
+          <SymbolAutocomplete v-model="universeText" />
+        </label>
+        <button class="btn btn-primary" :disabled="loading || !idea.trim()" @click="submit">
+          {{ loading ? '생성 중...' : '초안 생성' }}
+        </button>
+      </div>
+
       <div v-if="loading" class="streaming-preview">
         <p class="text-muted elapsed">AI가 작성 중입니다... ({{ elapsedSec }}초 경과)</p>
         <pre v-if="streamingPreview" class="mono preview-text">{{ streamingPreview }}</pre>
       </div>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+
+      <div v-if="draft" class="card preview">
+        <h3>{{ draft.name }}</h3>
+        <p class="disclaimer">⚠ {{ draft.disclaimer }}</p>
+        <ul class="node-list">
+          <li v-for="node in draft.graph.nodes" :key="node.id">
+            <span class="mono">{{ node.id }}</span> — {{ node.type }}
+          </li>
+        </ul>
+        <p v-if="draft.usage" class="text-muted usage-line">
+          토큰 {{ draft.usage.total_tokens.toLocaleString() }}개 사용
+          (prompt {{ draft.usage.prompt_tokens.toLocaleString() }} / completion
+          {{ draft.usage.completion_tokens.toLocaleString() }})
+        </p>
+        <button class="btn btn-primary" @click="editOnCanvas">캔버스에서 편집</button>
+      </div>
     </div>
 
-    <div v-if="draft" class="card preview">
-      <h2>{{ draft.name }}</h2>
-      <p class="disclaimer">⚠ {{ draft.disclaimer }}</p>
-      <ul class="node-list">
-        <li v-for="node in draft.graph.nodes" :key="node.id">
-          <span class="mono">{{ node.id }}</span> — {{ node.type }}
-        </li>
-      </ul>
-      <p v-if="draft.usage" class="text-muted usage-line">
-        토큰 {{ draft.usage.total_tokens.toLocaleString() }}개 사용
-        (prompt {{ draft.usage.prompt_tokens.toLocaleString() }} / completion
-        {{ draft.usage.completion_tokens.toLocaleString() }})
-      </p>
-      <button class="btn btn-primary" @click="editOnCanvas">캔버스에서 편집</button>
-    </div>
+    <section>
+      <div class="section-header">
+        <h2>템플릿으로 시작하기</h2>
+      </div>
+      <p v-if="templates.length === 0" class="text-muted">불러올 템플릿이 없습니다.</p>
+      <div v-else class="template-grid">
+        <div v-for="tpl in templates" :key="tpl.id" class="card template-card">
+          <h3>{{ tpl.name }}</h3>
+          <p class="text-muted">{{ tpl.description }}</p>
+          <button class="btn btn-primary" type="button" @click="useTemplate(tpl)">이 템플릿으로 시작하기</button>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.ai-generate {
-  padding: 24px;
-  max-width: 700px;
+.new-strategy {
+  padding: 24px clamp(20px, 4vw, 48px) 48px;
+  max-width: 1100px;
   margin: 0 auto;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 28px;
 }
 
-h1 {
-  font-size: 20px;
+.quickstart-blank {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 24px 28px;
+  box-shadow: 0 3px 14px rgba(24, 49, 88, 0.06);
+}
+
+.quickstart-blank__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.quickstart-blank__text h2 {
+  margin: 0 0 4px;
+}
+
+.quickstart-blank__text p {
   margin: 0;
 }
 
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.btn-lg {
+  min-height: 46px;
+  padding: 11px 22px;
+  font-size: 15px;
 }
 
-.form label {
+.quickstart-ai {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--text-muted);
+  gap: 16px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 24px 28px;
+  box-shadow: 0 3px 14px rgba(24, 49, 88, 0.06);
 }
 
-.error {
-  color: var(--danger);
+.quickstart-ai h2 {
+  margin: 0 0 4px;
+}
+
+.quickstart-ai > div > p {
   margin: 0;
 }
 
@@ -248,9 +323,8 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-bottom: 4px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 4px;
 }
 
 .templates-label {
@@ -266,18 +340,44 @@ h1 {
 
 .template-btn {
   font-size: 12.5px;
+  min-height: 30px;
+  padding: 5px 10px;
 }
 
-.preview h2 {
+.quickstart-ai__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.quickstart-ai__input {
+  resize: vertical;
+}
+
+.error {
+  color: var(--danger);
+  margin: 0;
+}
+
+.preview h3 {
   margin: 0 0 8px;
   font-size: 16px;
 }
 
 .disclaimer {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border: 1px solid var(--accent-soft-border);
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: 3px;
   font-size: 13px;
 }
 
@@ -302,7 +402,7 @@ h1 {
   line-height: 1.5;
   color: var(--text-muted);
   background: var(--bg);
-  border-radius: 6px;
+  border-radius: 3px;
   padding: 8px 10px;
 }
 
@@ -315,5 +415,40 @@ h1 {
   margin: 10px 0;
   padding-left: 18px;
   font-size: 13px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.section-header h2 {
+  margin: 0;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.template-card h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.template-card p {
+  flex: 1;
+  margin: 0;
+  line-height: 1.5;
 }
 </style>

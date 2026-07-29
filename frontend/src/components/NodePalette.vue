@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { NodeTypeSchema } from '@/api/types'
+import { categoryColor } from '@/utils/categoryColors'
 
 const props = defineProps<{
   nodeTypes: NodeTypeSchema[]
@@ -73,6 +74,7 @@ export const PALETTE_DRAG_MIME = 'application/x-nemo-node-type'
           type="button"
           draggable="true"
           :title="itemTitle(schema)"
+          :style="{ borderLeftColor: categoryColor(schema.category) }"
           @click="emit('add', schema)"
           @dragstart="
             (event: DragEvent) => {
@@ -95,6 +97,8 @@ export const PALETTE_DRAG_MIME = 'application/x-nemo-node-type'
   border-right: 1px solid var(--border);
   padding: 12px;
   overflow-y: auto;
+  background: var(--surface);
+  box-shadow: 2px 0 10px rgba(24, 49, 88, 0.04);
 }
 
 .palette h3 {
@@ -136,16 +140,18 @@ export const PALETTE_DRAG_MIME = 'application/x-nemo-node-type'
   text-align: left;
   padding: 7px 10px;
   margin-bottom: 4px;
-  border-radius: 6px;
+  border-radius: 4px;
   border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
   background: var(--surface);
   color: var(--text);
   font-size: 13px;
   cursor: grab;
+  transition: background 0.15s, box-shadow 0.15s;
 }
 
 .palette-item:hover {
-  border-color: var(--accent);
   background: var(--bg);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 </style>
