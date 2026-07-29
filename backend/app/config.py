@@ -13,10 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "nemo-stock"
     debug: bool = True
 
-    # Auth
-    jwt_secret: str = "dev-secret-change-me-please-use-a-long-random-value"
-    jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 12
+    # Auth — 이 PoC는 인증 게이트가 없다(§0-17). admin 계정 정보는 시드값(단일 계정)으로만 쓴다.
     admin_username: str = "admin"
     admin_password: str = "admin1234"
 

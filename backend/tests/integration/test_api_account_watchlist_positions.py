@@ -67,13 +67,3 @@ def test_position_delete_removes_it_and_is_idempotent(app_client: TestClient, au
     # 존재하지 않는 종목을 다시 삭제해도 에러 없이 넘어간다.
     del_resp2 = app_client.delete("/account/positions/PWRESTART1", headers=auth_headers)
     assert del_resp2.status_code == 204
-
-
-def test_watchlist_requires_auth(app_client: TestClient):
-    resp = app_client.get("/account/watchlist")
-    assert resp.status_code == 401
-
-
-def test_position_upsert_requires_auth(app_client: TestClient):
-    resp = app_client.put("/account/positions/005930", json={"qty": 1, "avg_price": 1000.0})
-    assert resp.status_code == 401

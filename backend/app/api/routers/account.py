@@ -10,7 +10,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_container
-from app.auth.security import get_current_username
 from app.dependencies import Container
 from app.market_data.symbol_master import get_symbol_name
 from app.schemas.account import (
@@ -21,7 +20,7 @@ from app.schemas.account import (
     WatchlistItemOut,
 )
 
-router = APIRouter(prefix="/account", tags=["account"], dependencies=[Depends(get_current_username)])
+router = APIRouter(prefix="/account", tags=["account"])
 
 _DEFAULT_USER_ID = "admin"  # 단일 계정 PoC
 

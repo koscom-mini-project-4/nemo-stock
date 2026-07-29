@@ -27,8 +27,3 @@ def test_admin_metrics_combines_backtest_count_and_ai_usage(app_client: TestClie
     assert body["ai_usage"]["total_tokens"] == 180
     purposes = {b["purpose"] for b in body["ai_usage"]["by_purpose"]}
     assert purposes == {"workflow_draft", "newsstock_classify"}
-
-
-def test_admin_metrics_requires_auth(app_client: TestClient):
-    resp = app_client.get("/admin/metrics")
-    assert resp.status_code == 401

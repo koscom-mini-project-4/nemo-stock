@@ -34,8 +34,3 @@ def test_news_clusters_returns_trader_cluster_list(app_client: TestClient, auth_
     # 날짜만 넘겨도 그날 자정까지(23:59:59) 포함하도록 넓혀서 전달해야 한다(실 서버 검증 중
     # 발견한 버그 회귀 방지 — 날짜만 넘기면 그날 오후 이후 데이터가 상한에 걸려 누락됨).
     assert trader.cluster_calls == [("2026-07-21 00:00:00", "2026-07-28 23:59:59")]
-
-
-def test_news_stats_and_clusters_require_auth(app_client: TestClient):
-    assert app_client.get("/data/news/stats").status_code == 401
-    assert app_client.get("/data/news/clusters", params={"start": "2026-07-21", "end": "2026-07-28"}).status_code == 401

@@ -533,11 +533,39 @@ mock 기반 유닛 테스트로 구조/필드만 확인.
   삭제됨을 확인(`GET /account/summary`는 이 시점 `ORDER_PROVIDER=kis`가 KIS 측 500 에러로
   막혀 있어 대신 사용 — §0-15 후속 미해결 이슈, 이번 작업과 무관).
 
-**검증**: `tests/integration/test_api_account_watchlist_positions.py`(신규 8개) — watchlist
-추가/목록/중복추가(idempotent)/삭제(존재 안 하는 종목도 무해), position 생성/수정/qty<=0
-거부/삭제(idempotent), 인증 없이 호출 시 401. 백엔드 pytest 351→359개 전부 통과. `vue-tsc -b`
-통과. 브라우저 자동화 도구가 없어 프론트 클릭 검증은 못함(기존 세션과 동일 제약) — curl로
-API 자체는 라이브 검증(watchlist add/list, position delete 실제 호출·확인).
+**검증**: `tests/integration/test_api_account_watchlist_positions.py`(신규, §0-17에서 인증 관련
+테스트 2개 제거 후 6개) — watchlist 추가/목록/중복추가(idempotent)/삭제(존재 안 하는 종목도
+무해), position 생성/수정/qty<=0 거부/삭제(idempotent). 백엔드 pytest 351→359개 전부 통과.
+`vue-tsc -b` 통과. 브라우저 자동화 도구가 없어 프론트 클릭 검증은 못함(기존 세션과 동일
+제약) — curl로 API 자체는 라이브 검증(watchlist add/list, position delete 실제 호출·확인).
+
+## 0-17. 인증 게이트 완전 제거 (2026-07-29 사용자 요청)
+
+사용자 요청: "로그인 페이지 없애줘." 범위를 명확히 하기 위해 확인 질문("프론트만 자동
+로그인" vs "인증 자체를 완전히 제거") → **인증 자체를 완전히 제거**로 확정.
+
+- 백엔드: `POST /auth/login`(`app/api/routers/auth.py`) + `app/schemas/auth.py` 삭제,
+  `app/main.py`에서 `auth.router` 등록 제거. 7개 라우터(`admin`/`workflows`/`backtest`/
+  `data`/`ai`/`nodes`/`account`)의 `dependencies=[Depends(get_current_username)]` 게이트를
+  전부 제거(각 라우터 자체는 그대로 — `get_container` 등 다른 의존성은 유지). `app/auth/
+  security.py`를 `hash_password`(admin 계정 시드용으로만 남김) 하나로 축소하고
+  `verify_password`/`create_access_token`/`decode_access_token`/`get_current_username`
+  삭제. `Settings.jwt_secret`/`jwt_algorithm`/`jwt_expire_minutes`와 `pyproject.toml`의
+  `pyjwt` 의존성도 함께 제거(더 이상 아무도 안 씀). `UserRepository`/admin 계정 시드 로직
+  자체는 남겨둠(다른 곳에서 참조하지 않는 자족적 구조라 제거 범위 밖으로 판단).
+- 프론트엔드: `LoginView.vue`/`stores/auth.ts` 삭제, `router/index.ts`의 `/login` 라우트와
+  `beforeEach` 인증 가드 제거, `api/client.ts`의 Authorization 헤더 첨부/401 인터셉터 제거,
+  `main.ts`의 `setUnauthorizedHandler` 배선 제거, `App.vue`의 로그아웃 버튼/`showNav` 조건부
+  제거(항상 네비게이션 표시), `services.ts::login()` 제거.
+- **부수 정리**: 기존 테스트 다수가 `headers=auth_headers`를 그대로 넘기고 있어(문법상 유지)
+  `tests/conftest.py::auth_headers` 픽스처를 `/auth/login` 호출 대신 빈 dict를 반환하도록
+  변경해 대부분의 기존 테스트는 무수정으로 통과하게 함. "인증 없이 401을 기대"하던 테스트
+  9개(예: `test_unauthenticated_request_rejected`, `test_*_requires_auth`)는 이제 성립하지
+  않는 주장이라 전부 삭제.
+
+**검증**: `python -c "from app.main import create_app; ..."`로 앱 기동 + OpenAPI 경로 38개
+정상 등록 확인. 백엔드 pytest 359→350개 전부 통과(인증-요구 테스트 9개 삭제 반영). `vue-tsc -b`
+통과, `useAuthStore`/`stores/auth`/`LoginView`/`/auth/login` 잔여 참조 없음을 grep으로 재확인.
 
 ---
 

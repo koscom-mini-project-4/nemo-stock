@@ -51,8 +51,3 @@ def test_news_update_days_and_keywords_default_to_none(app_client: TestClient, a
 
     assert resp.status_code == 200
     assert trader.update_kwargs_calls == [{"days": None, "keywords": None}]
-
-
-def test_news_update_requires_auth(app_client: TestClient):
-    resp = app_client.post("/data/news/update", json={"force": False})
-    assert resp.status_code == 401

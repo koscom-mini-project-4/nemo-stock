@@ -10,7 +10,6 @@ from app.ai.base import AIClient, AIUnavailableError
 from app.ai.workflow_chat import WorkflowChatError, chat_about_workflow
 from app.ai.workflow_draft import WorkflowDraftError, generate_workflow_draft
 from app.api.deps import get_ai_client, get_container
-from app.auth.security import get_current_username
 from app.dao.base import NodeEventRecord
 from app.dependencies import Container
 from app.nodes.ai.news_signal import resolve_news_signal_clusters
@@ -25,7 +24,7 @@ from app.schemas.ai import (
     WorkflowChatResponse,
 )
 
-router = APIRouter(prefix="/ai", tags=["ai"], dependencies=[Depends(get_current_username)])
+router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 def _usage_delta(container: Container, since: datetime) -> AIUsageDelta | None:

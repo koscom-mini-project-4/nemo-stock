@@ -1,23 +1,8 @@
-<script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-
-const auth = useAuthStore()
-const route = useRoute()
-const router = useRouter()
-
-const showNav = computed(() => route.name !== 'login')
-
-function logout() {
-  auth.logout()
-  router.push({ name: 'login' })
-}
-</script>
+<script setup lang="ts"></script>
 
 <template>
   <div class="app-shell">
-    <header v-if="showNav" class="app-header">
+    <header class="app-header">
       <div class="brand">
         <RouterLink to="/">네모네모매매</RouterLink>
         <span class="text-muted">nemo-stock PoC</span>
@@ -28,7 +13,6 @@ function logout() {
         <RouterLink to="/ai/generate" class="nav-link">AI 전략 생성</RouterLink>
         <RouterLink to="/admin" class="nav-link">관리자</RouterLink>
       </nav>
-      <button class="btn" @click="logout">로그아웃</button>
     </header>
     <main class="app-main">
       <RouterView />

@@ -30,11 +30,6 @@ def _workflow_payload() -> dict:
     }
 
 
-def test_unauthenticated_request_rejected(app_client: TestClient):
-    resp = app_client.get("/workflows")
-    assert resp.status_code == 401
-
-
 def test_full_workflow_create_validate_and_test_run(app_client: TestClient, auth_headers: dict):
     create_resp = app_client.post("/workflows", json=_workflow_payload(), headers=auth_headers)
     assert create_resp.status_code == 201, create_resp.text

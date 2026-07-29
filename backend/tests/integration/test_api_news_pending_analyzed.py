@@ -45,8 +45,3 @@ def test_news_analyzed_returns_items(app_client: TestClient, auth_headers: dict)
     body = resp.json()
     assert len(body) == 1
     assert body[0]["stocks"] == ["삼성전자"]
-
-
-def test_news_pending_and_analyzed_require_auth(app_client: TestClient):
-    assert app_client.get("/data/news/pending").status_code == 401
-    assert app_client.get("/data/news/analyzed").status_code == 401

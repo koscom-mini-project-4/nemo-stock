@@ -113,8 +113,3 @@ def test_symbols_stats_before_sync_reports_fallback_seed(app_client: TestClient,
     resp = app_client.get("/data/symbols/stats", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json() == {"count": 8, "db_count": 0}
-
-
-def test_symbol_sync_endpoints_require_auth(app_client: TestClient):
-    assert app_client.post("/data/symbols/sync").status_code == 401
-    assert app_client.get("/data/symbols/stats").status_code == 401

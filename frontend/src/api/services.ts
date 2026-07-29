@@ -75,11 +75,6 @@ export async function fetchWorkflowTemplates(): Promise<WorkflowTemplateOut[]> {
   return data
 }
 
-export async function login(username: string, password: string): Promise<string> {
-  const { data } = await apiClient.post('/auth/login', { username, password })
-  return data.access_token as string
-}
-
 export async function fetchNodeTypes(): Promise<NodeTypeSchema[]> {
   const { data } = await apiClient.get('/nodes')
   return data

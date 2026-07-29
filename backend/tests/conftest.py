@@ -55,8 +55,7 @@ def app_client(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def auth_headers(app_client: TestClient) -> dict[str, str]:
-    resp = app_client.post("/auth/login", json={"username": "admin", "password": "admin1234"})
-    assert resp.status_code == 200, resp.text
-    token = resp.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth_headers() -> dict[str, str]:
+    """이 앱은 인증 게이트가 없다(§0-17, /auth/login 자체가 제거됨) — 기존 테스트 다수가
+    headers=auth_headers를 그대로 넘기고 있어 호환을 위해 빈 dict를 유지한다."""
+    return {}

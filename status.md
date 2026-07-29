@@ -1091,6 +1091,24 @@ pytest 340→350개 전부 통과(`test_koscom_live.py`는 실 시장 상황에 
 **검증**: 신규 통합 테스트 8개 포함 백엔드 pytest 351→359개 전부 통과. `vue-tsc -b` 통과.
 브라우저 자동화 도구가 없어 프론트 클릭 검증은 못함 — curl로 API 자체는 라이브 검증.
 
+## 2026-07-29 후속 작업 20: 인증 게이트 완전 제거 (DESIGN.md §0-17)
+
+사용자 요청: "로그인 페이지 없애줘." AskUserQuestion으로 범위 확인("프론트 자동 로그인" vs
+"인증 자체 완전 제거") → 인증 자체를 완전히 제거하는 것으로 확정 후 진행.
+
+- 백엔드: `POST /auth/login`(`app/api/routers/auth.py`) + `app/schemas/auth.py` 삭제, 7개
+  라우터의 `Depends(get_current_username)` 게이트 전부 제거, `app/auth/security.py`를
+  `hash_password`(admin 계정 시드용) 하나로 축소, `Settings.jwt_*` 필드 + `pyjwt` 의존성
+  제거.
+- 프론트엔드: `LoginView.vue`/`stores/auth.ts` 삭제, 라우터 가드/Authorization 헤더 첨부/
+  401 인터셉터/로그아웃 버튼 전부 제거 — 앱 진입 시 바로 대시보드로 감.
+- 기존 테스트 대부분은 `conftest.py::auth_headers`를 `/auth/login` 대신 빈 dict를 반환하도록
+  바꿔 무수정으로 통과시키고, "인증 없이 401 기대"하던 테스트 9개는 더 이상 성립하지 않는
+  주장이라 삭제.
+
+**검증**: 백엔드 pytest 359→350개 전부 통과. `vue-tsc -b` 통과. 인증 관련 잔여 참조 없음을
+grep으로 재확인.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.
