@@ -116,6 +116,166 @@
   #s1 .candles .c{width:26px;position:relative;display:flex;flex-direction:column;align-items:center;}
   #s1 .candles .wick{width:2px;background:#3A4048;}
   #s1 .candles .body{width:100%;border-radius:3px;}
+  /* =====================================================
+     SLIDE 1.5 — SERVICE
+  ===================================================== */
+  /* stage scales the fixed 16:9 slide up to fill the viewport, keeping ratio */
+  .stage{
+    width:100vw;height:100vh;
+    display:flex;align-items:center;justify-content:center;
+  }
+  [id="s1.5"]{
+    /* position:relative;width:960px;height:540px;flex:0 0 auto; */
+    background:var(--bg);overflow:hidden;
+    box-shadow:0 14px 50px rgba(0,0,0,.16);
+    transform:scale(var(--fit,1));
+    transform-origin:center center;
+    background-color: #FFFFFF;
+  }
+  /* faint dotted grid — nods to the "네모(square)" brand */
+  [id="s1.5"]::after{
+    content:"";position:absolute;inset:0;
+    background-image:radial-gradient(rgba(0,0,0,.035) 1px, transparent 1px);
+    background-size:26px 26px;
+    pointer-events:none;
+  }
+  .pad{position:absolute;inset:0;padding:60px 60px 0;display:flex;flex-direction:column;z-index:2}
+ 
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:8px;
+    font-size:17px;font-weight:600;letter-spacing:.02em;
+    color:var(--orange-deep);
+    background:var(--orange-soft);
+    padding:7px 14px;border-radius:100px;
+    width:fit-content;
+    opacity:0;transform:translateY(12px);
+    animation:rise .6s cubic-bezier(.22,1,.36,1) .1s forwards;
+  }
+  .eyebrow .dot{width:7px;height:7px;border-radius:2px;background:var(--orange)}
+ 
+  #s1\.5 .headline{
+    font-size:48px;font-weight:800;letter-spacing:-.025em;
+    color:var(--ink);line-height:1.28;margin-top:18px;
+    opacity:0;transform:translateY(16px);
+    animation:rise .5s cubic-bezier(.22,1,.36,1) .25s forwards;
+  }
+  #s1\.5 .headline .brand{
+    color:var(--orange);position:relative;white-space:nowrap;
+    display:inline-block;transform-origin:center bottom;
+    /* brand name punches out, overshoots, then settles */
+    animation:punch .6s cubic-bezier(.34,1.7,.5,1) .55s both;
+  }
+  @keyframes punch{
+    0%{transform:scale(1)}
+    45%{transform:scale(1.16)}
+    72%{transform:scale(.97)}
+    100%{transform:scale(1)}
+  }
+  #s1\.5 .headline .brand::after{
+    content:"";position:absolute;left:0;bottom:2px;
+    width:100%;height:10px;background:rgba(255,127,0,.16);
+    z-index:-1;transform:scaleX(0);transform-origin:left;
+    animation:sweep .5s cubic-bezier(.22,1,.36,1) 1.05s forwards;
+  }
+  /* soft ring that bursts outward as the name lands */
+  #s1\.5 .headline .brand::before{
+    content:"";position:absolute;inset:-8px -14px;
+    border-radius:14px;border:2px solid var(--orange);
+    opacity:0;transform:scale(.9);
+    animation:ring .55s ease-out .85s forwards;
+  }
+  @keyframes ring{
+    0%{opacity:.55;transform:scale(.9)}
+    100%{opacity:0;transform:scale(1.15)}
+  }
+  @keyframes sweep{to{transform:scaleX(1)}}
+ 
+  /* ---- flow rail ---- */
+  .flow{position:relative;margin-top:48px;padding:0 8px}
+  .rail{
+    position:absolute;left:72px;right:72px;top:55px;height:2px;
+    background:var(--line);border-radius:2px;overflow:hidden;
+  }
+  .rail .fill{
+    position:absolute;inset:0;width:100%;
+    background:linear-gradient(90deg,var(--orange),var(--orange-d));
+    transform:scaleX(0);transform-origin:left;
+    animation:fillRail 1.9s cubic-bezier(.4,0,.2,1) .8s forwards;
+  }
+  @keyframes fillRail{to{transform:scaleX(1)}}
+  /* travelling glow that runs the rail once, then settles */
+  .rail .spark{
+    position:absolute;top:-3px;left:0;width:60px;height:8px;
+    background:radial-gradient(ellipse at center, rgba(255,127,0,.9) 0%, rgba(255,127,0,0) 70%);
+    opacity:0;
+    animation:spark 1.9s cubic-bezier(.4,0,.2,1) .8s forwards;
+  }
+  @keyframes spark{
+    0%{opacity:0;left:-60px}
+    12%{opacity:1}
+    88%{opacity:1}
+    100%{opacity:0;left:100%}
+  }
+ 
+  .steps{position:relative;display:flex;justify-content:space-between;z-index:2}
+  .step{
+    display:flex;flex-direction:column;align-items:center;text-align:center;width:160px;
+    opacity:0;transform:translateY(18px) scale(.96);
+    animation:pop .5s cubic-bezier(.34,1.56,.64,1) forwards;
+  }
+  .step:nth-child(1){animation-delay:.9s}
+  .step:nth-child(2){animation-delay:1.15s}
+  .step:nth-child(3){animation-delay:1.4s}
+  .step:nth-child(4){animation-delay:1.65s}
+  .step:nth-child(5){animation-delay:1.9s}
+  @keyframes pop{to{opacity:1;transform:translateY(0) scale(1)}}
+ 
+  .ic{
+    width:110px;height:110px;border-radius:26px;
+    background:#fff;border:1.5px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 4px 14px rgba(0,0,0,.04);
+    transition:transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+  }
+  .ic svg{width:52px;height:52px;}
+  .step:hover .ic{transform:translateY(-5px);box-shadow:0 12px 26px rgba(255,127,0,.18);border-color:rgba(255,127,0,.4)}
+ 
+  .sn{font-size:14px;font-weight:700;letter-spacing:.14em;color:var(--orange);margin-top:20px}
+  .st{font-size:28px;font-weight:600;color:var(--ink);line-height:1.35;margin-top:8px}
+ 
+  /* destination step */
+  .step.key .ic{
+    background:var(--orange);border-color:var(--orange);
+    width:110px;height:110px;border-radius:26px;
+    box-shadow:0 10px 26px rgba(255,127,0,.4);
+    animation:pop .5s cubic-bezier(.34,1.56,.64,1) 1.9s forwards, glow 2.4s ease-in-out 2.5s infinite;
+  }
+  .step.key .st{color:var(--orange-deep);font-weight:700}
+  @keyframes glow{
+    0%,100%{box-shadow:0 10px 26px rgba(255,127,0,.35)}
+    50%{box-shadow:0 10px 40px rgba(255,127,0,.65)}
+  }
+ 
+  .cap{
+    text-align:center;font-size:32px;color:var(--muted);margin-top:40px;
+    opacity:0;animation:rise .6s cubic-bezier(.22,1,.36,1) 2.2s forwards;
+  }
+  .cap b{color:var(--ink);font-weight:700}
+ 
+  .foot{
+    position:absolute;bottom:24px;right:32px;z-index:2;
+    display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--muted);
+  }
+  .foot .m{width:8px;height:8px;border-radius:2px;background:var(--orange)}
+ 
+  @keyframes rise{to{opacity:1;transform:translateY(0)}}
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none !important}
+    .eyebrow,.headline,.step,.cap,.headline .brand{opacity:1;transform:none}
+    .rail .fill{transform:scaleX(1)}
+    .headline .brand::after{transform:scaleX(1)}
+    .headline .brand::before{display:none}
+  }
 
   /* =====================================================
      SLIDE 2 — CONTENTS
@@ -235,6 +395,8 @@
   .chip .k.g{background:#2AA876;}
   .chip .k.b{background:#3A4048;}
   .flow-arrow{text-align:center;color:var(--orange);font-size:20px;margin:14px 0;}
+  .chip{opacity:0;transform:translateY(10px);transition:opacity .35s ease, transform .35s ease;}
+  .chip.visible{opacity:1;transform:translateY(0);}
 
   /* S9 node editor */
   .nodes{position:relative;height:280px;}
@@ -389,7 +551,7 @@
           <div class="modules"><span class="m"></span><span class="m o"></span></div>
           <span class="tag">NEMO · NEMO TRADING</span>
         </div>
-        <h1>네모네모 매매<span class="dot">.</span></h1>
+        <h1>네모네모 매매<span class="dot"></span></h1>
         <p class="sub"><b style="color:#fff">노코드 알고리즘 트레이딩</b> 전략 생성 서비스</p>
         <div class="team">
           <span class="grp">4조</span>
@@ -431,46 +593,6 @@
       </div>
       <div class="sec-num">01</div>
     </section>
-
-    <!-- ============ SLIDE 4 : MARKET STATS ============ -->
-    <section class="slide" id="s4">
-      <div class="pad">
-        <div class="eyebrow"><div class="num-badge">01</div><span class="kr">서비스 배경</span><span class="en">Market</span></div>
-        <h1 class="headline"><span class="hl">1,442만</span> 투자자 시대,<br>수익의 문턱은 여전히 높다</h1>
-        <div class="cols">
-          <div class="card">
-            <div class="lbl">개인 주식 소유자 추이</div>
-            <div class="bars">
-              <div class="barwrap"><div class="bar old"><span class="v">619만</span></div><div class="yr">2019</div></div>
-              <div class="barwrap"><div class="bar new"><span class="v">1,442만</span></div><div class="yr">2025</div></div>
-            </div>
-            <div class="grow-tag">▲ 2.3배</div>
-            <div class="src source">출처 · 한국예탁결제원</div>
-          </div>
-          <div class="card">
-            <div class="lbl">개인 투자 손익 분포</div>
-            <div class="donut-wrap">
-              <div class="donut">
-                <svg viewBox="0 0 42 42" width="190" height="190">
-                  <circle cx="21" cy="21" r="15.9" fill="none" stroke="#E7E9EE" stroke-width="6"></circle>
-                  <circle cx="21" cy="21" r="15.9" fill="none" stroke="#E5484D" stroke-width="6"
-                    stroke-dasharray="49.9 50.1" stroke-dashoffset="25" stroke-linecap="round"></circle>
-                </svg>
-                <div class="center"><div class="pct">49.9%</div><div class="pl">손실 중</div></div>
-              </div>
-              <div class="legend">
-                <div class="li"><span class="dot" style="background:#E5484D"></span>손실 49.9%</div>
-                <div class="li"><span class="dot" style="background:#FF7F00"></span>수익 50.1%</div>
-                <div class="li" style="font-size:15px;color:var(--muted);font-weight:600;margin-top:4px">개인 투자자 절반이<br>손실을 경험</div>
-              </div>
-            </div>
-            <div class="src source">출처 · 인크루트</div>
-          </div>
-        </div>
-      </div>
-      <div class="foot"><span class="m"></span>네모네모 매매</div>
-    </section>
-
     <!-- ============ SLIDE 5 : QUOTES ============ -->
     <section class="slide" id="s5">
       <div class="pad">
@@ -491,7 +613,43 @@
       </div>
       <div class="foot"><span class="m"></span>네모네모 매매</div>
     </section>
-
+    
+     <!-- ============ SLIDE 1.5 : SERVICE ============ -->
+     <section class="slide" id="s1.5">
+      <div class="pad">
+        <span class="eyebrow"><span class="dot"></span>노코드 자동매매 전략 빌더</span>
+        <h1 class="headline">아이디어부터 자동매매까지,<br><span class="brand">네모네모매매</span>가 한 흐름으로 잇습니다</h1>
+  
+        <div class="flow">
+          <div class="rail"><div class="fill"></div><div class="spark"></div></div>
+          <div class="steps">
+            <div class="step"><div class="ic">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div><div class="sn">STEP 01</div><div class="st">문장으로<br>전략 입력</div></div>
+  
+            <div class="step"><div class="ic">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4"/></svg>
+            </div><div class="sn">STEP 02</div><div class="st">UI로<br>전략 편집</div></div>
+  
+            <div class="step"><div class="ic">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 4-5"/></svg>
+            </div><div class="sn">STEP 03</div><div class="st">뉴스<br>지표화</div></div>
+  
+            <div class="step"><div class="ic">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10M6 20v-6M18 20V6"/></svg>
+            </div><div class="sn">STEP 04</div><div class="st">백테스트<br>검증</div></div>
+  
+            <div class="step key"><div class="ic">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+            </div><div class="sn">STEP 05</div><div class="st">자동매매<br>실행</div></div>
+          </div>
+        </div>
+  
+        <div class="cap">코딩 지식 없이 <b>다섯 단계</b>로 나만의 알고리즘 매매를 완성합니다</div>
+      </div>
+      <div class="foot"><span class="m"></span>네모네모매매</div>
+    </section>
+    
     <!-- ============ SLIDE 6 : DIVIDER 02 ============ -->
     <section class="slide divider" id="s6">
       <div class="grid-bg"></div>
@@ -502,38 +660,6 @@
       </div>
       <div class="sec-num">02</div>
     </section>
-
-    <!-- ============ SLIDE 7 : PIPELINE ============ -->
-    <section class="slide" id="s7">
-      <div class="pad">
-        <div class="eyebrow"><div class="num-badge">02</div><span class="kr">서비스 주요 기능</span><span class="en">Overview</span></div>
-        <h1 class="headline">아이디어부터 <span class="hl">자동매매</span>까지, 한 흐름으로</h1>
-        <div class="flow">
-          <div class="step"><div class="ic">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </div><div class="sn">STEP 01</div><div class="st">문장으로<br>전략 입력</div></div>
-          <div class="arrow">→</div>
-          <div class="step"><div class="ic">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4"/></svg>
-          </div><div class="sn">STEP 02</div><div class="st">UI로<br>전략 편집</div></div>
-          <div class="arrow">→</div>
-          <div class="step"><div class="ic">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 4-5"/></svg>
-          </div><div class="sn">STEP 03</div><div class="st">뉴스<br>지표화</div></div>
-          <div class="arrow">→</div>
-          <div class="step"><div class="ic">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF7F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10M6 20v-6M18 20V6"/></svg>
-          </div><div class="sn">STEP 04</div><div class="st">백테스트<br>검증</div></div>
-          <div class="arrow">→</div>
-          <div class="step key"><div class="ic">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
-          </div><div class="sn">STEP 05</div><div class="st">자동매매<br>실행</div></div>
-        </div>
-        <div class="cap">코딩 지식 없이 <b>다섯 단계</b>로 나만의 알고리즘 매매를 완성합니다</div>
-      </div>
-      <div class="foot"><span class="m"></span>네모네모 매매</div>
-    </section>
-
     <!-- ============ SLIDE 8 : SENTENCE -> STRATEGY ============ -->
     <section class="slide feat" id="s8">
       <div class="pad">
@@ -577,15 +703,27 @@
             <div class="mock">
               <div class="bar"><i></i><i></i><i></i></div>
               <div class="body">
-                <div class="nodes">
-                  <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" viewBox="0 0 460 280" preserveAspectRatio="none">
-                    <path d="M150 58 C210 58 210 140 250 140" fill="none" stroke="#FFCFA0" stroke-width="2.5"/>
-                    <path d="M150 210 C210 210 210 150 250 150" fill="none" stroke="#FFCFA0" stroke-width="2.5"/>
-                    <path d="M382 145 C410 145 410 145 430 145" fill="none" stroke="#FF7F00" stroke-width="2.5"/>
+                <div class="nodes" id="s9-nodes" style="width:420px;height:280px;">
+                  <!--
+                    Container fixed at 420px wide, viewBox matches exactly (no scaling distortion).
+                    Node height ≈ 60px (pad 12px×2 + content 36px).  mid_y = top + 30.
+                    dotR center x = node.left + node.offsetWidth  (dotR: right:-5px, width:10px → center at node right edge)
+                    dotL center x = node.left                     (dotL: left:-5px, width:10px → center at node left edge)
+
+                    n1 : left=6  w=132 → dotR(138, 60)
+                    n2 : left=6  w=132 → dotR(138,220)
+                    n3 : left=160 w=132 → dotL(160,140) dotR(292,140)
+                    n4 : left=318 w=96  → dotL(318,140)  right≈414
+                  -->
+                  <svg id="s9-svg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" viewBox="0 0 420 280">
+                    <path id="s9-p1" d="M138 60 C179 60 179 140 220 140" fill="none" stroke="#FF7F00" stroke-width="2.5"/>
+                    <path id="s9-p2" d="M138 220 C179 220 179 140 220 140" fill="none" stroke="#FF7F00" stroke-width="2.5"/>
+                    <path id="s9-p3" d="M352 140 L378 140" fill="none" stroke="#FF7F00" stroke-width="2.5"/>
                   </svg>
-                  <div class="node orange" style="left:8px;top:34px"><div class="nt">지표</div><div class="nd">RSI 14</div><span class="dotR"></span></div>
-                  <div class="node orange" style="left:8px;top:186px"><div class="nt">뉴스</div><div class="nd">긍정 점수</div><span class="dotR"></span></div>
-                  <div class="node" style="left:250px;top:116px"><div class="nt">조건 AND</div><div class="nd">매수 신호</div><span class="dotL"></span><span class="dotR"></span></div>
+                  <div class="node orange" id="s9-n1" style="left:6px;top:30px;opacity:0;transform:translateX(-10px)"><div class="nt">지표</div><div class="nd">RSI 14</div><span class="dotR"></span></div>
+                  <div class="node orange" id="s9-n2" style="left:6px;top:190px;opacity:0;transform:translateX(-10px)"><div class="nt">뉴스</div><div class="nd">긍정 점수</div><span class="dotR"></span></div>
+                  <div class="node" id="s9-n3" style="left:220px;top:110px;opacity:0;transform:translateX(-10px)"><div class="nt">조건 AND</div><div class="nd">매수 신호</div><span class="dotL"></span><span class="dotR"></span></div>
+                  <div class="node" id="s9-n4" style="left:378px;top:110px;min-width:96px;border-color:var(--orange);background:var(--orange-soft);opacity:0;transform:translateX(-10px)"><div class="nt" style="color:var(--orange-d)">실행</div><div class="nd">매수 주문</div><span class="dotL"></span></div>
                 </div>
               </div>
             </div>
@@ -609,11 +747,11 @@
             <div class="mock">
               <div class="bar"><i></i><i></i><i></i></div>
               <div class="body">
-                <div class="news"><div class="src">실시간 뉴스</div><div class="hl">“○○전자, 신규 대규모 수주 계약 체결”</div></div>
+                <div class="news"><div class="src">실시간 뉴스</div><div class="hl" id="s10-headline">“○○전자, 신규 대규모 수주 계약 체결”</div></div>
                 <div class="flow-arrow">↓ 정량화</div>
                 <div class="gauge">
-                  <div class="meter"><div class="pin"></div></div>
-                  <div class="score">+ 긍정<span></span></div>
+                  <div class="meter"><div class="pin" id="s10-pin" style="left:82%"></div></div>
+                  <div class="score" id="s10-score" style="color:#E86F00">+ 긍정</div>
                 </div>
               </div>
             </div>
@@ -637,17 +775,17 @@
             <div class="mock">
               <div class="bar"><i></i><i></i><i></i></div>
               <div class="body">
-                <svg viewBox="0 0 460 180" width="100%" height="150">
+                <svg id="s11-svg" viewBox="0 0 460 180" width="100%" height="150">
                   <defs><linearGradient id="eq" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF7F00" stop-opacity=".28"/><stop offset="1" stop-color="#FF7F00" stop-opacity="0"/></linearGradient></defs>
                   <line x1="0" y1="150" x2="460" y2="150" stroke="#E7E9EE"/>
-                  <path d="M0 140 L60 128 L120 132 L180 96 L240 104 L300 62 L360 70 L420 34 L460 26 L460 150 L0 150 Z" fill="url(#eq)"/>
-                  <path d="M0 140 L60 128 L120 132 L180 96 L240 104 L300 62 L360 70 L420 34 L460 26" fill="none" stroke="#FF7F00" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-                  <circle cx="460" cy="26" r="5" fill="#FF7F00"/>
+                  <path id="s11-area" d="M0 140 L60 128 L120 132 L180 96 L240 104 L300 62 L360 70 L420 34 L460 26 L460 150 L0 150 Z" fill="url(#eq)"/>
+                  <path id="s11-line" d="M0 140 L60 128 L120 132 L180 96 L240 104 L300 62 L360 70 L420 34 L460 26" fill="none" stroke="#FF7F00" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+                  <circle id="s11-dot" cx="460" cy="26" r="5" fill="#FF7F00"/>
                 </svg>
                 <div class="metrics">
-                  <div class="metric"><div class="mv">+38.4%</div><div class="ml">누적 수익률</div></div>
-                  <div class="metric"><div class="mv">61%</div><div class="ml">승률</div></div>
-                  <div class="metric"><div class="mv loss">-9.2%</div><div class="ml">최대 낙폭</div></div>
+                  <div class="metric"><div class="mv" id="s11-m1">+38.4%</div><div class="ml">누적 수익률</div></div>
+                  <div class="metric"><div class="mv" id="s11-m2">61%</div><div class="ml">승률</div></div>
+                  <div class="metric"><div class="mv loss" id="s11-m3">-9.2%</div><div class="ml">최대 낙폭</div></div>
                 </div>
               </div>
             </div>
@@ -672,9 +810,9 @@
               <div class="bar"><i></i><i></i><i></i></div>
               <div class="body">
                 <div class="link-flow">
-                  <div class="lf-row"><div class="ic" style="background:var(--orange-soft)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div><div class="tx"><b>증권사 계좌 연동</b><span>제휴 증권사 · 안전 인증</span></div><div class="st">연결됨</div></div>
-                  <div class="lf-row"><div class="ic" style="background:var(--orange-soft)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><div class="tx"><b>전략 신호 발생</b><span>조건 충족 시 자동 감지</span></div><div class="st">감지</div></div>
-                  <div class="lf-row"><div class="ic" style="background:var(--orange)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div><div class="tx"><b>실시간 주문 체결</b><span>지연 없이 시장가 실행</span></div><div class="st">체결</div></div>
+                  <div class="lf-row" id="s12-r1" style="opacity:0;transform:translateY(10px)"><div class="ic" style="background:var(--orange-soft)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div><div class="tx"><b>증권사 계좌 연동</b><span>제휴 증권사 · 안전 인증</span></div><div class="st">연결됨</div></div>
+                  <div class="lf-row" id="s12-r2" style="opacity:0;transform:translateY(10px)"><div class="ic" style="background:var(--orange-soft)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><div class="tx"><b>전략 신호 발생</b><span>조건 충족 시 자동 감지</span></div><div class="st">감지</div></div>
+                  <div class="lf-row" id="s12-r3" style="opacity:0;transform:translateY(10px)"><div class="ic" style="background:var(--orange)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div><div class="tx"><b>실시간 주문 체결</b><span>지연 없이 시장가 실행</span></div><div class="st">체결</div></div>
                 </div>
               </div>
             </div>
@@ -702,11 +840,11 @@
         <h1 class="headline">자연어 한 문장이<br><span class="hl">전략 전 과정</span>이 됩니다</h1>
         <div class="demo">
           <div class="nlbox"><span class="q">“</span><p>실적 좋고 뉴스 반응 긍정적인 종목을 매수하고 싶어</p><span class="q">"</span></div>
-          <div class="down">↓</div>
+          <div class="down" id="s14-arrow" style="opacity:0;transform:translateY(-8px)">↓</div>
           <div class="outs">
-            <div class="out"><div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div><div class="t">종목 탐색</div><div class="d">조건에 맞는 종목 발굴</div></div>
-            <div class="out"><div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4"/></svg></div><div class="t">전략 구성</div><div class="d">매매 로직 자동 설계</div></div>
-            <div class="out"><div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 4-5"/></svg></div><div class="t">성과 시뮬레이션</div><div class="d">프롬프트 랭킹 제공</div></div>
+            <div class="out" id="s14-o1" style="opacity:0;transform:translateY(14px)"><div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div><div class="t">종목 탐색</div><div class="d">조건에 맞는 종목 발굴</div></div>
+            <div class="out" id="s14-o2" style="opacity:0;transform:translateY(14px)"><div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4"/></svg></div><div class="t">전략 구성</div><div class="d">매매 로직 자동 설계</div></div>
+            <div class="out" id="s14-o3" style="opacity:0;transform:translateY(14px)"><div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#E86F00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 4-5"/></svg></div><div class="t">성과 시뮬레이션</div><div class="d">프롬프트 랭킹 제공</div></div>
           </div>
         </div>
       </div>
@@ -799,7 +937,8 @@
             <div class="hr"></div>
             <ul>
               <li>노드 100개</li>
-              <li>백테스트 월 100회</li>
+              <li>백테스트 월 300회</li>
+              <li>AI 노드 포함 백테스트 25회</li>
               <li>전략 저장 20개</li>
               <li>스케줄러 10초 단위</li>
               <li>AI 뉴스 분석 월 100회</li>
@@ -813,7 +952,8 @@
             <div class="hr"></div>
             <ul>
               <li>노드 무제한</li>
-              <li>백테스트 월 300회</li>
+              <li>백테스트 월 500회</li>
+              <li>AI 노드 포함 백테스트 60회</li>
               <li>전략 저장 80개</li>
               <li>스케줄러 10초 단위</li>
               <li>AI 뉴스 분석 월 300회</li>
@@ -822,7 +962,7 @@
           </div>
         </div>
       </div>
-      <div class="foot"><span class="m"></span>네모네모 매매</div>
+      <!-- <div class="foot"><span class="m"></span>네모네모 매매</div> -->
     </section>
 
     <!-- ============ SLIDE 19 : REVENUE FLOW ============ -->
@@ -872,7 +1012,7 @@
           </div></div>
           <div class="txt-col">
             <span class="kicker">CHECK API 활성화</span>
-            <p class="lead">CHECK API를 <b>뉴스 지표 노드</b>와 결합해, 이벤트 발생 시 관련 상품 정보를 전략 내에서 즉시 조회 → <b>API 사용률 제고.</b></p>
+            <p class="lead"><b>CHECK API</b> 뉴스 데이터 조회 <br>→ CHECK API<b> 사용률 제고</b></p>
             <div class="prog"><span class="on"></span><span></span><span></span><span></span></div>
           </div>
         </div>
@@ -890,7 +1030,7 @@
           </div></div>
           <div class="txt-col">
             <span class="kicker">비금융·금융 데이터 융합</span>
-            <p class="lead">뉴스·공시 등 <b>비정형 데이터를 정량화</b>해 가격·거래량과 결합 → 코스콤의 <b>데이터 활용 역량</b>을 실증합니다.</p>
+            <p class="lead">뉴스·공시 등 <b>비정형 데이터를 정량화</b> <br>→ 기술 지표의 <b>한계 돌파</b></p>
             <div class="prog"><span></span><span class="on"></span><span></span><span></span></div>
           </div>
         </div>
@@ -908,7 +1048,7 @@
           </div></div>
           <div class="txt-col">
             <span class="kicker">증권사 연계 · 사업 확장성</span>
-            <p class="lead">계좌연동으로 신호 제공을 넘어 <b>실매매까지 이어지는 선순환</b> → 금융 인프라 사업자 위상 강화, <b>신규 B2B 채널</b> 확보.</p>
+            <p class="lead">자동매매를 위한 <b>신규 계좌 개설</b> <br>→ <b>B2B 제휴 수익</b></p>
             <div class="prog"><span></span><span></span><span class="on"></span><span></span></div>
           </div>
         </div>
@@ -925,13 +1065,22 @@
             <svg width="86" height="86" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="m19 3 1.5 1.5L19 6"/></svg>
           </div></div>
           <div class="txt-col">
-            <span class="kicker">개인투자자 역량 제고</span>
-            <p class="lead">코딩 없이 <b>뉴스 기반 알고리즘 매매</b> 설계가 가능 → 개인의 데이터 기반 투자 역량 향상과 <b>알고리즘 트레이딩 대중화.</b></p>
+            <span class="kicker"></span>
+            <p class="lead">애프터마켓 등<b> 거래 시장 연장</b> <br>→ 24시간 <b>자동 매매</b></p>
             <div class="prog"><span></span><span></span><span></span><span class="on"></span></div>
           </div>
         </div>
       </div>
       <div class="foot"><span class="m"></span>네모네모 매매</div>
+    </section>
+        <!-- ============ SLIDE 25 : DIVIDER 01 ============ -->
+    <section class="slide divider" id="s3">
+      <div class="grid-bg"></div>
+      <div class="pad">
+        <div class="mods"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div>
+        <h2>감사합니다</h2>
+      </div>
+      <div class="sec-num"></div>
     </section>
 
   </div><!--/#stage-->
@@ -951,11 +1100,235 @@
   const counter = document.getElementById('counter');
 
   function pad(n){return String(n).padStart(2,'0');}
+
+  /* ---- S8 chip animation ---- */
+  function s8Animate(){
+    const chips = document.querySelectorAll('#s8 .chip');
+    chips.forEach(c=>{ c.classList.remove('visible'); });
+    chips.forEach((c,i)=>{ setTimeout(()=>{ c.classList.add('visible'); }, 300 + i*300); });
+  }
+
+  /* ---- S9 node animation ---- */
+  function s9Animate(){
+    const pIds=['s9-p1','s9-p2','s9-p3'];
+    const nIds=['s9-n1','s9-n2','s9-n3','s9-n4'];
+    const paths=pIds.map(id=>document.getElementById(id));
+    const nodes=nIds.map(id=>document.getElementById(id));
+
+    // reset
+    paths.forEach(p=>{
+      const len=p.getTotalLength();
+      p.style.transition='none';
+      p.style.strokeDasharray=len;
+      p.style.strokeDashoffset=len;
+    });
+    nodes.forEach(n=>{
+      n.style.transition='none';
+      n.style.opacity='0';
+      n.style.transform='translateX(-10px)';
+    });
+
+    function animNode(el,delay){
+      setTimeout(()=>{
+        el.style.transition='opacity .4s ease,transform .4s ease';
+        el.style.opacity='1';
+        el.style.transform='translateX(0)';
+      },delay);
+    }
+    function animPath(el,delay){
+      setTimeout(()=>{
+        el.style.transition='stroke-dashoffset .55s ease';
+        el.style.strokeDashoffset='0';
+      },delay);
+    }
+
+    animNode(nodes[0], 150);
+    animNode(nodes[1], 380);
+    animPath(paths[0], 680);
+    animPath(paths[1], 860);
+    animNode(nodes[2],1100);
+    animPath(paths[2],1380);
+    animNode(nodes[3],1520);
+  }
+
   function show(i){
     cur = Math.max(0, Math.min(total-1, i));
     slides.forEach((s,idx)=>s.classList.toggle('active', idx===cur));
     counter.innerHTML = '<b>'+pad(cur+1)+'</b> / '+total;
     bar.style.width = ((cur+1)/total*100)+'%';
+    if(slides[cur].id==='s8') setTimeout(s8Animate,60);
+    if(slides[cur].id==='s9') setTimeout(s9Animate,60);
+    if(slides[cur].id==='s10') s10Start(); else s10Stop();
+    if(slides[cur].id==='s11') s11Start(); else s11Stop();
+    if(slides[cur].id==='s12') setTimeout(s12Animate,60);
+    if(slides[cur].id==='s14') setTimeout(s14Animate,60);
+  }
+
+  /* ---- S14 demo reveal animation ---- */
+  function s14Animate(){
+    const ids=['s14-arrow','s14-o1','s14-o2','s14-o3'];
+    ids.forEach(id=>{
+      const el=document.getElementById(id);
+      el.style.transition='none';
+      el.style.opacity='0';
+      el.style.transform=id==='s14-arrow'?'translateY(-8px)':'translateY(14px)';
+    });
+    ids.forEach((id,i)=>{
+      setTimeout(()=>{
+        const el=document.getElementById(id);
+        el.style.transition='opacity .4s ease, transform .4s ease';
+        el.style.opacity='1';
+        el.style.transform='translateY(0)';
+      }, 200 + i*300);
+    });
+  }
+
+  /* ---- S12 link-flow row animation ---- */
+  function s12Animate(){
+    ['s12-r1','s12-r2','s12-r3'].forEach(id=>{
+      const el=document.getElementById(id);
+      el.style.transition='none';
+      el.style.opacity='0';
+      el.style.transform='translateY(10px)';
+    });
+    ['s12-r1','s12-r2','s12-r3'].forEach((id,i)=>{
+      setTimeout(()=>{
+        const el=document.getElementById(id);
+        el.style.transition='opacity .35s ease, transform .35s ease';
+        el.style.opacity='1';
+        el.style.transform='translateY(0)';
+      }, 150 + i*400);
+    });
+  }
+
+  /* ---- S11 backtest animation ---- */
+  const s11Data = [
+    {
+      pts:[0,140, 60,128, 120,132, 180,96, 240,104, 300,62, 360,70, 420,34, 460,26],
+      ret:'+38.4%', retPos:true, win:'61%', dd:'-9.2%'
+    },
+    {
+      pts:[0,145, 60,138, 120,120, 180,115, 240,90, 300,78, 360,55, 420,48, 460,38],
+      ret:'+22.1%', retPos:true, win:'57%', dd:'-6.8%'
+    },
+    {
+      pts:[0,140, 60,150, 120,144, 180,155, 240,148, 300,140, 360,128, 420,118, 460,105],
+      ret:'-8.3%', retPos:false, win:'42%', dd:'-15.4%'
+    },
+    {
+      pts:[0,148, 60,135, 120,110, 180,98, 240,88, 300,72, 360,44, 420,30, 460,18],
+      ret:'+51.7%', retPos:true, win:'68%', dd:'-11.1%'
+    },
+    {
+      pts:[0,142, 60,140, 120,135, 180,128, 240,118, 300,100, 360,92, 420,80, 460,72],
+      ret:'+16.5%', retPos:true, win:'54%', dd:'-5.3%'
+    },
+  ];
+  let s11Timer=null, s11Idx=0;
+  let s11CurYs=[140,128,132,96,104,62,70,34,26];
+  const s11Xs=[0,60,120,180,240,300,360,420,460];
+  let s11Raf=null;
+
+  function s11BuildPath(ys){
+    let line='', area='';
+    s11Xs.forEach((x,i)=>{ line+=(i?'L':'M')+x+' '+ys[i].toFixed(1)+' '; });
+    area=line+'L460 150 L0 150 Z';
+    return {line:line.trim(), area:area.trim()};
+  }
+
+  function s11Start(){ s11Stop(); s11Idx=0; s11Apply(s11Data[0]); s11Idx=1; s11Timer=setTimeout(s11Step,1000); }
+  function s11Stop(){ if(s11Timer){clearTimeout(s11Timer);s11Timer=null;} if(s11Raf){cancelAnimationFrame(s11Raf);s11Raf=null;} }
+
+  function s11Apply(d){
+    s11CurYs=d.pts.filter((_,i)=>i%2===1);
+    const {line,area}=s11BuildPath(s11CurYs);
+    document.getElementById('s11-line').setAttribute('d',line);
+    document.getElementById('s11-area').setAttribute('d',area);
+    document.getElementById('s11-dot').setAttribute('cy',String(s11CurYs[s11CurYs.length-1]));
+    const m1=document.getElementById('s11-m1');
+    m1.textContent=d.ret; m1.className='mv'+(d.retPos?'':' loss');
+    document.getElementById('s11-m2').textContent=d.win;
+    document.getElementById('s11-m3').textContent=d.dd;
+  }
+
+  function s11Step(){
+    const d=s11Data[s11Idx];
+    const targetYs=d.pts.filter((_,i)=>i%2===1);
+    const startYs=[...s11CurYs];
+    const dur=520;
+    const t0=performance.now();
+
+    // fade metrics
+    const m1=document.getElementById('s11-m1');
+    const m2=document.getElementById('s11-m2');
+    const m3=document.getElementById('s11-m3');
+    [m1,m2,m3].forEach(el=>{el.style.transition='opacity .2s';el.style.opacity='0';});
+
+    if(s11Raf) cancelAnimationFrame(s11Raf);
+    function frame(now){
+      const p=Math.min((now-t0)/dur,1);
+      const ease=p<0.5?2*p*p:1-Math.pow(-2*p+2,2)/2; // easeInOutQuad
+      const ys=startYs.map((y,i)=>y+(targetYs[i]-y)*ease);
+      s11CurYs=ys;
+      const {line,area}=s11BuildPath(ys);
+      document.getElementById('s11-line').setAttribute('d',line);
+      document.getElementById('s11-area').setAttribute('d',area);
+      document.getElementById('s11-dot').setAttribute('cy',ys[ys.length-1].toFixed(1));
+      if(p<1){ s11Raf=requestAnimationFrame(frame); }
+      else{
+        s11CurYs=targetYs;
+        m1.textContent=d.ret; m1.className='mv'+(d.retPos?'':' loss');
+        m2.textContent=d.win; m3.textContent=d.dd;
+        [m1,m2,m3].forEach(el=>{el.style.transition='opacity .25s';el.style.opacity='1';});
+        s11Idx=(s11Idx+1)%s11Data.length;
+        s11Timer=setTimeout(s11Step,1000);
+      }
+    }
+    s11Raf=requestAnimationFrame(frame);
+  }
+
+  /* ---- S10 news ticker animation ---- */
+  const s10News = [
+    { text:'“○○전자, 신규 대규모 수주 계약 체결”',      pin:82, label:'+ 긍정', color:'#E86F00' },
+    { text:'“△△바이오, 임상 3상 결과 발표 연기”',        pin:28, label:'– 부정', color:'#E5484D' },
+    { text:'“◇◇에너지, 정부 보조금 지급 대상 선정”',     pin:74, label:'+ 긍정', color:'#E86F00' },
+    { text:'“□□물산, 3분기 실적 시장 예상치 부합”',      pin:52, label:'◦ 중립', color:'#3A4048' },
+    { text:'“☆☆반도체, 미국 수출 규제 대상 포함”',       pin:18, label:'– 부정', color:'#E5484D' },
+    { text:'“★★건설, 해외 수주 잔고 사상 최대치”',       pin:88, label:'+ 긍정', color:'#E86F00' },
+    { text:'“▲▲화학, CEO 갑작스런 사임 공시”',           pin:15, label:'– 부정', color:'#E5484D' },
+    { text:'“▽▽금융, 배당 성향 전년 대비 유지”',         pin:50, label:'◦ 중립', color:'#3A4048' },
+  ];
+  let s10Timer=null, s10Idx=0;
+  function s10Start(){
+    s10Stop();
+    s10Idx=0;
+    s10Step();
+  }
+  function s10Stop(){
+    if(s10Timer){clearTimeout(s10Timer);s10Timer=null;}
+  }
+  function s10Step(){
+    const d=s10News[s10Idx];
+    const headline=document.getElementById('s10-headline');
+    const pin=document.getElementById('s10-pin');
+    const score=document.getElementById('s10-score');
+    // fade out
+    headline.style.transition='opacity .3s';
+    headline.style.opacity='0';
+    score.style.transition='opacity .3s';
+    score.style.opacity='0';
+    setTimeout(()=>{
+      headline.textContent=d.text;
+      headline.style.opacity='1';
+      score.textContent=d.label;
+      score.style.color=d.color;
+      score.style.opacity='1';
+      // animate pin
+      pin.style.transition='left .8s cubic-bezier(.4,0,.2,1)';
+      pin.style.left=d.pin+'%';
+      s10Idx=(s10Idx+1)%s10News.length;
+      s10Timer=setTimeout(s10Step,800);
+    },320);
   }
   function next(){show(cur+1);}
   function prev(){show(cur-1);}
