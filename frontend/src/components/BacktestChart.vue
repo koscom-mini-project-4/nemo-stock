@@ -16,6 +16,7 @@ import {
 } from 'chart.js'
 import { fetchBacktestNewsAll, fetchBacktestNewsSignal, fetchBacktestNewsUsed, fetchBacktestPrices } from '@/api/services'
 import type { BacktestExplainSelection, BacktestResultOut, NewsMarkerOut, PricePointOut, TradeOut } from '@/api/types'
+import { useSymbolMasterStore } from '@/stores/symbolMaster'
 import { bollingerBands, rsi, sma } from '@/utils/indicators'
 import { tradeStatusLabel } from '@/utils/labels'
 
@@ -39,6 +40,12 @@ const emit = defineEmits<{
   'select-day': [date: string]
   'open-trade': [trade: TradeOut]
 }>()
+
+const symbolMaster = useSymbolMasterStore()
+// 종목명 캐시가 차트 첫 렌더 이후에 도착할 수도 있어(별도 네트워크 요청), 도착 시 범례
+// 라벨("종목명(코드) 종가")을 갱신하도록 다시 그린다. renderCharts()는 데이터가 아직 없으면
+// 조용히 무시하므로(가드 있음) 렌더 순서와 무관하게 안전하다.
+symbolMaster.ensureLoaded().then(() => renderCharts())
 
 const selectedSymbol = ref(props.result.universe[0] ?? '')
 const intradayMode = ref(false)
@@ -160,7 +167,7 @@ function renderCharts() {
       borderColor: '#4f46e5', backgroundColor: 'rgba(79,70,229,0.08)', pointRadius: 0, borderWidth: 1.5, tension: 0.15,
     },
     {
-      type: 'line', label: `${selectedSymbol.value} 종가`, data: closes, yAxisID: 'yPrice',
+      type: 'line', label: `${symbolMaster.displayName(selectedSymbol.value)} 종가`, data: closes, yAxisID: 'yPrice',
       borderColor: '#0891b2', pointRadius: 0, borderWidth: 1.5, tension: 0.1,
     },
   ]
@@ -388,7 +395,7 @@ onBeforeUnmount(destroyCharts)
       <label>
         종목
         <select v-model="selectedSymbol" @change="loadSymbolData">
-          <option v-for="s in result.universe" :key="s" :value="s">{{ s }}</option>
+          <option v-for="s in result.universe" :key="s" :value="s">{{ symbolMaster.displayName(s) }}</option>
         </select>
       </label>
       <label class="checkbox"><input v-model="showMA" type="checkbox" @change="renderCharts" /> 이동평균</label>

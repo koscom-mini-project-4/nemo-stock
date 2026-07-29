@@ -1567,6 +1567,19 @@ fixed`로 컬럼폭 고정 + `word-break: keep-all` + `overflow-wrap: break-word
 것이, 수정 후 8줄(노드당 1줄)로 줄고 전부 한글 노드명 + lucide 체크 아이콘으로 표시됨을
 확인, 콘솔 에러 0건.
 
+## 2026-07-29 후속 작업 6: 백테스트 차트 종목 선택에 한글 종목명 표시
+
+사용자 지적 — "매매 시점・시세・보조지표" 종목 드롭다운에 종목코드(368600)만 나오고 한글
+종목명이 안 보임. `BacktestChart.vue`가 종목명 캐시가 있는 기존 `useSymbolMasterStore`
+(Dashboard 등에서 이미 쓰던 것, `species.displayName(code)` → "이름(코드)" 형식, 매핑
+없으면 코드만 폴백)를 쓰지 않고 `result.universe`의 코드를 그대로 `<option>`에 찍고
+있었다. `symbolMaster.ensureLoaded()`를 마운트 시 호출하고 select `<option>`과 Chart.js
+범례 라벨("368600 종가" → "아이씨에이치(368600) 종가")에 `symbolMaster.displayName()`을
+적용. 종목명 캐시가 차트 첫 렌더보다 늦게 도착할 수 있어(별도 네트워크 호출) `ensureLoaded()`
+완료 후 `renderCharts()`를 한 번 더 호출해 범례도 뒤늦게 갱신되도록 함(가드가 있어 데이터
+없을 때 조용히 무시되므로 렌더 순서 상관없이 안전). `vue-tsc -b` + `npm run build` 통과,
+Playwright로 실제 렌더링해 드롭다운/차트 범례 모두 "아이씨에이치(368600)"로 표시됨을 확인.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.
