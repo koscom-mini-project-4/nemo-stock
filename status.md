@@ -1196,6 +1196,49 @@ AI 초안 폼(기존 `AIGenerateView.vue`의 스트리밍 생성/예시 프롬�
 새 전략 페이지/캔버스 실제 렌더링 확인(콘솔 에러 0건) — 카테고리별 노드 테두리 색, 캔들
 빨강/파랑, 각진 버튼/카드, 그래디언트 배경 정상 표시. 백엔드 변경 없음(pytest 재실행 생략).
 
+## 2026-07-29 후속 작업: 대시보드 수익률(전략별/종목별/평가자산) + 클릭 토글
+
+사용자 요청: 대시보드에서 전략별/종목 시세별/평가자산 수익률을 보여주고, 클릭하면 수익률(%)이
+수익금액(원)으로 바뀌는 기능. 수익=빨강/손실=파랑(기존 `--positive`/`--negative`, 한국 증시 관례,
+이미 `BacktestChart.vue` 매수/매도 마커에 적용되어 있던 색상 재사용).
+
+**전략별 수익률 계산 기준 확정**(`AskUserQuestion`): 계좌가 전략별로 분리되지 않은 단일 공용
+포트폴리오라 실거래 손익을 전략별로 정확히 나눌 원장이 없음을 확인 후, "실거래 체결 이력 기반"
+(신규 구현, 같은 종목을 여러 전략이 매매하면 근사치)으로 결정.
+
+**신규 `app/workflow/pnl.py`**: 워크플로의 live/test run들이 남긴 `execution.market_order` 노드의
+`meta.orders`(order_id 기준 시간순 중복 제거)를 모아, 해당 워크플로 자신의 체결만으로 이동평균
+평단가를 별도 추적해 실현+평가손익을 근사 계산(`load_workflow_fills` + `compute_workflow_pnl`,
+순수 함수 — `fill_logic.py`와 동일 패턴으로 테스트 용이성 확보). `GET /workflows/pnl-summary`
+(라우트 순서상 `/{workflow_id}`보다 먼저 등록 — `templates`와 동일한 이유) 신규 추가.
+
+**실기 중 발견한 사전 존재 버그(계획에 없던 수정)**: `POST /workflows/{id}/run`("테스트 실행")이
+`RunRecord`는 저장하면서도 `NodeEventRecord`는 저장하지 않아(라이브 트리거/백테스트만 저장), 테스트
+실행이 실제로 공용 포트폴리오에 체결을 남기는데도(`container.broker`가 라이브/테스트 공용
+`PersistentOrderExecutionProvider`) 그 체결 이력이 전략별 손익 집계와 `GET /runs/{run_id}` 재생
+양쪽에서 누락되고 있었음. `run_workflow`에 `container.node_event_repo.save_many(events_to_records(...))`
+추가로 라이브/테스트/백테스트 3경로 모두 동일하게 영속화되도록 수정.
+
+**평가자산 수익률**: `AccountSummaryOut`에 `initial_cash`(= `Settings.initial_portfolio_cash`) 필드
+추가, 프론트가 `(equity - initial_cash) / initial_cash`로 계산(백엔드에 별도 계산 로직 불필요).
+
+**종목 시세별 수익률**: 신규 엔드포인트 없이 프론트에서 기존 보유 포지션(`avg_price`)과 이미
+로드해 쓰던 `priceSeries`(최근 종가)로 계산.
+
+**프론트**: `frontend/src/utils/pnl.ts`(신규, `pnlClass`/`formatSignedPct`/`formatSignedKrw`) +
+`DashboardView.vue`에 클릭 토글용 `reactive(Set)`(`amountMode`, 키: `"equity"`/`"pos:<symbol>"`/
+`"wf:<id>"`) — 항목별로 독립적으로 %/원 표시 전환.
+
+**검증**: 백엔드 pytest 105→**370개 전부 통과**(신규 `test_workflow_pnl.py` 5 + 통합 1),
+프론트 `vue-tsc -b` 통과. 실제 실행 중이던 dev 서버(8000/5173)에 curl로 임시 워크플로를
+만들어 테스트 실행 → `pnl-summary`가 체결을 정확히 반영(`realized_pnl`/`unrealized_pnl`/
+`return_pct`)함을 확인 후 임시 워크플로 삭제. **이 과정에서 실제 dev DB의 005930 포지션에 테스트
+매수 1주(₩1,000)가 실제로 체결되어 남았음을 확인, 포지션은 원래 값(qty=2, avg_price=50040.95)으로
+복원했으나 현금 ₩1,000(시드 1천만 원의 0.01%)은 계좌 조정용 API가 없어 복구하지 못함** — 사용자에게
+공지. 브라우저를 통한 실제 렌더링/클릭 토글 시각 확인은 이번 세션에 Playwright 등 브라우저 도구가
+없어 수행하지 못했음(백엔드 API curl 검증 + 프론트 타입체크 + dev 서버 로그의 정상 200 응답까지만
+확인) — 다음 세션에서 브라우저로 실제 클릭 토글/색상 표시를 확인 필요.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   addWatchlistItem,
@@ -8,14 +8,16 @@ import {
   fetchAccountSummary,
   fetchPrices,
   fetchWatchlist,
+  fetchWorkflowPnlSummary,
   fetchWorkflows,
   removeWatchlistItem,
   updateWorkflow,
   upsertPosition,
 } from '@/api/services'
-import type { AccountSummaryOut, PricePointOut, WatchlistItemOut, WorkflowOut } from '@/api/types'
+import type { AccountSummaryOut, PricePointOut, WatchlistItemOut, WorkflowOut, WorkflowPnlOut } from '@/api/types'
 import { useSymbolMasterStore } from '@/stores/symbolMaster'
 import { formatDateTimeKst, formatKrw } from '@/utils/format'
+import { formatSignedKrw, formatSignedPct, pnlClass } from '@/utils/pnl'
 import PriceChart from '@/components/PriceChart.vue'
 import PositionEditModal from '@/components/PositionEditModal.vue'
 import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
@@ -24,26 +26,53 @@ const workflows = ref<WorkflowOut[]>([])
 const account = ref<AccountSummaryOut | null>(null)
 const watchlist = ref<WatchlistItemOut[]>([])
 const priceSeries = ref<Record<string, PricePointOut[]>>({})
+const workflowPnl = ref<Record<string, WorkflowPnlOut>>({})
 const loading = ref(true)
 const router = useRouter()
 const symbolMaster = useSymbolMasterStore()
 
+// 수익률(%) <-> 수익금액(원) 표시 토글. 카드/배지를 클릭한 항목만 개별적으로 전환된다(예:
+// "wf:<id>", "pos:<symbol>", "equity"). Set이라 Vue 3 반응성이 add/delete/has 전부에 걸린다.
+const amountMode = reactive(new Set<string>())
+function toggleAmountMode(key: string) {
+  if (amountMode.has(key)) amountMode.delete(key)
+  else amountMode.add(key)
+}
+
 async function load() {
   loading.value = true
   try {
-    const [wf, acc, wl] = await Promise.all([
+    const [wf, acc, wl, pnl] = await Promise.all([
       fetchWorkflows(),
       fetchAccountSummary().catch(() => null),
       fetchWatchlist().catch(() => []),
+      fetchWorkflowPnlSummary().catch(() => []),
       symbolMaster.ensureLoaded().then(() => undefined),
     ] as const)
     workflows.value = wf
     account.value = acc
     watchlist.value = wl
+    workflowPnl.value = Object.fromEntries(pnl.map((p) => [p.workflow_id, p]))
     await loadPriceSeries()
   } finally {
     loading.value = false
   }
+}
+
+/** 평가자산 수익률: 계좌 초기 시드 현금(initial_cash) 대비 현재 평가자산. */
+const equityReturn = computed(() => {
+  const acc = account.value
+  if (!acc || !acc.initial_cash) return null
+  const amount = acc.equity - acc.initial_cash
+  return { amount, pct: (amount / acc.initial_cash) * 100 }
+})
+
+/** 종목 시세별 수익률: 보유 평단가 대비 최근 종가(priceSeries 마지막 값). 시세가 아직 없으면 null. */
+function positionReturn(symbol: string, qty: number, avgPrice: number): { amount: number; pct: number } | null {
+  const series = priceSeries.value[symbol]
+  if (!series || series.length === 0 || avgPrice <= 0) return null
+  const current = series[series.length - 1].close
+  return { amount: (current - avgPrice) * qty, pct: (current / avgPrice - 1) * 100 }
 }
 
 /** 보유 종목 + 관심종목 최근 90일 시세를 병렬로 조회한다. 종목 하나가 실패해도 나머지 차트는 보인다. */
@@ -164,6 +193,20 @@ onMounted(load)
           <div class="kpi-label">평가자산(equity)</div>
           <div class="kpi-value">{{ account ? formatKrw(account.equity) : '—' }}</div>
         </div>
+        <div
+          class="card kpi-card kpi-card-clickable"
+          role="button"
+          tabindex="0"
+          title="클릭하면 수익률/수익금액 표시가 바뀝니다"
+          @click="toggleAmountMode('equity')"
+          @keydown.enter="toggleAmountMode('equity')"
+        >
+          <div class="kpi-label">평가자산 수익률</div>
+          <div v-if="equityReturn" class="kpi-value" :class="pnlClass(equityReturn.amount)">
+            {{ amountMode.has('equity') ? formatSignedKrw(equityReturn.amount) : formatSignedPct(equityReturn.pct) }}
+          </div>
+          <div v-else class="kpi-value">—</div>
+        </div>
         <div class="card kpi-card">
           <div class="kpi-label">보유 종목 수</div>
           <div class="kpi-value">{{ account ? account.positions.length : '—' }}</div>
@@ -184,6 +227,22 @@ onMounted(load)
               <span class="price-card-symbol">{{ symbolMaster.displayName(pos.symbol) }}</span>
               <div class="price-card-meta">
                 <span class="text-muted">{{ pos.qty }}주 · 평단가 {{ formatKrw(pos.avg_price) }}</span>
+                <span
+                  v-if="positionReturn(pos.symbol, pos.qty, pos.avg_price)"
+                  class="pnl-badge"
+                  :class="pnlClass(positionReturn(pos.symbol, pos.qty, pos.avg_price)!.amount)"
+                  role="button"
+                  tabindex="0"
+                  title="클릭하면 수익률/수익금액 표시가 바뀝니다"
+                  @click="toggleAmountMode(`pos:${pos.symbol}`)"
+                  @keydown.enter="toggleAmountMode(`pos:${pos.symbol}`)"
+                >
+                  {{
+                    amountMode.has(`pos:${pos.symbol}`)
+                      ? formatSignedKrw(positionReturn(pos.symbol, pos.qty, pos.avg_price)!.amount)
+                      : formatSignedPct(positionReturn(pos.symbol, pos.qty, pos.avg_price)!.pct)
+                  }}
+                </span>
                 <button
                   class="icon-btn"
                   type="button"
@@ -254,6 +313,24 @@ onMounted(load)
             <p class="text-muted">
               노드 {{ wf.graph.nodes.length }}개 · 주기 {{ wf.schedule_interval_sec }}초 · 수정 {{ formatDateTimeKst(wf.updated_at) }}
             </p>
+            <p
+              v-if="workflowPnl[wf.id] && workflowPnl[wf.id].trade_count > 0"
+              class="pnl-line"
+              :class="pnlClass(workflowPnl[wf.id].total_pnl)"
+              role="button"
+              tabindex="0"
+              title="클릭하면 수익률/수익금액 표시가 바뀝니다"
+              @click="toggleAmountMode(`wf:${wf.id}`)"
+              @keydown.enter="toggleAmountMode(`wf:${wf.id}`)"
+            >
+              {{
+                amountMode.has(`wf:${wf.id}`) || workflowPnl[wf.id].return_pct === null
+                  ? formatSignedKrw(workflowPnl[wf.id].total_pnl)
+                  : formatSignedPct(workflowPnl[wf.id].return_pct!)
+              }}
+              <span class="text-muted pnl-trade-count">(체결 {{ workflowPnl[wf.id].trade_count }}건)</span>
+            </p>
+            <p v-else class="text-muted pnl-line">실거래 체결 이력 없음</p>
             <div class="workflow-card-actions">
               <button class="btn" @click="router.push(`/strategies/${wf.id}`)">편집</button>
               <button class="btn" @click="toggleActive(wf)">
@@ -320,6 +397,39 @@ section h2 {
 .kpi-value {
   font-size: 22px;
   font-weight: 700;
+}
+
+.kpi-card-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.kpi-card-clickable:hover {
+  border-color: var(--accent);
+}
+
+.pnl-badge {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.pnl-badge:hover {
+  background: var(--bg);
+}
+
+.pnl-line {
+  margin: -2px 0 0;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.pnl-trade-count {
+  font-weight: 400;
 }
 
 .price-grid {

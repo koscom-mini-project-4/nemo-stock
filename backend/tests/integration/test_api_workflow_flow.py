@@ -104,6 +104,27 @@ def test_test_run_condition_fail_blocks_execution(app_client: TestClient, auth_h
     assert result["final_symbols"] == {}
 
 
+def test_pnl_summary_reflects_test_run_fill(app_client: TestClient, auth_headers: dict):
+    create_resp = app_client.post("/workflows", json=_workflow_payload(), headers=auth_headers)
+    workflow_id = create_resp.json()["id"]
+
+    run_resp = app_client.post(
+        f"/workflows/{workflow_id}/run",
+        json={"overrides": {"n2": {"005930": {"price": 71000, "prev_close": 70000}}}},
+        headers=auth_headers,
+    )
+    assert run_resp.status_code == 200, run_resp.text
+    assert run_resp.json()["final_symbols"]["005930"]["order_status"] == "filled"
+
+    pnl_resp = app_client.get("/workflows/pnl-summary", headers=auth_headers)
+    assert pnl_resp.status_code == 200, pnl_resp.text
+    entries = {e["workflow_id"]: e for e in pnl_resp.json()}
+    entry = entries[workflow_id]
+    assert entry["trade_count"] == 1
+    assert entry["total_invested"] == 71000  # qty=1 @ 71000
+    assert entry["realized_pnl"] == 0  # 매도 없음
+
+
 def test_activate_requires_valid_graph(app_client: TestClient, auth_headers: dict):
     create_resp = app_client.post("/workflows", json=_workflow_payload(), headers=auth_headers)
     workflow_id = create_resp.json()["id"]

@@ -49,6 +49,16 @@ class WorkflowOut(BaseModel):
     updated_at: datetime
 
 
+class WorkflowPnlOut(BaseModel):
+    workflow_id: str
+    realized_pnl: float
+    unrealized_pnl: float
+    total_pnl: float
+    total_invested: float
+    return_pct: float | None = None
+    trade_count: int
+
+
 class WorkflowTemplateOut(BaseModel):
     id: str
     name: str

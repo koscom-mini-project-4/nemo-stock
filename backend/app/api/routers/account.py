@@ -33,6 +33,7 @@ def get_account_summary(container: Container = Depends(get_container)) -> Accoun
         cash=balance.cash,
         equity=balance.equity,
         positions=[PositionOut(symbol=p.symbol, qty=p.qty, avg_price=p.avg_price) for p in positions],
+        initial_cash=container.settings.initial_portfolio_cash,
     )
 
 
