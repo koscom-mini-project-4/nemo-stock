@@ -504,6 +504,154 @@ text/코드펜스 파싱, tool_use 라운드트립, max_rounds 폴백, 사용량
 Anthropic API 호출 검증은 못함(사용자가 이후 `ANTHROPIC_API_KEY`를 직접 채워 넣을 예정) —
 mock 기반 유닛 테스트로 구조/필드만 확인.
 
+## 0-16. 관심종목 추가 + 보유 포지션 직접 관리 (2026-07-29 사용자 요청)
+
+사용자가 대시보드 보유종목 카드에서 `PWTESTQ1`/`PWRESTART1`(정체불명 종목코드)를 발견하고
+질문. 조사 결과: "테스트 실행"(`POST /workflows/{id}/runs`)이 백테스트와 달리 **실제 라이브
+계좌(`container.broker`)를 그대로 공유**해(`app/api/routers/account.py` 자체 주석에 이미
+명시된 단일 계좌 PoC 구조), 예전에 "대상 종목코드" 입력란에 임시 문자열을 넣고 매수 노드
+포함 워크플로를 테스트 실행하면서 그게 그대로 `portfolio_positions`에 기록된 잔재였다.
+사용자는 (1) 보유 여부와 무관한 관심종목 추적, (2) 보유 포지션 직접 추가/수정/삭제, (3) 두
+잔재 데이터 정리를 모두 요청.
+
+- `PortfolioRepository.upsert_position(user_id, symbol, qty, avg_price)`(기존)이 이미
+  "qty<=0이면 삭제"까지 구현돼 있어 포지션 추가/수정/삭제 전부 새 repository 메서드 없이
+  처리 — `PUT /account/positions/{symbol}`(생성/수정, qty<=0이면 400으로 명시적 거부)과
+  `DELETE /account/positions/{symbol}`(내부적으로 `upsert_position(...,0,0)`) 두 엔드포인트로
+  분리해 프론트가 "qty<=0이면 삭제"라는 구현 디테일을 몰라도 되게 함.
+- `WatchlistRepository`(신규, `PortfolioRepository`와 동일한 3계층 패턴 — ABC(`app/dao/
+  base.py`) → `SqliteWatchlistRepository`/`InMemoryWatchlistRepository`) + `watchlist_items`
+  테이블(`Base.metadata.create_all()`로 자동 생성, 마이그레이션 불필요). `GET/POST /account/
+  watchlist`, `DELETE /account/watchlist/{symbol}` — add/remove 둘 다 idempotent(중복
+  추가·존재 안 하는 종목 삭제 모두 에러 없이 조용히 처리).
+- `DashboardView.vue`: "보유 종목 시세" 카드에 수정(✏)/삭제(🗑) 버튼 + "종목 직접 추가"
+  버튼(`PositionEditModal.vue` 신규, `TestRunModal.vue`와 동일 모달 CSS 패턴) 추가. 신규
+  "관심 종목" 섹션(`SymbolAutocomplete` 재사용해 추가, 보유 종목과 겹치면 중복 표시 안 함).
+  `loadPriceSeries()`가 보유종목∪관심종목 심볼로 캔들차트 조회 범위 확장.
+- **데이터 정리**: 새 `DELETE /account/positions/{symbol}`을 실제 개발 서버에 두 번 호출해
+  `PWTESTQ1`/`PWRESTART1` 제거 — 엔드포인트 실동작 검증을 겸함. sqlite로 직접 확인해 정상
+  삭제됨을 확인(`GET /account/summary`는 이 시점 `ORDER_PROVIDER=kis`가 KIS 측 500 에러로
+  막혀 있어 대신 사용 — §0-15 후속 미해결 이슈, 이번 작업과 무관).
+
+**검증**: `tests/integration/test_api_account_watchlist_positions.py`(신규, §0-17에서 인증 관련
+테스트 2개 제거 후 6개) — watchlist 추가/목록/중복추가(idempotent)/삭제(존재 안 하는 종목도
+무해), position 생성/수정/qty<=0 거부/삭제(idempotent). 백엔드 pytest 351→359개 전부 통과.
+`vue-tsc -b` 통과. 브라우저 자동화 도구가 없어 프론트 클릭 검증은 못함(기존 세션과 동일
+제약) — curl로 API 자체는 라이브 검증(watchlist add/list, position delete 실제 호출·확인).
+
+## 0-17. 인증 게이트 완전 제거 (2026-07-29 사용자 요청)
+
+사용자 요청: "로그인 페이지 없애줘." 범위를 명확히 하기 위해 확인 질문("프론트만 자동
+로그인" vs "인증 자체를 완전히 제거") → **인증 자체를 완전히 제거**로 확정.
+
+- 백엔드: `POST /auth/login`(`app/api/routers/auth.py`) + `app/schemas/auth.py` 삭제,
+  `app/main.py`에서 `auth.router` 등록 제거. 7개 라우터(`admin`/`workflows`/`backtest`/
+  `data`/`ai`/`nodes`/`account`)의 `dependencies=[Depends(get_current_username)]` 게이트를
+  전부 제거(각 라우터 자체는 그대로 — `get_container` 등 다른 의존성은 유지). `app/auth/
+  security.py`를 `hash_password`(admin 계정 시드용으로만 남김) 하나로 축소하고
+  `verify_password`/`create_access_token`/`decode_access_token`/`get_current_username`
+  삭제. `Settings.jwt_secret`/`jwt_algorithm`/`jwt_expire_minutes`와 `pyproject.toml`의
+  `pyjwt` 의존성도 함께 제거(더 이상 아무도 안 씀). `UserRepository`/admin 계정 시드 로직
+  자체는 남겨둠(다른 곳에서 참조하지 않는 자족적 구조라 제거 범위 밖으로 판단).
+- 프론트엔드: `LoginView.vue`/`stores/auth.ts` 삭제, `router/index.ts`의 `/login` 라우트와
+  `beforeEach` 인증 가드 제거, `api/client.ts`의 Authorization 헤더 첨부/401 인터셉터 제거,
+  `main.ts`의 `setUnauthorizedHandler` 배선 제거, `App.vue`의 로그아웃 버튼/`showNav` 조건부
+  제거(항상 네비게이션 표시), `services.ts::login()` 제거.
+- **부수 정리**: 기존 테스트 다수가 `headers=auth_headers`를 그대로 넘기고 있어(문법상 유지)
+  `tests/conftest.py::auth_headers` 픽스처를 `/auth/login` 호출 대신 빈 dict를 반환하도록
+  변경해 대부분의 기존 테스트는 무수정으로 통과하게 함. "인증 없이 401을 기대"하던 테스트
+  9개(예: `test_unauthenticated_request_rejected`, `test_*_requires_auth`)는 이제 성립하지
+  않는 주장이라 전부 삭제.
+
+**검증**: `python -c "from app.main import create_app; ..."`로 앱 기동 + OpenAPI 경로 38개
+정상 등록 확인. 백엔드 pytest 359→350개 전부 통과(인증-요구 테스트 9개 삭제 반영). `vue-tsc -b`
+통과, `useAuthStore`/`stores/auth`/`LoginView`/`/auth/login` 잔여 참조 없음을 grep으로 재확인.
+
+## 0-18. AI 배치 호출을 스트리밍으로 전환 (2026-07-29 사용자 요청)
+
+사용자 요청: "현재 배치로 실행되는 ai 있으면 ai 전략 생성이나 대화 등 빠르게 요청받아야 하는
+것들은 배치가 아닌 stream 등으로 바꿔 줘." 대상은 `POST /ai/generate-draft`(전략 생성)/
+`workflow-chat`(캔버스 챗봇)/`backtest-explain`(§0-14 매매 근거 팝업) 셋 — 전부
+`AIClient.complete_json()`으로 응답이 통째로 완성될 때까지 기다렸다 한 번에 받고 있었다.
+
+**범위 확인(질문으로 확정)**: 이 세 엔드포인트의 AI 응답은 `{"reply", "changed", "name",
+"nodes", "edges"}`가 하나의 JSON에 같이 담겨 있어, 답변 텍스트만 깔끔하게 스트리밍하려면
+프롬프트 계약 자체를 바꿔야 해서(reply를 순수 텍스트로 먼저 뽑고 그래프 수정은 별도 호출로
+분리) 기존 검증/재시도 로직(`WorkflowGraph.validate()` 실패 시 1회 재시도, 3곳에 이미 있음)
+을 건드려야 하는 더 위험한 변경이 된다. 사용자가 **저위험 옵션(원문 텍스트 실시간
+미리보기)**을 선택 — 생성 중인 원문(JSON 파싱 전)을 SSE로 실시간 전송해 "AI가 작성 중"
+미리보기로 보여주고, 완료되면 기존과 동일하게 파싱된 결과로 전환한다. 검증/재시도 로직은
+전혀 안 건드림.
+
+- `app/ai/base.py::AIClient`에 새 추상 메서드 `complete_json_stream(..., on_chunk=None)` 추가
+  — `complete_json`과 동일 계약(파싱된 dict 반환)에 `on_chunk`만 더함. `OpenAIClient`는
+  `stream=True, stream_options={"include_usage": True}` + `delta.content` 누적(사용량은
+  choices가 빈 마지막 청크에 실림). `ClaudeClient`는 공식 문서
+  (`platform.claude.com/docs/en/api/messages-streaming`)로 확인한 패턴 그대로
+  `with client.messages.stream(...) as stream: for text in stream.text_stream: ...`,
+  `stream.get_final_message()`로 usage 포함 전체 Message. 둘 다 `_record_usage`를
+  `response` 대신 `usage` 객체를 직접 받도록 소폭 리팩터링(스트림엔 단일 response가 없어서).
+  `FakeAIClient`(테스트 더블)는 `responses` 큐를 그대로 재사용하되 `on_chunk`엔 최종 JSON을
+  단일 청크로 한 번만 넘겨 인터페이스 계약만 만족.
+- `generate_workflow_draft`/`chat_about_workflow`/`explain_backtest` 각각에 `on_chunk` 파라미터
+  추가(기본 None → 기존 블로킹 동작 100% 그대로). **첫 번째** 시도만 `complete_json_stream`으로
+  교체하고, 검증 실패 시의 재시도(repair) 호출은 드문 경로라 스트리밍하지 않고 기존
+  `complete_json` 유지 — 리스크 최소화.
+- `app/api/routers/ai.py`에 `_stream_sse(worker)` 헬퍼 신규: 별도 스레드에서
+  `worker(on_chunk=queue.put)`을 실행하고, 메인 제너레이터가 큐에서 꺼내
+  `chunk`/`result`/`error` SSE 프레임을 yield. FastAPI `StreamingResponse`가 동기 제너레이터를
+  자동으로 스레드풀에서 돌려줘 `async def` 불필요. 기존 블로킹 엔드포인트 3개는 무수정 유지,
+  `POST /ai/{generate-draft,workflow-chat,backtest-explain}/stream` 3개를 순수 추가.
+- `frontend/src/api/sse.ts` 신규: `postSSE(url, body, {onChunk, onResult, onError})` — POST라
+  네이티브 `EventSource`(GET 전용) 대신 `fetch()` + `getReader()`로 직접 스트림 파싱.
+  `AIGenerateView.vue`는 스트리밍 중 누적 원문을 `<pre>` 미리보기로 보여주다 `result` 도착 시
+  기존 카드로 전환. `ChatPanel.vue`/`BacktestAskPanel.vue`는 어시스턴트 말풍선에 스트리밍 중
+  원문을 모노스페이스 스타일로 채워나가다 완료 시 `reply`로 교체 — TypeScript가 클로저 안에서만
+  대입되는 변수의 control-flow narrowing을 못 해서(`onResult` 콜백 안에서만 값이 들어옴) `as`
+  단언으로 우회.
+
+**검증**: `test_openai_client.py`/`test_claude_client.py`에 스트리밍 유닛 테스트 추가(청크
+전달/사용량 매핑/on_chunk 없이도 동작/api_key 없을 때 에러), `test_api_ai_flow.py`에
+`/ai/generate-draft/stream` SSE 통합 테스트 추가(chunk 프레임들 + 마지막 result 프레임 검증).
+백엔드 pytest 350→361개 전부 통과. `vue-tsc -b` 통과. `curl`/`TestClient.stream()`으로 실제
+SSE 프레임(`chunk`→`result`)이 순서대로 오는 것을 라이브 확인. 브라우저 자동화 도구가 없어
+실제 화면 렌더링 라이브 확인은 못함(기존 세션과 동일 제약).
+
+## 0-19. 전략 생성 AI와 나머지 AI의 모델을 .env에서 별도 선택 (2026-07-29 사용자 요청)
+
+사용자 요청: "전략 생성 ai랑 나머지 ai 에서 사용할 모델을 별도로 선택할 수 있도록 해 주세요.
+.env에서 사용 모델을 각각 선택하고 싶어요." 기존 `AI_PROVIDER`+`OPENAI_MODEL`/
+`ANTHROPIC_MODEL` 하나로 전략 생성(`POST /ai/generate-draft`)과 나머지 AI 기능(캔버스
+챗봇/백테스트 설명/자유 프롬프트 노드 등)이 항상 같은 모델을 썼다 — 전략 생성만 더 고성능
+모델을 쓰고 나머지는 저렴한 모델을 쓰는 식의 분리가 불가능했다.
+
+- `app/dependencies.py::_build_ai_client(settings, ai_usage_repo, model_override=None)` —
+  기존 팩토리 함수에 `model_override` 파라미터만 추가(없으면 기존과 동일하게
+  `openai_model`/`anthropic_model` 사용). `Container`에 `strategy_ai_client: AIClient`
+  필드를 신설하고, `build_container()`에서 `_build_ai_client`를 **두 번** 호출 —
+  `ai_client`(기본 모델)와 `strategy_ai_client`(모델 오버라이드 있으면 그걸 사용, 없으면
+  기본 모델과 동일한 클라이언트를 별도 인스턴스로 생성).
+- `app/config.py::Settings.ai_model_strategy: str | None = None` 신규 — 비워두면
+  `OPENAI_MODEL`/`ANTHROPIC_MODEL`과 동일 모델을 그대로 쓴다.
+- `app/api/deps.py::get_strategy_ai_client` 신규 — `container.strategy_ai_client`를
+  반환. `app/api/routers/ai.py`의 `generate_draft`/`generate_draft_stream`(블로킹 +
+  스트림 둘 다) 두 엔드포인트만 `Depends(get_ai_client)` → `Depends(get_strategy_ai_client)`
+  로 교체. `workflow_chat`/`workflow_chat_stream`/`backtest_explain`/
+  `backtest_explain_stream`은 기존 그대로 `get_ai_client` 유지 — "전략 생성만 별도, 나머지는
+  기본 모델" 요구사항 그대로 반영.
+- `.env`/`.env.example`에 `AI_MODEL_STRATEGY=` 신규(빈 값 = 기본 모델과 동일, 주석으로
+  용도 설명).
+
+**검증**: `test_provider_selection.py`에 `_build_ai_client`의 `model_override` 동작
+유닛 테스트 2개 추가(오버라이드 있을 때/없을 때). `test_api_ai_flow.py`의 기존
+`/ai/generate-draft`(+`/stream`) 테스트 5개가 `dependency_overrides[get_ai_client]`를
+쓰고 있었는데, 이제 이 두 엔드포인트가 `get_strategy_ai_client`를 쓰므로 오버라이드 키를
+맞춰 수정(동작 자체가 아니라 테스트가 어느 의존성을 갈아끼워야 하는지만 바뀐 것). 새 통합
+테스트 `test_generate_draft_uses_strategy_ai_client_not_default`로 두 클라이언트가 실제로
+독립적으로 주입되는지(`get_strategy_ai_client`만 오버라이드하면 `/ai/generate-draft`는
+성공하고 `/ai/workflow-chat`은 여전히 400) 확인. 백엔드 pytest 361→364개 전부 통과.
+`vue-tsc -b` 통과(프론트 변경 없음).
+
 ---
 
 ## 1. 목표와 PoC 범위

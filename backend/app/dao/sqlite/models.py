@@ -56,6 +56,18 @@ class PortfolioPositionORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
+class WatchlistItemORM(Base):
+    __tablename__ = "watchlist_items"
+    __table_args__ = (
+        Index("ix_watchlist_items_user_symbol", "user_id", "symbol", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class RunORM(Base):
     __tablename__ = "runs"
 

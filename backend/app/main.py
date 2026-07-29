@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import account, admin, ai, auth, backtest, data, nodes, workflows
+from app.api.routers import account, admin, ai, backtest, data, nodes, workflows
 from app.api.ws import router as ws_router
 from app.config import get_settings
 from app.dependencies import build_container
@@ -34,7 +34,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(auth.router)
     app.include_router(account.router)
     app.include_router(nodes.router)
     app.include_router(workflows.router)

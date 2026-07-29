@@ -1071,6 +1071,84 @@ pytest 340→350개 전부 통과(`test_koscom_live.py`는 실 시장 상황에 
 라이브 테스트라 제외). `vue-tsc -b` 통과(프론트 변경 없음). 실제 Anthropic 호출은 사용자가
 `ANTHROPIC_API_KEY`를 채워 넣은 뒤 재검증 필요.
 
+## 2026-07-29 후속 작업 19: 관심종목 + 보유 포지션 직접 관리 + PWTESTQ1/PWRESTART1 정리 (DESIGN.md §0-16)
+
+사용자가 대시보드에서 `PWTESTQ1`/`PWRESTART1`를 발견하고 질문 → 조사해서 원인 설명("테스트
+실행"이 라이브 계좌를 공유해 생긴 잔재) → "관심종목 신규 / 보유 포지션 직접 관리 / 정리
+전부 다"로 답변받아 EnterPlanMode로 계획 승인 후 구현.
+
+- `WatchlistRepository` 3계층 신규(기존 `PortfolioRepository`와 동일 패턴) + `PUT`/`DELETE
+  /account/positions/{symbol}`(기존 `upsert_position`의 "qty<=0=삭제" 재사용) + `GET/POST/
+  DELETE /account/watchlist`. `DashboardView.vue`에 포지션 수정/삭제 버튼 + "종목 직접 추가"
+  + "관심 종목" 섹션(`SymbolAutocomplete` 재사용) 추가.
+- 새 DELETE 엔드포인트로 실제 `PWTESTQ1`/`PWRESTART1`를 정리 — sqlite로 직접 확인 완료.
+  (`GET /account/summary`는 현재 `ORDER_PROVIDER=kis`가 KIS 측 500으로 막혀 있어 확인에
+  못 씀 — §0-15 후속의 미해결 외부 이슈, 이번 작업과 무관.)
+- **작업 중간에 사용자가 새 요청 3건을 추가로 보냄**(모두 태스크로 큐잉, 순서대로 처리 예정):
+  "로그인 페이지 없애줘"(인증 자체 완전 제거로 확인), "AI 배치 호출을 스트리밍으로",
+  "전략 생성 AI와 나머지 AI가 .env에서 모델을 각각 선택할 수 있게".
+
+**검증**: 신규 통합 테스트 8개 포함 백엔드 pytest 351→359개 전부 통과. `vue-tsc -b` 통과.
+브라우저 자동화 도구가 없어 프론트 클릭 검증은 못함 — curl로 API 자체는 라이브 검증.
+
+## 2026-07-29 후속 작업 20: 인증 게이트 완전 제거 (DESIGN.md §0-17)
+
+사용자 요청: "로그인 페이지 없애줘." AskUserQuestion으로 범위 확인("프론트 자동 로그인" vs
+"인증 자체 완전 제거") → 인증 자체를 완전히 제거하는 것으로 확정 후 진행.
+
+- 백엔드: `POST /auth/login`(`app/api/routers/auth.py`) + `app/schemas/auth.py` 삭제, 7개
+  라우터의 `Depends(get_current_username)` 게이트 전부 제거, `app/auth/security.py`를
+  `hash_password`(admin 계정 시드용) 하나로 축소, `Settings.jwt_*` 필드 + `pyjwt` 의존성
+  제거.
+- 프론트엔드: `LoginView.vue`/`stores/auth.ts` 삭제, 라우터 가드/Authorization 헤더 첨부/
+  401 인터셉터/로그아웃 버튼 전부 제거 — 앱 진입 시 바로 대시보드로 감.
+- 기존 테스트 대부분은 `conftest.py::auth_headers`를 `/auth/login` 대신 빈 dict를 반환하도록
+  바꿔 무수정으로 통과시키고, "인증 없이 401 기대"하던 테스트 9개는 더 이상 성립하지 않는
+  주장이라 삭제.
+
+**검증**: 백엔드 pytest 359→350개 전부 통과. `vue-tsc -b` 통과. 인증 관련 잔여 참조 없음을
+grep으로 재확인.
+
+## 2026-07-29 후속 작업 21: AI 배치 호출을 스트리밍으로 전환 (DESIGN.md §0-18)
+
+사용자 요청: "전략 생성이나 대화 등 빠르게 요청받아야 하는 것들은 배치가 아닌 stream으로
+바꿔줘." AI 응답이 `{"reply","changed","nodes","edges"}`가 한 JSON에 같이 담기는 구조라
+"순수 대화 텍스트만 깔끔하게 스트리밍"(프롬프트 계약 변경 필요, 검증/재시도 로직 리스크)과
+"원문 텍스트 실시간 미리보기"(저위험, 기존 로직 무변경) 중 선택하도록 확인 질문 →
+저위험 옵션으로 확정 후 EnterPlanMode로 계획 승인 후 진행.
+
+- `AIClient.complete_json_stream(..., on_chunk=None)` 신규(OpenAI/Claude 둘 다 구현, Claude는
+  공식 문서 스트리밍 패턴을 직접 대조해 확인). `generate_workflow_draft`/`chat_about_workflow`/
+  `explain_backtest`가 첫 시도만 스트리밍하고 재시도 경로는 기존 블로킹 유지.
+- `POST /ai/{generate-draft,workflow-chat,backtest-explain}/stream` 3개 신규(SSE, 기존
+  블로킹 엔드포인트는 무수정 유지 — 순수 추가라 리스크 최소).
+- 프론트: `postSSE()` 유틸 신규, AIGenerateView/ChatPanel/BacktestAskPanel이 스트리밍 중
+  누적 원문을 실시간으로 보여주다 완료 시 기존 UI로 전환.
+
+**검증**: 신규 유닛/통합 테스트 포함 백엔드 pytest 350→361개 전부 통과. `vue-tsc -b` 통과.
+curl/TestClient로 실제 SSE 프레임 순서(chunk→result) 라이브 확인.
+
+## 2026-07-29 후속 작업 22: 전략 생성 AI와 나머지 AI의 모델을 .env에서 별도 선택 (DESIGN.md §0-19)
+
+사용자 요청: "전략 생성 ai랑 나머지 ai 에서 사용할 모델을 별도로 선택할 수 있도록 해 주세요.
+.env에서 사용 모델을 각각 선택하고 싶어요." 기존엔 `AI_PROVIDER`+`OPENAI_MODEL`/
+`ANTHROPIC_MODEL` 하나로 전략 생성과 나머지 AI 기능이 항상 같은 모델을 썼다.
+
+- `_build_ai_client(settings, ai_usage_repo, model_override=None)` — 기존 팩토리에
+  `model_override` 파라미터만 추가. `Container`에 `strategy_ai_client` 필드 신설,
+  `build_container()`에서 팩토리를 두 번 호출해 `ai_client`(기본)와
+  `strategy_ai_client`(`AI_MODEL_STRATEGY` 있으면 그걸, 없으면 기본과 동일)를 분리 생성.
+- `Settings.ai_model_strategy` + `.env`/`.env.example`에 `AI_MODEL_STRATEGY=` 신규(빈 값 =
+  기본 모델 그대로).
+- `get_strategy_ai_client` 신규 의존성. `POST /ai/generate-draft`(+`/stream`) 두 엔드포인트만
+  이걸로 교체, `workflow-chat`/`backtest-explain`(+`/stream`)은 기존 `get_ai_client` 유지.
+
+**검증**: `_build_ai_client` model_override 유닛 테스트 2개 추가. 기존 `/ai/generate-draft`
+테스트 5개가 `dependency_overrides[get_ai_client]`를 쓰고 있어 엔드포인트가 이제
+`get_strategy_ai_client`를 쓰는 데 맞춰 오버라이드 키 수정(동작이 아니라 테스트가 갈아끼울
+의존성만 변경). 두 클라이언트가 독립적으로 주입되는지 확인하는 통합 테스트 신규 추가.
+백엔드 pytest 361→364개 전부 통과. `vue-tsc -b` 통과(프론트 변경 없음).
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

@@ -30,6 +30,8 @@ from app.dao.base import (
     SymbolMasterRepository,
     UserRecord,
     UserRepository,
+    WatchlistRecord,
+    WatchlistRepository,
     WorkflowRecord,
     WorkflowRepository,
 )
@@ -85,6 +87,21 @@ class InMemoryPortfolioRepository(PortfolioRepository):
             self._positions.pop((user_id, symbol), None)
             return
         self._positions[(user_id, symbol)] = PositionRecord(symbol=symbol, qty=qty, avg_price=avg_price)
+
+
+class InMemoryWatchlistRepository(WatchlistRepository):
+    def __init__(self) -> None:
+        self._items: dict[tuple[str, str], WatchlistRecord] = {}
+
+    def list(self, user_id: str) -> list[WatchlistRecord]:
+        return [r for (uid, _), r in self._items.items() if uid == user_id]
+
+    def add(self, user_id: str, symbol: str) -> None:
+        if (user_id, symbol) not in self._items:
+            self._items[(user_id, symbol)] = WatchlistRecord(symbol=symbol, created_at=datetime.now())
+
+    def remove(self, user_id: str, symbol: str) -> None:
+        self._items.pop((user_id, symbol), None)
 
 
 class InMemoryRunRepository(RunRepository):

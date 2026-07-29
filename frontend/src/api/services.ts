@@ -7,7 +7,6 @@ import type {
   BacktestExplainSelection,
   BacktestResultOut,
   ChatMessage,
-  GenerateDraftResponse,
   NewsCluster,
   NewsMarkerOut,
   NewsStats,
@@ -16,14 +15,14 @@ import type {
   NewsUpdateResult,
   NodeTypeSchema,
   PendingNewsResult,
+  PositionOut,
   PricePointOut,
   RunResultOut,
   SymbolOut,
   SymbolStats,
   SymbolSyncResult,
   ValidationResult,
-  WorkflowChatLastRun,
-  WorkflowChatResponse,
+  WatchlistItemOut,
   WorkflowGraph,
   WorkflowOut,
   WorkflowStatus,
@@ -33,6 +32,29 @@ import type {
 export async function fetchAccountSummary(): Promise<AccountSummaryOut> {
   const { data } = await apiClient.get('/account/summary')
   return data
+}
+
+export async function upsertPosition(symbol: string, qty: number, avgPrice: number): Promise<PositionOut> {
+  const { data } = await apiClient.put(`/account/positions/${symbol}`, { qty, avg_price: avgPrice })
+  return data
+}
+
+export async function deletePosition(symbol: string): Promise<void> {
+  await apiClient.delete(`/account/positions/${symbol}`)
+}
+
+export async function fetchWatchlist(): Promise<WatchlistItemOut[]> {
+  const { data } = await apiClient.get('/account/watchlist')
+  return data
+}
+
+export async function addWatchlistItem(symbol: string): Promise<WatchlistItemOut[]> {
+  const { data } = await apiClient.post('/account/watchlist', { symbol })
+  return data
+}
+
+export async function removeWatchlistItem(symbol: string): Promise<void> {
+  await apiClient.delete(`/account/watchlist/${symbol}`)
 }
 
 export async function fetchPrices(symbol: string, days = 90): Promise<PricePointOut[]> {
@@ -48,11 +70,6 @@ export async function fetchSymbols(q = ''): Promise<SymbolOut[]> {
 export async function fetchWorkflowTemplates(): Promise<WorkflowTemplateOut[]> {
   const { data } = await apiClient.get('/workflows/templates')
   return data
-}
-
-export async function login(username: string, password: string): Promise<string> {
-  const { data } = await apiClient.post('/auth/login', { username, password })
-  return data.access_token as string
 }
 
 export async function fetchNodeTypes(): Promise<NodeTypeSchema[]> {
@@ -133,22 +150,6 @@ export async function fetchBacktest(id: string): Promise<BacktestResultOut> {
 
 export async function fetchRun(workflowId: string, runId: string): Promise<RunResultOut> {
   const { data } = await apiClient.get(`/workflows/${workflowId}/runs/${runId}`)
-  return data
-}
-
-export async function generateDraft(idea: string, universe?: string[]): Promise<GenerateDraftResponse> {
-  const { data } = await apiClient.post('/ai/generate-draft', { idea, universe })
-  return data
-}
-
-export async function chatAboutWorkflow(payload: {
-  name: string
-  graph: WorkflowGraph
-  message: string
-  history: ChatMessage[]
-  last_run?: WorkflowChatLastRun | null
-}): Promise<WorkflowChatResponse> {
-  const { data } = await apiClient.post('/ai/workflow-chat', payload)
   return data
 }
 

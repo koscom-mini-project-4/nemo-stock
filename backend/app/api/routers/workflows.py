@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_container
-from app.auth.security import get_current_username
 from app.dao.base import RunRecord, WorkflowRecord
 from app.dependencies import Container
 from app.schemas.workflow import (
@@ -23,7 +22,7 @@ from app.schemas.workflow import (
 from app.workflow.graph import WorkflowGraph, WorkflowValidationError
 from app.workflow.templates import get_templates
 
-router = APIRouter(prefix="/workflows", tags=["workflows"], dependencies=[Depends(get_current_username)])
+router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 _DEFAULT_USER_ID = "admin"  # 단일 계정 PoC
 

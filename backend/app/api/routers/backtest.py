@@ -6,7 +6,6 @@ from datetime import datetime, time
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_container, get_intraday_price_bar_repo, get_price_ingest_client
-from app.auth.security import get_current_username
 from app.backtest.runner import BacktestRunner
 from app.dao.base import BacktestResultRecord, IntradayPriceBarRepository
 from app.data_ingestion.auto_ingest import ensure_price_data
@@ -24,7 +23,7 @@ from app.schemas.backtest import (
 )
 from app.workflow.graph import WorkflowGraph
 
-router = APIRouter(prefix="/backtest", tags=["backtest"], dependencies=[Depends(get_current_username)])
+router = APIRouter(prefix="/backtest", tags=["backtest"])
 
 # ai.news_signal(auto_update=true)은 거래일마다 AI 분류를 다시 트리거할 수 있어(뉴스가 실행
 # 시점 날짜 기준으로 조회되도록 바뀐 뒤로는 각 거래일이 서로 다른 조회를 만듦), 백테스트 기간이

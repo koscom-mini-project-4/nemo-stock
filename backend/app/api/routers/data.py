@@ -15,7 +15,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_container, get_intraday_price_bar_repo, get_price_ingest_client
-from app.auth.security import get_current_username
 from app.dao.base import DisclosureRecord, IntradayPriceBarRepository, NewsRecord, PriceBarRecord, SymbolMasterRecord
 from app.data_ingestion.auto_ingest import ensure_price_data
 from app.data_ingestion.naver_price_client import NaverStockChartClient
@@ -39,7 +38,7 @@ from app.schemas.data import (
     SymbolOut,
 )
 
-router = APIRouter(prefix="/data", tags=["data"], dependencies=[Depends(get_current_username)])
+router = APIRouter(prefix="/data", tags=["data"])
 
 
 @router.get("/symbols", response_model=list[SymbolOut])

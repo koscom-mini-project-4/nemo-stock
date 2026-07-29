@@ -76,6 +76,35 @@ class ClaudeClient(AIClient):
         text = _strip_code_fence(_text_from_content(response.content)) or "{}"
         return json.loads(text)
 
+    def complete_json_stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.2,
+        purpose: str = "unknown",
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> dict:
+        """공식 문서(platform.claude.com/docs/en/api/messages-streaming)에서 확인한 패턴:
+        stream.text_stream이 순수 텍스트 델타를, 완료 후 stream.get_final_message()가
+        usage 포함 전체 Message를 준다."""
+        if self._client is None:
+            raise AIUnavailableError("ANTHROPIC_API_KEY가 설정되지 않아 AI 기능을 사용할 수 없습니다.")
+
+        with self._client.messages.stream(
+            model=self._model,
+            max_tokens=_MAX_TOKENS,
+            temperature=temperature,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        ) as stream:
+            for text in stream.text_stream:
+                if on_chunk is not None:
+                    on_chunk(text)
+            message = stream.get_final_message()
+        self._record_usage(message, purpose)
+        text = _strip_code_fence(_text_from_content(message.content)) or "{}"
+        return json.loads(text)
+
     def complete_with_tools(
         self,
         system_prompt: str,

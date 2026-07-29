@@ -13,10 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "nemo-stock"
     debug: bool = True
 
-    # Auth
-    jwt_secret: str = "dev-secret-change-me-please-use-a-long-random-value"
-    jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 12
+    # Auth — 이 PoC는 인증 게이트가 없다(§0-17). admin 계정 정보는 시드값(단일 계정)으로만 쓴다.
     admin_username: str = "admin"
     admin_password: str = "admin1234"
 
@@ -42,6 +39,11 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.6-luna"
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-5"
+    # 전략 생성(AI 초안 생성, POST /ai/generate-draft)만 다른 모델을 쓰고 싶을 때 설정한다
+    # (§0-19). 비워두면 openai_model/anthropic_model(AI_PROVIDER에 따라 결정)과 동일한 모델을
+    # 그대로 쓴다. 나머지 AI 기능(캔버스 챗봇/백테스트 설명/뉴스 감성/자유 프롬프트)은 항상
+    # 기본 모델을 쓴다.
+    ai_model_strategy: str | None = None
     ai_prompt_version: str = "v1"
 
     # 뉴스 기반 매매 판단(newsstock-lib vendored, app/vendor/news_classifier). 자체 SQLite DB를

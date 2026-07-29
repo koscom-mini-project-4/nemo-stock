@@ -35,6 +35,21 @@ class AIClient(ABC):
         """
 
     @abstractmethod
+    def complete_json_stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.2,
+        purpose: str = "unknown",
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> dict:
+        """complete_json과 완전히 동일한 계약(파싱된 dict 반환, available=False면
+        AIUnavailableError)이지만, on_chunk가 주어지면 생성되는 원문 텍스트 조각을 JSON
+        파싱 전에 실시간으로 넘겨준다(§0-18, "AI가 작성 중" 실시간 미리보기용). on_chunk가
+        None이면 complete_json과 동작이 완전히 같다.
+        """
+
+    @abstractmethod
     def complete_with_tools(
         self,
         system_prompt: str,

@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from app.auth.security import get_current_username
 from app.nodes.base import node_registry_schema
 
-router = APIRouter(prefix="/nodes", tags=["nodes"], dependencies=[Depends(get_current_username)])
+router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 
 @router.get("", response_model=list[dict[str, Any]])

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { generateDraft } from '@/api/services'
+import { postSSE } from '@/api/sse'
 import type { GenerateDraftResponse } from '@/api/types'
 import { useDraftStore } from '@/stores/draft'
 import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
@@ -11,6 +11,9 @@ const universeText = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const draft = ref<GenerateDraftResponse | null>(null)
+// 스트리밍 중(§0-18) 실시간으로 누적되는 원문(JSON 파싱 전) — AI가 아직 작성 중임을 바로
+// 체감할 수 있게 보여준다. 완료되면 draft로 교체되고 이 미리보기는 지운다.
+const streamingPreview = ref('')
 
 const router = useRouter()
 const draftStore = useDraftStore()
@@ -102,23 +105,36 @@ async function submit() {
   loading.value = true
   errorMessage.value = ''
   draft.value = null
+  streamingPreview.value = ''
   startElapsedTimer()
+  const universe = universeText.value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
   try {
-    const universe = universeText.value
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-    draft.value = await generateDraft(idea.value, universe.length ? universe : undefined)
-  } catch (err) {
-    const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
-    errorMessage.value =
-      typeof detail === 'string'
-        ? detail
-        : detail
-          ? JSON.stringify(detail)
-          : 'AI 초안 생성에 실패했습니다. OPENAI_API_KEY 설정을 확인하세요.'
+    await postSSE<GenerateDraftResponse>(
+      '/ai/generate-draft/stream',
+      { idea: idea.value, universe: universe.length ? universe : undefined },
+      {
+        onChunk: (text) => {
+          streamingPreview.value += text
+        },
+        onResult: (result) => {
+          draft.value = result
+        },
+        onError: (detail) => {
+          errorMessage.value =
+            typeof detail === 'string'
+              ? detail
+              : detail
+                ? JSON.stringify(detail)
+                : 'AI 초안 생성에 실패했습니다. OPENAI_API_KEY 설정을 확인하세요.'
+        },
+      },
+    )
   } finally {
     loading.value = false
+    streamingPreview.value = ''
     stopElapsedTimer()
   }
 }
@@ -168,7 +184,10 @@ function editOnCanvas() {
       <button class="btn btn-primary" :disabled="loading || !idea.trim()" @click="submit">
         {{ loading ? '생성 중...' : '초안 생성' }}
       </button>
-      <p v-if="loading" class="text-muted elapsed">AI 응답 대기 중... ({{ elapsedSec }}초 경과)</p>
+      <div v-if="loading" class="streaming-preview">
+        <p class="text-muted elapsed">AI가 작성 중입니다... ({{ elapsedSec }}초 경과)</p>
+        <pre v-if="streamingPreview" class="mono preview-text">{{ streamingPreview }}</pre>
+      </div>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
 
@@ -265,6 +284,26 @@ h1 {
 .elapsed {
   font-size: 12px;
   margin: 6px 0 0;
+}
+
+.streaming-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preview-text {
+  margin: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 8px 10px;
 }
 
 .usage-line {

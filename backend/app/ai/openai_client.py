@@ -41,8 +41,46 @@ class OpenAIClient(AIClient):
             {"role": "user", "content": user_prompt},
         ]
         response = self._create(messages, temperature, response_format={"type": "json_object"})
-        self._record_usage(response, purpose)
+        self._record_usage(getattr(response, "usage", None), purpose)
         content = response.choices[0].message.content or "{}"
+        return json.loads(content)
+
+    def complete_json_stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.2,
+        purpose: str = "unknown",
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> dict:
+        if self._client is None:
+            raise AIUnavailableError("OPENAI_API_KEY가 설정되지 않아 AI 기능을 사용할 수 없습니다.")
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        stream = self._create(
+            messages,
+            temperature,
+            response_format={"type": "json_object"},
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        parts: list[str] = []
+        usage = None
+        for chunk in stream:
+            if chunk.choices:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    parts.append(delta)
+                    if on_chunk is not None:
+                        on_chunk(delta)
+            # 마지막 청크(choices가 비어있음)에 stream_options=include_usage로 요청한 사용량이 실린다.
+            if getattr(chunk, "usage", None):
+                usage = chunk.usage
+        self._record_usage(usage, purpose)
+        content = "".join(parts) or "{}"
         return json.loads(content)
 
     def complete_with_tools(
@@ -65,7 +103,7 @@ class OpenAIClient(AIClient):
 
         for _ in range(max_rounds):
             response = self._create(messages, temperature, tools=tools, tool_choice="auto")
-            self._record_usage(response, purpose)
+            self._record_usage(getattr(response, "usage", None), purpose)
             message = response.choices[0].message
             tool_calls = getattr(message, "tool_calls", None)
             if not tool_calls:
@@ -105,7 +143,7 @@ class OpenAIClient(AIClient):
         # max_rounds를 다 썼거나 non-JSON 응답 — 도구 없이 마지막 1회로 최종 JSON을 강제한다.
         messages.append({"role": "user", "content": "지금까지의 정보로 도구 호출 없이 최종 JSON으로만 답하세요."})
         response = self._create(messages, temperature, response_format={"type": "json_object"})
-        self._record_usage(response, purpose)
+        self._record_usage(getattr(response, "usage", None), purpose)
         content = response.choices[0].message.content or "{}"
         return json.loads(content)
 
@@ -130,12 +168,12 @@ class OpenAIClient(AIClient):
                 raise
             return self._client.chat.completions.create(**payload)
 
-    def _record_usage(self, response: object, purpose: str) -> None:
+    def _record_usage(self, usage: object | None, purpose: str) -> None:
         """관리자 페이지 사용량 통계용 호출 기록. usage_repo가 없거나 기록 실패해도 AI 응답
-        자체는 절대 막지 않는다(best-effort)."""
+        자체는 절대 막지 않는다(best-effort). usage는 response.usage(비스트리밍) 또는 스트림
+        마지막 청크의 usage(stream_options=include_usage) 둘 다 같은 필드 형태다."""
         if self._usage_repo is None:
             return
-        usage = getattr(response, "usage", None)
         if usage is None:
             return
         try:

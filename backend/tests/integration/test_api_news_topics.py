@@ -55,13 +55,3 @@ def test_news_topic_clusters_returns_clusters_linked_to_key(app_client: TestClie
     assert len(body) == 1
     assert body[0]["representative_title"] == "반도체 업황 우려"
     assert trader.clusters_for_key_calls == [("B", "반도체", "2026-07-21 00:00:00", "2026-07-28 23:59:59")]
-
-
-def test_news_topics_endpoints_require_auth(app_client: TestClient):
-    assert app_client.get("/data/news/topics", params={"group": "stock", "start": "2026-07-21", "end": "2026-07-28"}).status_code == 401
-    assert (
-        app_client.get(
-            "/data/news/topics/clusters", params={"group": "stock", "key": "x", "start": "2026-07-21", "end": "2026-07-28"}
-        ).status_code
-        == 401
-    )
