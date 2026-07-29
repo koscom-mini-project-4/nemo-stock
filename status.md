@@ -1294,6 +1294,28 @@ splice해 순서 변경 — 백엔드에 순서 저장 필드가 없어 화면 �
 스크린샷으로 배지 한 줄 표시/섹션 순서 확인 + 마우스 드래그 시뮬레이션으로 관심종목
 순서가 실제로 바뀌는 것까지 확인.
 
+## 2026-07-29 후속 작업 4: AI 초안 미리보기를 텍스트 목록 → 캔버스로 전환 + 전략 설명 텍스트 추가
+
+사용자가 "새 전략" 페이지에서 AI 초안 생성 결과가 `n1 — scheduler.interval` 같은 텍스트
+목록으로만 보이는 게 아쉽다며, 실제 노드/간선 배치가 보이는 미리보기 캔버스로 바꾸고
+전략에 대한 설명 텍스트도 같이 받아서 보여달라고 요청.
+
+**`backend/app/ai/workflow_draft.py`**: 시스템 프롬프트에 `description`(전략을 2~4문장
+한국어로 요약) 필드를 JSON 응답 형식에 추가 요구, 두 return 지점 모두
+`raw.get("description") or ""`로 채움(누락 시 빈 문자열 기본값). `backend/app/schemas/ai.py`의
+`GenerateDraftResponse`에 `description: str = ""` 추가.
+
+**`frontend/src/components/WorkflowGraphPreview.vue`(신규)**: `StrategyBuilderView.vue`가
+쓰는 것과 같은 VueFlow 캔버스를 읽기 전용(드래그/연결/선택 모두 비활성화)으로 재사용하는
+공용 미리보기 컴포넌트 — `graph`/`nodeTypes` prop만 받아 `graphToFlowElements`로 렌더링.
+`frontend/src/views/NewStrategyView.vue`에서 기존 `<ul class="node-list">` 대신 이 컴포넌트를
+쓰고, `draft.description`을 그 위에 표시. 미리보기용 노드 표시명/카테고리 색을 위해
+`fetchNodeTypes()`도 함께 로드하도록 추가.
+
+**검증**: 백엔드 pytest 372개 통과(설명 필드 있음/누락 케이스 유닛 테스트 추가), 프론트
+`vue-tsc -b` 통과. dev 서버에서 playwright로 실제 AI 초안 생성 → 설명 텍스트 + 캔버스
+미리보기 표시 → "캔버스에서 편집" 클릭 시 정상적으로 편집 캔버스로 넘어가는 것까지 확인.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

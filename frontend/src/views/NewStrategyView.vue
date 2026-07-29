@@ -6,11 +6,12 @@
  */
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { fetchWorkflowTemplates } from '@/api/services'
+import { fetchNodeTypes, fetchWorkflowTemplates } from '@/api/services'
 import { postSSE } from '@/api/sse'
-import type { GenerateDraftResponse, WorkflowTemplateOut } from '@/api/types'
+import type { GenerateDraftResponse, NodeTypeSchema, WorkflowTemplateOut } from '@/api/types'
 import { useDraftStore } from '@/stores/draft'
 import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
+import WorkflowGraphPreview from '@/components/WorkflowGraphPreview.vue'
 
 const router = useRouter()
 const draftStore = useDraftStore()
@@ -23,6 +24,12 @@ function goBlankCanvas() {
 const templates = ref<WorkflowTemplateOut[]>([])
 async function loadTemplates() {
   templates.value = await fetchWorkflowTemplates().catch(() => [])
+}
+
+// AI 초안 미리보기 캔버스에서 노드 표시명/카테고리 색을 매기려면 노드 타입 스키마가 필요하다.
+const nodeTypes = ref<NodeTypeSchema[]>([])
+async function loadNodeTypes() {
+  nodeTypes.value = await fetchNodeTypes().catch(() => [])
 }
 function useTemplate(template: WorkflowTemplateOut) {
   draftStore.setDraft(template.name, template.graph)
@@ -164,7 +171,10 @@ function editOnCanvas() {
   router.push('/strategies/new/canvas')
 }
 
-onMounted(loadTemplates)
+onMounted(() => {
+  loadTemplates()
+  loadNodeTypes()
+})
 </script>
 
 <template>
@@ -229,11 +239,8 @@ onMounted(loadTemplates)
       <div v-if="draft" class="card preview">
         <h3>{{ draft.name }}</h3>
         <p class="disclaimer">⚠ {{ draft.disclaimer }}</p>
-        <ul class="node-list">
-          <li v-for="node in draft.graph.nodes" :key="node.id">
-            <span class="mono">{{ node.id }}</span> — {{ node.type }}
-          </li>
-        </ul>
+        <p v-if="draft.description" class="draft-description">{{ draft.description }}</p>
+        <WorkflowGraphPreview :graph="draft.graph" :node-types="nodeTypes" />
         <p v-if="draft.usage" class="text-muted usage-line">
           토큰 {{ draft.usage.total_tokens.toLocaleString() }}개 사용
           (prompt {{ draft.usage.prompt_tokens.toLocaleString() }} / completion
@@ -406,15 +413,20 @@ onMounted(loadTemplates)
   padding: 8px 10px;
 }
 
+.draft-description {
+  margin: 10px 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.preview :deep(.preview-canvas) {
+  margin-bottom: 10px;
+}
+
 .usage-line {
   font-size: 12px;
   margin: 6px 0;
-}
-
-.node-list {
-  margin: 10px 0;
-  padding-left: 18px;
-  font-size: 13px;
 }
 
 .section-header {

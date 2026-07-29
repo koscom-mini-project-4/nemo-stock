@@ -22,6 +22,7 @@ class AIUsageDelta(BaseModel):
 
 class GenerateDraftResponse(BaseModel):
     name: str
+    description: str = ""
     graph: dict[str, Any]
     disclaimer: str
     usage: AIUsageDelta | None = None

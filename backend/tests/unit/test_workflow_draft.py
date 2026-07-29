@@ -12,6 +12,7 @@ load_all_nodes()
 def _valid_graph_response() -> dict:
     return {
         "name": "상승 종목 매수",
+        "description": "전일 대비 상승한 종목을 매수하는 전략입니다.",
         "nodes": [
             {"id": "n1", "type": "scheduler.interval", "params": {"interval_sec": 60, "universe": "005930"}},
             {"id": "n2", "type": "data.price", "params": {}},
@@ -40,9 +41,19 @@ def test_generate_draft_succeeds_on_first_try():
     draft = generate_workflow_draft(ai_client, "상승 종목을 사고 싶다")
 
     assert draft["name"] == "상승 종목 매수"
+    assert draft["description"] == "전일 대비 상승한 종목을 매수하는 전략입니다."
     assert draft["disclaimer"] == DISCLAIMER
     assert len(draft["graph"]["nodes"]) == 4
     assert len(ai_client.calls) == 1
+
+
+def test_generate_draft_defaults_description_to_empty_string_when_missing():
+    response = _valid_graph_response()
+    del response["description"]
+    ai_client = FakeAIClient(responses=[response])
+    draft = generate_workflow_draft(ai_client, "상승 종목을 사고 싶다")
+
+    assert draft["description"] == ""
 
 
 def test_generate_draft_retries_once_then_succeeds():

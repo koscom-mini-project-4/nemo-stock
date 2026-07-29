@@ -44,8 +44,11 @@ def _build_system_prompt() -> str:
         "2. 모든 노드는 scheduler 노드로부터 도달 가능해야 합니다(고아 노드 금지).\n"
         "3. edges는 {\"from\": 노드id, \"to\": 노드id} 형식입니다.\n"
         "4. 각 노드의 params는 param_schema에 정의된 key만 사용합니다.\n"
-        "5. 반드시 다음 JSON 형식으로만 응답하세요(다른 텍스트 금지):\n"
-        '{"name": "전략 이름", "nodes": [{"id": "n1", "type": "...", "params": {...}}, ...], '
+        "5. description은 이 전략이 어떤 조건으로 언제 매수/매도하는지 투자자가 한눈에 이해할 수 "
+        "있도록 한국어 2~4문장으로 요약합니다.\n"
+        "6. 반드시 다음 JSON 형식으로만 응답하세요(다른 텍스트 금지):\n"
+        '{"name": "전략 이름", "description": "전략 설명(2~4문장)", '
+        '"nodes": [{"id": "n1", "type": "...", "params": {...}}, ...], '
         '"edges": [{"from": "n1", "to": "n2"}, ...]}'
     )
 
@@ -76,7 +79,12 @@ def generate_workflow_draft(
     errors = WorkflowGraph.from_dict(graph_dict).validate()
     attempts.append({"raw": raw, "errors": errors})
     if not errors:
-        return {"name": raw.get("name") or idea[:40], "graph": graph_dict, "disclaimer": DISCLAIMER}
+        return {
+            "name": raw.get("name") or idea[:40],
+            "description": raw.get("description") or "",
+            "graph": graph_dict,
+            "disclaimer": DISCLAIMER,
+        }
 
     repair_prompt = (
         f"{user_prompt}\n\n"
@@ -89,6 +97,11 @@ def generate_workflow_draft(
     errors2 = WorkflowGraph.from_dict(graph_dict2).validate()
     attempts.append({"raw": raw2, "errors": errors2})
     if not errors2:
-        return {"name": raw2.get("name") or idea[:40], "graph": graph_dict2, "disclaimer": DISCLAIMER}
+        return {
+            "name": raw2.get("name") or idea[:40],
+            "description": raw2.get("description") or "",
+            "graph": graph_dict2,
+            "disclaimer": DISCLAIMER,
+        }
 
     raise WorkflowDraftError("AI가 생성한 워크플로가 검증을 통과하지 못했습니다.", attempts=attempts)

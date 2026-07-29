@@ -209,6 +209,7 @@ export interface AIUsageDelta {
 
 export interface GenerateDraftResponse {
   name: string
+  description: string
   graph: WorkflowGraph
   disclaimer: string
   usage?: AIUsageDelta | null
