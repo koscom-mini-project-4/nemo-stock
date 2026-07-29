@@ -203,6 +203,26 @@ async function loadExisting(id: string) {
   }
 }
 
+// crypto.randomUUID()는 보안 컨텍스트(HTTPS/localhost)에서만 제공된다 — 이 앱은 사내 배포 시
+// 평문 HTTP로도 서비스되므로(예: http://nemo.2p31.art), 그런 환경에서는 함수 자체가 없어
+// 호출 즉시 TypeError가 던져진다. WS 채널 상관관계용 ID일 뿐 보안 용도가 아니므로
+// crypto.getRandomValues(있으면) 기반 자체 구현으로 대체해 항상 동작하게 한다.
+function randomProgressRunId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 async function submitRun() {
   runError.value = ''
   const universe = universeText.value
@@ -218,7 +238,7 @@ async function submitRun() {
   // POST 응답을 기다리는 동안(§0-11) 거래일별 진행 상황을 실시간으로 보여준다 — 백엔드가
   // 이미 갖고 있던 EventBus/WS 인프라(app/api/ws.py)를 재사용하는 것이라, POST가 끝나기 전에
   // 먼저 구독을 걸어둬야 시작 이벤트부터 놓치지 않는다.
-  const progressRunId = crypto.randomUUID()
+  const progressRunId = randomProgressRunId()
   progressWs = subscribeRunEvents(progressRunId, (evt) => {
     progressEvents.value = [...progressEvents.value, evt]
   })
