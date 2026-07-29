@@ -1,23 +1,37 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
+  addWatchlistItem,
+  deletePosition,
   deleteWorkflow,
   fetchAccountSummary,
   fetchPrices,
+  fetchWatchlist,
   fetchWorkflows,
   fetchWorkflowTemplates,
+  removeWatchlistItem,
   updateWorkflow,
+  upsertPosition,
 } from '@/api/services'
-import type { AccountSummaryOut, PricePointOut, WorkflowOut, WorkflowTemplateOut } from '@/api/types'
+import type {
+  AccountSummaryOut,
+  PricePointOut,
+  WatchlistItemOut,
+  WorkflowOut,
+  WorkflowTemplateOut,
+} from '@/api/types'
 import { useDraftStore } from '@/stores/draft'
 import { useSymbolMasterStore } from '@/stores/symbolMaster'
 import { formatDateTimeKst, formatKrw } from '@/utils/format'
 import PriceChart from '@/components/PriceChart.vue'
+import PositionEditModal from '@/components/PositionEditModal.vue'
+import SymbolAutocomplete from '@/components/SymbolAutocomplete.vue'
 
 const workflows = ref<WorkflowOut[]>([])
 const templates = ref<WorkflowTemplateOut[]>([])
 const account = ref<AccountSummaryOut | null>(null)
+const watchlist = ref<WatchlistItemOut[]>([])
 const priceSeries = ref<Record<string, PricePointOut[]>>({})
 const loading = ref(true)
 const router = useRouter()
@@ -27,37 +41,91 @@ const symbolMaster = useSymbolMasterStore()
 async function load() {
   loading.value = true
   try {
-    const [wf, acc, tpl] = await Promise.all([
+    const [wf, acc, tpl, wl] = await Promise.all([
       fetchWorkflows(),
       fetchAccountSummary().catch(() => null),
       fetchWorkflowTemplates().catch(() => []),
+      fetchWatchlist().catch(() => []),
       symbolMaster.ensureLoaded().then(() => undefined),
     ] as const)
     workflows.value = wf
     account.value = acc
     templates.value = tpl
-    await loadPriceSeries(acc)
+    watchlist.value = wl
+    await loadPriceSeries()
   } finally {
     loading.value = false
   }
 }
 
-/** 보유 종목별 최근 90일 시세를 병렬로 조회한다. 종목 하나가 실패해도 나머지 차트는 보인다. */
-async function loadPriceSeries(acc: AccountSummaryOut | null) {
-  if (!acc || acc.positions.length === 0) {
+/** 보유 종목 + 관심종목 최근 90일 시세를 병렬로 조회한다. 종목 하나가 실패해도 나머지 차트는 보인다. */
+async function loadPriceSeries() {
+  const symbols = new Set<string>()
+  account.value?.positions.forEach((p) => symbols.add(p.symbol))
+  watchlist.value.forEach((w) => symbols.add(w.symbol))
+  if (symbols.size === 0) {
     priceSeries.value = {}
     return
   }
   const entries = await Promise.all(
-    acc.positions.map(async (p) => {
+    [...symbols].map(async (symbol) => {
       try {
-        return [p.symbol, await fetchPrices(p.symbol, 90)] as const
+        return [symbol, await fetchPrices(symbol, 90)] as const
       } catch {
-        return [p.symbol, []] as const
+        return [symbol, []] as const
       }
     }),
   )
   priceSeries.value = Object.fromEntries(entries)
+}
+
+// 포지션 직접 추가/수정 — 테스트 실행 등으로 잘못 만들어진 포지션(예: 임의 문자열 종목코드)을
+// 정정하거나, 실제 보유 종목을 수동으로 등록할 수 있게 한다.
+const positionModalVisible = ref(false)
+const positionModalMode = ref<'create' | 'edit'>('create')
+const editingPosition = ref<{ symbol: string; qty: number; avgPrice: number } | null>(null)
+
+function openCreatePosition() {
+  positionModalMode.value = 'create'
+  editingPosition.value = null
+  positionModalVisible.value = true
+}
+
+function openEditPosition(symbol: string, qty: number, avgPrice: number) {
+  positionModalMode.value = 'edit'
+  editingPosition.value = { symbol, qty, avgPrice }
+  positionModalVisible.value = true
+}
+
+async function savePosition(payload: { symbol: string; qty: number; avgPrice: number }) {
+  await upsertPosition(payload.symbol, payload.qty, payload.avgPrice)
+  positionModalVisible.value = false
+  await load()
+}
+
+async function removePosition(symbol: string) {
+  if (!confirm(`'${symbol}' 포지션을 삭제할까요?`)) return
+  await deletePosition(symbol)
+  await load()
+}
+
+// 관심종목: 보유 여부와 무관하게 추적하고 싶은 종목을 자유롭게 추가/삭제한다. 이미 보유
+// 종목 카드로 표시 중인 심볼은 관심종목 목록에서 중복 표시하지 않는다.
+const newWatchSymbol = ref('')
+const heldSymbols = computed(() => new Set(account.value?.positions.map((p) => p.symbol) ?? []))
+const watchlistOnly = computed(() => watchlist.value.filter((w) => !heldSymbols.value.has(w.symbol)))
+
+async function addToWatchlist() {
+  const symbol = newWatchSymbol.value.split(',')[0]?.trim()
+  if (!symbol) return
+  await addWatchlistItem(symbol)
+  newWatchSymbol.value = ''
+  await load()
+}
+
+async function removeFromWatchlist(symbol: string) {
+  await removeWatchlistItem(symbol)
+  await load()
 }
 
 async function toggleActive(wf: WorkflowOut) {
@@ -120,18 +188,74 @@ onMounted(load)
         </div>
       </div>
 
-      <section v-if="account && account.positions.length > 0">
-        <h2>보유 종목 시세</h2>
-        <div class="price-grid">
+      <section>
+        <div class="section-head">
+          <h2>보유 종목 시세</h2>
+          <button class="btn" type="button" @click="openCreatePosition">종목 직접 추가</button>
+        </div>
+        <p v-if="account && account.positions.length === 0" class="text-muted">
+          보유 중인 종목이 없습니다. "종목 직접 추가"로 등록할 수 있습니다.
+        </p>
+        <div v-else-if="account" class="price-grid">
           <div v-for="pos in account.positions" :key="pos.symbol" class="card price-card">
             <div class="price-card-head">
               <span class="price-card-symbol">{{ symbolMaster.displayName(pos.symbol) }}</span>
-              <span class="text-muted">{{ pos.qty }}주 · 평단가 {{ formatKrw(pos.avg_price) }}</span>
+              <div class="price-card-meta">
+                <span class="text-muted">{{ pos.qty }}주 · 평단가 {{ formatKrw(pos.avg_price) }}</span>
+                <button
+                  class="icon-btn"
+                  type="button"
+                  title="수정"
+                  @click="openEditPosition(pos.symbol, pos.qty, pos.avg_price)"
+                >
+                  ✏️
+                </button>
+                <button class="icon-btn" type="button" title="삭제" @click="removePosition(pos.symbol)">
+                  🗑️
+                </button>
+              </div>
             </div>
             <PriceChart :bars="priceSeries[pos.symbol] ?? []" mode="candlestick" :height="200" />
           </div>
         </div>
       </section>
+
+      <section>
+        <div class="section-head">
+          <h2>관심 종목</h2>
+          <div class="watch-add">
+            <SymbolAutocomplete v-model="newWatchSymbol" placeholder="005930 또는 삼성전자" />
+            <button class="btn" type="button" @click="addToWatchlist">추가</button>
+          </div>
+        </div>
+        <p v-if="watchlistOnly.length === 0" class="text-muted">
+          보유 여부와 무관하게 추적하고 싶은 종목을 추가해보세요.
+        </p>
+        <div v-else class="price-grid">
+          <div v-for="item in watchlistOnly" :key="item.symbol" class="card price-card">
+            <div class="price-card-head">
+              <span class="price-card-symbol">{{ symbolMaster.displayName(item.symbol) }}</span>
+              <div class="price-card-meta">
+                <span class="badge">관심종목</span>
+                <button class="icon-btn" type="button" title="삭제" @click="removeFromWatchlist(item.symbol)">
+                  🗑️
+                </button>
+              </div>
+            </div>
+            <PriceChart :bars="priceSeries[item.symbol] ?? []" mode="candlestick" :height="200" />
+          </div>
+        </div>
+      </section>
+
+      <PositionEditModal
+        :visible="positionModalVisible"
+        :mode="positionModalMode"
+        :symbol="editingPosition?.symbol"
+        :qty="editingPosition?.qty"
+        :avg-price="editingPosition?.avgPrice"
+        @close="positionModalVisible = false"
+        @save="savePosition"
+      />
 
       <section>
         <h2>템플릿으로 시작하기</h2>
@@ -250,6 +374,48 @@ section h2 {
 .price-card-symbol {
   font-weight: 700;
   font-size: 14px;
+}
+
+.price-card-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.icon-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.icon-btn:hover {
+  background: var(--bg);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.section-head h2 {
+  margin: 0;
+}
+
+.watch-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.watch-add :deep(.symbol-autocomplete) {
+  width: 220px;
 }
 
 .template-grid {

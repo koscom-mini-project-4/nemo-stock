@@ -110,6 +110,29 @@ class PortfolioRepository(ABC):
         ...
 
 
+@dataclass
+class WatchlistRecord:
+    symbol: str
+    created_at: datetime
+
+
+class WatchlistRepository(ABC):
+    """보유 여부와 무관하게 대시보드에서 추적하고 싶은 종목 목록(관심종목)."""
+
+    @abstractmethod
+    def list(self, user_id: str) -> list[WatchlistRecord]: ...
+
+    @abstractmethod
+    def add(self, user_id: str, symbol: str) -> None:
+        """이미 있으면 조용히 무시한다(idempotent)."""
+        ...
+
+    @abstractmethod
+    def remove(self, user_id: str, symbol: str) -> None:
+        """없어도 에러 없이 조용히 넘어간다(idempotent)."""
+        ...
+
+
 class WorkflowRepository(ABC):
     @abstractmethod
     def get(self, workflow_id: str) -> WorkflowRecord | None: ...

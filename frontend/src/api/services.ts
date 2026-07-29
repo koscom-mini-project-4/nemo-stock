@@ -16,12 +16,14 @@ import type {
   NewsUpdateResult,
   NodeTypeSchema,
   PendingNewsResult,
+  PositionOut,
   PricePointOut,
   RunResultOut,
   SymbolOut,
   SymbolStats,
   SymbolSyncResult,
   ValidationResult,
+  WatchlistItemOut,
   WorkflowChatLastRun,
   WorkflowChatResponse,
   WorkflowGraph,
@@ -33,6 +35,29 @@ import type {
 export async function fetchAccountSummary(): Promise<AccountSummaryOut> {
   const { data } = await apiClient.get('/account/summary')
   return data
+}
+
+export async function upsertPosition(symbol: string, qty: number, avgPrice: number): Promise<PositionOut> {
+  const { data } = await apiClient.put(`/account/positions/${symbol}`, { qty, avg_price: avgPrice })
+  return data
+}
+
+export async function deletePosition(symbol: string): Promise<void> {
+  await apiClient.delete(`/account/positions/${symbol}`)
+}
+
+export async function fetchWatchlist(): Promise<WatchlistItemOut[]> {
+  const { data } = await apiClient.get('/account/watchlist')
+  return data
+}
+
+export async function addWatchlistItem(symbol: string): Promise<WatchlistItemOut[]> {
+  const { data } = await apiClient.post('/account/watchlist', { symbol })
+  return data
+}
+
+export async function removeWatchlistItem(symbol: string): Promise<void> {
+  await apiClient.delete(`/account/watchlist/${symbol}`)
 }
 
 export async function fetchPrices(symbol: string, days = 90): Promise<PricePointOut[]> {

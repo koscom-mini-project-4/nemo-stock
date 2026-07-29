@@ -38,6 +38,7 @@ from app.dao.base import (
     SymbolMasterRepository,
     UserRecord,
     UserRepository,
+    WatchlistRepository,
     WorkflowRepository,
 )
 from app.dao.sqlite.database import init_db, make_engine, make_session_factory
@@ -55,6 +56,7 @@ from app.dao.sqlite.repositories import (
     SqliteRunRepository,
     SqliteSymbolMasterRepository,
     SqliteUserRepository,
+    SqliteWatchlistRepository,
     SqliteWorkflowRepository,
 )
 from app.market_data.base import MarketDataProvider
@@ -91,6 +93,7 @@ class Container:
     ai_usage_repo: AIUsageRepository
     symbol_master_repo: SymbolMasterRepository
     portfolio_repo: PortfolioRepository
+    watchlist_repo: WatchlistRepository
     ai_client: AIClient
     news_trader_factory: Callable[..., NewsTrader]
     event_bus: EventBus
@@ -234,6 +237,7 @@ def build_container(settings: Settings) -> Container:
     ai_usage_repo = SqliteAIUsageRepository(session_factory)
     symbol_master_repo = SqliteSymbolMasterRepository(session_factory)
     portfolio_repo = SqlitePortfolioRepository(session_factory)
+    watchlist_repo = SqliteWatchlistRepository(session_factory)
     ai_client: AIClient = _build_ai_client(settings, ai_usage_repo)
 
     # 부팅 시 직전 종목 마스터 동기화 결과(§0-10)를 sqlite에서 in-memory 캐시로 복원한다.
@@ -322,6 +326,7 @@ def build_container(settings: Settings) -> Container:
         ai_usage_repo=ai_usage_repo,
         symbol_master_repo=symbol_master_repo,
         portfolio_repo=portfolio_repo,
+        watchlist_repo=watchlist_repo,
         ai_client=ai_client,
         news_trader_factory=news_trader_factory,
         event_bus=event_bus,

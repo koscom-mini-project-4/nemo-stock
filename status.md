@@ -1071,6 +1071,26 @@ pytest 340→350개 전부 통과(`test_koscom_live.py`는 실 시장 상황에 
 라이브 테스트라 제외). `vue-tsc -b` 통과(프론트 변경 없음). 실제 Anthropic 호출은 사용자가
 `ANTHROPIC_API_KEY`를 채워 넣은 뒤 재검증 필요.
 
+## 2026-07-29 후속 작업 19: 관심종목 + 보유 포지션 직접 관리 + PWTESTQ1/PWRESTART1 정리 (DESIGN.md §0-16)
+
+사용자가 대시보드에서 `PWTESTQ1`/`PWRESTART1`를 발견하고 질문 → 조사해서 원인 설명("테스트
+실행"이 라이브 계좌를 공유해 생긴 잔재) → "관심종목 신규 / 보유 포지션 직접 관리 / 정리
+전부 다"로 답변받아 EnterPlanMode로 계획 승인 후 구현.
+
+- `WatchlistRepository` 3계층 신규(기존 `PortfolioRepository`와 동일 패턴) + `PUT`/`DELETE
+  /account/positions/{symbol}`(기존 `upsert_position`의 "qty<=0=삭제" 재사용) + `GET/POST/
+  DELETE /account/watchlist`. `DashboardView.vue`에 포지션 수정/삭제 버튼 + "종목 직접 추가"
+  + "관심 종목" 섹션(`SymbolAutocomplete` 재사용) 추가.
+- 새 DELETE 엔드포인트로 실제 `PWTESTQ1`/`PWRESTART1`를 정리 — sqlite로 직접 확인 완료.
+  (`GET /account/summary`는 현재 `ORDER_PROVIDER=kis`가 KIS 측 500으로 막혀 있어 확인에
+  못 씀 — §0-15 후속의 미해결 외부 이슈, 이번 작업과 무관.)
+- **작업 중간에 사용자가 새 요청 3건을 추가로 보냄**(모두 태스크로 큐잉, 순서대로 처리 예정):
+  "로그인 페이지 없애줘"(인증 자체 완전 제거로 확인), "AI 배치 호출을 스트리밍으로",
+  "전략 생성 AI와 나머지 AI가 .env에서 모델을 각각 선택할 수 있게".
+
+**검증**: 신규 통합 테스트 8개 포함 백엔드 pytest 351→359개 전부 통과. `vue-tsc -b` 통과.
+브라우저 자동화 도구가 없어 프론트 클릭 검증은 못함 — curl로 API 자체는 라이브 검증.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

@@ -170,6 +170,12 @@ export interface AccountSummaryOut {
   positions: PositionOut[]
 }
 
+export interface WatchlistItemOut {
+  symbol: string
+  name: string | null
+  created_at: string
+}
+
 export interface SymbolOut {
   symbol: string
   name: string

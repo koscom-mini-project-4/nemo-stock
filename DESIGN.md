@@ -504,6 +504,41 @@ text/코드펜스 파싱, tool_use 라운드트립, max_rounds 폴백, 사용량
 Anthropic API 호출 검증은 못함(사용자가 이후 `ANTHROPIC_API_KEY`를 직접 채워 넣을 예정) —
 mock 기반 유닛 테스트로 구조/필드만 확인.
 
+## 0-16. 관심종목 추가 + 보유 포지션 직접 관리 (2026-07-29 사용자 요청)
+
+사용자가 대시보드 보유종목 카드에서 `PWTESTQ1`/`PWRESTART1`(정체불명 종목코드)를 발견하고
+질문. 조사 결과: "테스트 실행"(`POST /workflows/{id}/runs`)이 백테스트와 달리 **실제 라이브
+계좌(`container.broker`)를 그대로 공유**해(`app/api/routers/account.py` 자체 주석에 이미
+명시된 단일 계좌 PoC 구조), 예전에 "대상 종목코드" 입력란에 임시 문자열을 넣고 매수 노드
+포함 워크플로를 테스트 실행하면서 그게 그대로 `portfolio_positions`에 기록된 잔재였다.
+사용자는 (1) 보유 여부와 무관한 관심종목 추적, (2) 보유 포지션 직접 추가/수정/삭제, (3) 두
+잔재 데이터 정리를 모두 요청.
+
+- `PortfolioRepository.upsert_position(user_id, symbol, qty, avg_price)`(기존)이 이미
+  "qty<=0이면 삭제"까지 구현돼 있어 포지션 추가/수정/삭제 전부 새 repository 메서드 없이
+  처리 — `PUT /account/positions/{symbol}`(생성/수정, qty<=0이면 400으로 명시적 거부)과
+  `DELETE /account/positions/{symbol}`(내부적으로 `upsert_position(...,0,0)`) 두 엔드포인트로
+  분리해 프론트가 "qty<=0이면 삭제"라는 구현 디테일을 몰라도 되게 함.
+- `WatchlistRepository`(신규, `PortfolioRepository`와 동일한 3계층 패턴 — ABC(`app/dao/
+  base.py`) → `SqliteWatchlistRepository`/`InMemoryWatchlistRepository`) + `watchlist_items`
+  테이블(`Base.metadata.create_all()`로 자동 생성, 마이그레이션 불필요). `GET/POST /account/
+  watchlist`, `DELETE /account/watchlist/{symbol}` — add/remove 둘 다 idempotent(중복
+  추가·존재 안 하는 종목 삭제 모두 에러 없이 조용히 처리).
+- `DashboardView.vue`: "보유 종목 시세" 카드에 수정(✏)/삭제(🗑) 버튼 + "종목 직접 추가"
+  버튼(`PositionEditModal.vue` 신규, `TestRunModal.vue`와 동일 모달 CSS 패턴) 추가. 신규
+  "관심 종목" 섹션(`SymbolAutocomplete` 재사용해 추가, 보유 종목과 겹치면 중복 표시 안 함).
+  `loadPriceSeries()`가 보유종목∪관심종목 심볼로 캔들차트 조회 범위 확장.
+- **데이터 정리**: 새 `DELETE /account/positions/{symbol}`을 실제 개발 서버에 두 번 호출해
+  `PWTESTQ1`/`PWRESTART1` 제거 — 엔드포인트 실동작 검증을 겸함. sqlite로 직접 확인해 정상
+  삭제됨을 확인(`GET /account/summary`는 이 시점 `ORDER_PROVIDER=kis`가 KIS 측 500 에러로
+  막혀 있어 대신 사용 — §0-15 후속 미해결 이슈, 이번 작업과 무관).
+
+**검증**: `tests/integration/test_api_account_watchlist_positions.py`(신규 8개) — watchlist
+추가/목록/중복추가(idempotent)/삭제(존재 안 하는 종목도 무해), position 생성/수정/qty<=0
+거부/삭제(idempotent), 인증 없이 호출 시 401. 백엔드 pytest 351→359개 전부 통과. `vue-tsc -b`
+통과. 브라우저 자동화 도구가 없어 프론트 클릭 검증은 못함(기존 세션과 동일 제약) — curl로
+API 자체는 라이브 검증(watchlist add/list, position delete 실제 호출·확인).
+
 ---
 
 ## 1. 목표와 PoC 범위

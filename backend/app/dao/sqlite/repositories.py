@@ -35,6 +35,8 @@ from app.dao.base import (
     SymbolMasterRepository,
     UserRecord,
     UserRepository,
+    WatchlistRecord,
+    WatchlistRepository,
     WorkflowRecord,
     WorkflowRepository,
 )
@@ -53,6 +55,7 @@ from app.dao.sqlite.models import (
     RunORM,
     SymbolMasterORM,
     UserORM,
+    WatchlistItemORM,
     WorkflowORM,
 )
 
@@ -183,6 +186,43 @@ class SqlitePortfolioRepository(PortfolioRepository):
             row.avg_price = avg_price
             row.updated_at = datetime.now()
             session.commit()
+
+
+class SqliteWatchlistRepository(WatchlistRepository):
+    def __init__(self, session_factory: sessionmaker[Session]):
+        self._sf = session_factory
+
+    def list(self, user_id: str) -> list[WatchlistRecord]:
+        with self._sf() as session:
+            rows = session.scalars(
+                select(WatchlistItemORM)
+                .where(WatchlistItemORM.user_id == user_id)
+                .order_by(WatchlistItemORM.created_at)
+            ).all()
+            return [WatchlistRecord(symbol=r.symbol, created_at=r.created_at) for r in rows]
+
+    def add(self, user_id: str, symbol: str) -> None:
+        with self._sf() as session:
+            existing = session.scalar(
+                select(WatchlistItemORM).where(
+                    WatchlistItemORM.user_id == user_id, WatchlistItemORM.symbol == symbol
+                )
+            )
+            if existing is not None:
+                return
+            session.add(WatchlistItemORM(id=str(uuid.uuid4()), user_id=user_id, symbol=symbol))
+            session.commit()
+
+    def remove(self, user_id: str, symbol: str) -> None:
+        with self._sf() as session:
+            row = session.scalar(
+                select(WatchlistItemORM).where(
+                    WatchlistItemORM.user_id == user_id, WatchlistItemORM.symbol == symbol
+                )
+            )
+            if row is not None:
+                session.delete(row)
+                session.commit()
 
 
 class SqliteRunRepository(RunRepository):
