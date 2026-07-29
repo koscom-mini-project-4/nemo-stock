@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   fetchAdminMetrics,
   fetchNewsAnalyzed,
@@ -37,6 +37,7 @@ const SECTIONS: { value: Section; label: string }[] = [
 ]
 
 const activeSection = ref<Section>('usage')
+const sidebarOpen = ref(true)
 
 const metrics = ref<AdminMetrics | null>(null)
 const metricsLoading = ref(false)
@@ -168,12 +169,78 @@ function reloadClusterRange() {
   loadTopicKeys()
 }
 
-function clusterTags(c: NewsCluster): string[] {
-  return [...(c.종목 ?? []), ...(c.섹터 ?? []), ...(c.거시지표 ?? [])]
+interface TopicTag {
+  key: string
+  group: NewsTopicGroup
 }
 
-function newsTags(n: AnalyzedNewsItem): string[] {
-  return [...n.stocks, ...n.sectors, ...n.macros]
+function clusterTagRows(c: NewsCluster): TopicTag[] {
+  return [
+    ...(c.종목 ?? []).map((key) => ({ key, group: 'stock' as const })),
+    ...(c.섹터 ?? []).map((key) => ({ key, group: 'sector' as const })),
+    ...(c.거시지표 ?? []).map((key) => ({ key, group: 'macro' as const })),
+  ]
+}
+
+function newsTagRows(n: AnalyzedNewsItem): TopicTag[] {
+  return [
+    ...n.stocks.map((key) => ({ key, group: 'stock' as const })),
+    ...n.sectors.map((key) => ({ key, group: 'sector' as const })),
+    ...n.macros.map((key) => ({ key, group: 'macro' as const })),
+  ]
+}
+
+// 백엔드 db.py::GROUPS의 그룹 코드(A/B/C, "그룹행수" 통계 키)와 프론트 축 값(stock/sector/macro)
+// 매핑. NewsTopicGroup 자체는 이미 있으니 여기서는 통계 응답 키 변환용으로만 쓴다.
+const AXIS_GROUP_CODE: Record<NewsTopicGroup, string> = { stock: 'A', sector: 'B', macro: 'C' }
+
+/** "종목/섹터/거시로 클러스터 탐색" 탭으로 이동해 특정 키(예: "삼성전자")를 바로 조회한다
+ * — 뉴스 분석 현황/분석된 뉴스 표의 태그를 눌렀을 때 쓴다. */
+async function exploreTag(key: string, group: NewsTopicGroup) {
+  activeSection.value = 'explore'
+  topicGroup.value = group
+  await loadTopicKeys()
+  // 클릭한 태그가 현재 조회 기간(clusterStart~clusterEnd) 밖의 클러스터에서 왔을 수도 있어
+  // 목록에 없으면 직접 끼워 넣는다 — 그래야 <select>가 빈 값이 아니라 이 키를 보여준다.
+  if (!topicKeys.value.includes(key)) {
+    topicKeys.value = [...topicKeys.value, key].sort()
+  }
+  selectedTopicKey.value = key
+  await loadTopicClusters()
+}
+
+/** "그룹행수" 통계 타일을 눌렀을 때 — 특정 키 없이 탐색 탭의 축만 맞춰준다. */
+function goToAxis(group: NewsTopicGroup) {
+  activeSection.value = 'explore'
+  if (topicGroup.value !== group) {
+    topicGroup.value = group
+    loadTopicKeys()
+  }
+}
+
+// 백엔드 NewsTrader.stats()(app/vendor/news_classifier/db.py::overview)가 내려주는 원시 dict
+// 모양 — 공유 타입(NewsStats)은 벤더 라이브러리 내부 구현에 묶이지 않도록 의도적으로
+// Record<string, unknown>이라, 화면에 카드/막대그래프로 그리기 위해 여기서만 구체 타입으로 본다.
+interface NewsOverview {
+  뉴스?: number
+  클러스터?: number
+  분류행?: number
+  기간?: [string | null, string | null]
+  strength분포?: [number, number][]
+  그룹행수?: Record<string, number>
+}
+
+const overview = computed(() => newsStats.value as NewsOverview | null)
+
+const maxStrengthCount = computed(() => {
+  const dist = overview.value?.strength분포 ?? []
+  return Math.max(1, ...dist.map(([, count]) => count))
+})
+
+function strengthTone(bucket: number): 'positive' | 'negative' | 'neutral' {
+  if (bucket > 0.05) return 'positive'
+  if (bucket < -0.05) return 'negative'
+  return 'neutral'
 }
 
 async function loadTopicKeys() {
@@ -208,8 +275,6 @@ async function loadTopicClusters() {
     topicClustersLoading.value = false
   }
 }
-
-watch(topicGroup, loadTopicKeys)
 
 async function loadAnalyzedNews() {
   analyzedNewsLoading.value = true
@@ -274,18 +339,29 @@ onMounted(() => {
   <div class="admin-view">
     <h1>관리자</h1>
 
-    <div class="admin-layout">
+    <div class="admin-layout" :class="{ 'sidebar-collapsed': !sidebarOpen }">
       <nav class="admin-sidebar">
         <button
-          v-for="s in SECTIONS"
-          :key="s.value"
+          class="sidebar-toggle"
           type="button"
-          class="sidebar-item"
-          :class="{ active: activeSection === s.value }"
-          @click="activeSection = s.value"
+          :title="sidebarOpen ? '메뉴 접기' : '메뉴 펼치기'"
+          @click="sidebarOpen = !sidebarOpen"
         >
-          {{ s.label }}
+          <span>{{ sidebarOpen ? '◂' : '▸' }}</span>
+          <span v-if="sidebarOpen" class="sidebar-toggle-label">메뉴 접기</span>
         </button>
+        <template v-if="sidebarOpen">
+          <button
+            v-for="s in SECTIONS"
+            :key="s.value"
+            type="button"
+            class="sidebar-item"
+            :class="{ active: activeSection === s.value }"
+            @click="activeSection = s.value"
+          >
+            {{ s.label }}
+          </button>
+        </template>
       </nav>
 
       <div class="admin-content">
@@ -393,7 +469,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-if="activeSection === 'news'" class="card">
+        <div v-if="activeSection === 'news'" class="card news-card">
           <div class="section-header">
             <h2>뉴스 분석 현황</h2>
           </div>
@@ -427,7 +503,62 @@ onMounted(() => {
 
           <p v-if="newsStatsError" class="error">{{ newsStatsError }}</p>
           <p v-else-if="newsStatsLoading" class="text-muted">불러오는 중...</p>
-          <pre v-else-if="newsStats" class="mono stats-json">{{ JSON.stringify(newsStats, null, 2) }}</pre>
+          <template v-else-if="overview">
+            <div class="news-overview">
+              <div class="overview-tile">
+                <div class="overview-label">전체 뉴스</div>
+                <div class="overview-value">{{ (overview.뉴스 ?? 0).toLocaleString() }}</div>
+              </div>
+              <div class="overview-tile">
+                <div class="overview-label">클러스터(주제)</div>
+                <div class="overview-value">{{ (overview.클러스터 ?? 0).toLocaleString() }}</div>
+              </div>
+              <div class="overview-tile">
+                <div class="overview-label">AI 분류행</div>
+                <div class="overview-value">{{ (overview.분류행 ?? 0).toLocaleString() }}</div>
+              </div>
+              <div class="overview-tile wide">
+                <div class="overview-label">데이터 기간</div>
+                <div class="overview-value date-range">
+                  {{ overview.기간?.[0]?.slice(0, 10) ?? '-' }} ~ {{ overview.기간?.[1]?.slice(0, 10) ?? '-' }}
+                </div>
+              </div>
+            </div>
+
+            <div class="axis-tiles">
+              <button
+                v-for="axis in TOPIC_AXES"
+                :key="axis.value"
+                type="button"
+                class="axis-tile"
+                :class="axis.value"
+                @click="goToAxis(axis.value)"
+              >
+                <div class="axis-tile-label">{{ axis.label }}</div>
+                <div class="axis-tile-value">
+                  {{ (overview.그룹행수?.[AXIS_GROUP_CODE[axis.value]] ?? 0).toLocaleString() }}
+                </div>
+                <div class="axis-tile-hint">탐색하기 →</div>
+              </button>
+            </div>
+
+            <div class="strength-chart">
+              <div class="strength-chart-title">뉴스 영향도(strength) 분포</div>
+              <div class="strength-bars">
+                <div v-for="[bucket, count] in overview.strength분포 ?? []" :key="bucket" class="strength-bar-col">
+                  <div class="strength-bar-track">
+                    <div
+                      class="strength-bar-fill"
+                      :class="strengthTone(bucket)"
+                      :style="{ height: `${Math.max((count / maxStrengthCount) * 100, count > 0 ? 3 : 0)}%` }"
+                    ></div>
+                  </div>
+                  <div class="strength-bar-count">{{ count.toLocaleString() }}</div>
+                  <div class="strength-bar-label">{{ bucket > 0 ? '+' : '' }}{{ bucket }}</div>
+                </div>
+              </div>
+            </div>
+          </template>
 
           <div class="row cluster-range">
             <label>
@@ -441,7 +572,7 @@ onMounted(() => {
             <button class="btn" :disabled="clustersLoading" @click="reloadClusterRange">조회</button>
           </div>
           <p v-if="clustersError" class="error">{{ clustersError }}</p>
-          <table v-else class="cluster-table">
+          <table v-else class="cluster-table news-table">
             <thead><tr><th>대표제목</th><th>최초발생</th><th>strength</th><th>뉴스건수</th><th>관련 종목/섹터/거시</th></tr></thead>
             <tbody>
               <tr v-for="c in clusters" :key="c.id">
@@ -450,8 +581,18 @@ onMounted(() => {
                 <td>{{ c.strength }}</td>
                 <td>{{ c.news_count }}</td>
                 <td>
-                  <span v-for="tag in clusterTags(c)" :key="tag" class="tag">{{ tag }}</span>
-                  <span v-if="clusterTags(c).length === 0" class="text-muted">-</span>
+                  <button
+                    v-for="tag in clusterTagRows(c)"
+                    :key="`${tag.group}-${tag.key}`"
+                    type="button"
+                    class="tag"
+                    :class="tag.group"
+                    :title="`'${tag.key}' 관련 클러스터 탐색하기`"
+                    @click="exploreTag(tag.key, tag.group)"
+                  >
+                    {{ tag.key }}
+                  </button>
+                  <span v-if="clusterTagRows(c).length === 0" class="text-muted">-</span>
                 </td>
               </tr>
               <tr v-if="!clustersLoading && clusters.length === 0"><td colspan="5" class="text-muted">해당 기간에 클러스터가 없습니다.</td></tr>
@@ -468,7 +609,7 @@ onMounted(() => {
           <div class="row">
             <label>
               축
-              <select v-model="topicGroup">
+              <select v-model="topicGroup" @change="loadTopicKeys">
                 <option v-for="axis in TOPIC_AXES" :key="axis.value" :value="axis.value">{{ axis.label }}</option>
               </select>
             </label>
@@ -521,8 +662,18 @@ onMounted(() => {
                 <td>{{ n.representative_title }}</td>
                 <td>{{ n.strength }}</td>
                 <td>
-                  <span v-for="tag in newsTags(n)" :key="tag" class="tag">{{ tag }}</span>
-                  <span v-if="newsTags(n).length === 0" class="text-muted">-</span>
+                  <button
+                    v-for="tag in newsTagRows(n)"
+                    :key="`${tag.group}-${tag.key}`"
+                    type="button"
+                    class="tag"
+                    :class="tag.group"
+                    :title="`'${tag.key}' 관련 클러스터 탐색하기`"
+                    @click="exploreTag(tag.key, tag.group)"
+                  >
+                    {{ tag.key }}
+                  </button>
+                  <span v-if="newsTagRows(n).length === 0" class="text-muted">-</span>
                 </td>
               </tr>
               <tr v-if="analyzedNews.length === 0"><td colspan="5" class="text-muted">분석된 뉴스가 없습니다.</td></tr>
@@ -599,6 +750,36 @@ h2 {
   top: 20px;
   border-right: 1px solid var(--border);
   padding-right: 12px;
+  transition: width 0.15s ease, padding-right 0.15s ease;
+}
+
+.admin-layout.sidebar-collapsed .admin-sidebar {
+  width: 40px;
+  padding-right: 6px;
+}
+
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.sidebar-toggle:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.sidebar-toggle-label {
+  white-space: nowrap;
 }
 
 .sidebar-item {
@@ -741,16 +922,6 @@ th {
   margin: 4px 0 12px;
 }
 
-.stats-json {
-  background: var(--bg);
-  padding: 10px;
-  border-radius: 4px;
-  max-height: 220px;
-  overflow: auto;
-  font-size: 12px;
-  margin: 0 0 16px;
-}
-
 .row {
   display: flex;
   gap: 10px;
@@ -789,5 +960,215 @@ th {
   padding: 1px 8px;
   margin: 0 4px 4px 0;
   font-size: 11.5px;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  font-family: inherit;
+}
+
+.tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+/* 종목/섹터/거시경제 축 색상 — BacktestChart.vue의 종가(cyan)/뉴스신호(violet)/참고뉴스(amber)
+   마커 색과 맞춰서 앱 전체에서 같은 축은 같은 색으로 인지되도록 한다. */
+.tag.stock,
+.axis-tile.stock {
+  --axis-color: #0891b2;
+}
+
+.tag.sector,
+.axis-tile.sector {
+  --axis-color: #8b5cf6;
+}
+
+.tag.macro,
+.axis-tile.macro {
+  --axis-color: #d97706;
+}
+
+.tag.stock,
+.tag.sector,
+.tag.macro {
+  background: color-mix(in srgb, var(--axis-color) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--axis-color) 45%, transparent);
+  color: var(--axis-color);
+  font-weight: 600;
+}
+
+/* ---- 뉴스 분석 현황: 프레젠테이션용 요약 카드/막대그래프 ---- */
+
+.news-card h2 {
+  font-size: 19px;
+}
+
+.news-overview {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin: 4px 0 18px;
+}
+
+.overview-tile {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.overview-tile.wide {
+  grid-column: span 2;
+}
+
+.overview-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.overview-value {
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.overview-value.date-range {
+  font-size: 17px;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+}
+
+.axis-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.axis-tile {
+  border: 1.5px solid color-mix(in srgb, var(--axis-color) 45%, transparent);
+  background: color-mix(in srgb, var(--axis-color) 8%, var(--surface));
+  border-radius: 8px;
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.axis-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--axis-color) 25%, transparent);
+}
+
+.axis-tile-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--axis-color);
+  margin-bottom: 4px;
+}
+
+.axis-tile-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.axis-tile-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.strength-chart {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  background: var(--surface);
+}
+
+.strength-chart-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.strength-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  height: 140px;
+}
+
+.strength-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 4px;
+}
+
+.strength-bar-track {
+  flex: 1;
+  width: 100%;
+  max-width: 42px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.strength-bar-fill {
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  min-height: 0;
+  transition: height 0.2s ease;
+}
+
+.strength-bar-fill.positive {
+  background: var(--positive);
+}
+
+.strength-bar-fill.negative {
+  background: var(--negative);
+}
+
+.strength-bar-fill.neutral {
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+
+.strength-bar-count {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.strength-bar-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+}
+
+.news-table {
+  font-size: 14px;
+}
+
+.news-table th,
+.news-table td {
+  padding: 8px 10px;
+}
+
+@media (max-width: 900px) {
+  .news-overview {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .axis-tiles {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
