@@ -15,6 +15,8 @@ class AccountSummaryOut(BaseModel):
     cash: float
     equity: float
     positions: list[PositionOut] = Field(default_factory=list)
+    # 평가자산 수익률 계산 기준선(포트폴리오 최초 시드 현금). Settings.initial_portfolio_cash.
+    initial_cash: float = 0.0
 
 
 class WatchlistItemOut(BaseModel):

@@ -168,6 +168,18 @@ export interface AccountSummaryOut {
   cash: number
   equity: number
   positions: PositionOut[]
+  /** 평가자산 수익률 계산 기준선(포트폴리오 최초 시드 현금) */
+  initial_cash: number
+}
+
+export interface WorkflowPnlOut {
+  workflow_id: string
+  realized_pnl: number
+  unrealized_pnl: number
+  total_pnl: number
+  total_invested: number
+  return_pct: number | null
+  trade_count: number
 }
 
 export interface WatchlistItemOut {

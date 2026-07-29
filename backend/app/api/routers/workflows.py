@@ -16,10 +16,13 @@ from app.schemas.workflow import (
     ValidationResult,
     WorkflowCreate,
     WorkflowOut,
+    WorkflowPnlOut,
     WorkflowTemplateOut,
     WorkflowUpdate,
 )
 from app.workflow.graph import WorkflowGraph, WorkflowValidationError
+from app.workflow.pnl import compute_workflow_pnl, load_workflow_fills
+from app.workflow.run_persistence import events_to_records
 from app.workflow.templates import get_templates
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -76,6 +79,43 @@ def list_workflow_templates() -> list[WorkflowTemplateOut]:
         WorkflowTemplateOut(id=t.id, name=t.name, description=t.description, graph=t.graph)
         for t in get_templates()
     ]
+
+
+@router.get("/pnl-summary", response_model=list[WorkflowPnlOut])
+def list_workflow_pnl(container: Container = Depends(get_container)) -> list[WorkflowPnlOut]:
+    """/{workflow_id}보다 먼저 등록해야 "pnl-summary"가 workflow_id로 잘못 매칭되지 않는다.
+
+    각 워크플로의 live/test run 체결 이력으로부터 근사 손익을 계산한다(app/workflow/pnl.py 참고).
+    """
+    workflows = container.workflow_repo.list_by_user(_DEFAULT_USER_ID)
+    all_runs = [run for w in workflows for run in container.run_repo.list_by_workflow(w.id)]
+
+    price_cache: dict[str, float | None] = {}
+
+    def current_price(symbol: str) -> float | None:
+        if symbol not in price_cache:
+            try:
+                price_cache[symbol] = container.market_data.get_price(symbol).price
+            except Exception:
+                price_cache[symbol] = None
+        return price_cache[symbol]
+
+    results = []
+    for w in workflows:
+        fills = load_workflow_fills(w.id, all_runs, container.node_event_repo.list_by_run)
+        pnl = compute_workflow_pnl(w.id, fills, current_price)
+        results.append(
+            WorkflowPnlOut(
+                workflow_id=pnl.workflow_id,
+                realized_pnl=pnl.realized_pnl,
+                unrealized_pnl=pnl.unrealized_pnl,
+                total_pnl=pnl.total_pnl,
+                total_invested=pnl.total_invested,
+                return_pct=pnl.return_pct,
+                trade_count=pnl.trade_count,
+            )
+        )
+    return results
 
 
 @router.get("/{workflow_id}", response_model=WorkflowOut)
@@ -171,6 +211,10 @@ def run_workflow(
     run_record.error = result.error
     run_record.finished_at = result.finished_at
     container.run_repo.save(run_record)
+    # 라이브(WorkerPool)/백테스트(BacktestRunner)와 동일하게 노드 이벤트를 영속화한다 — 테스트
+    # 실행도 같은 공용 포트폴리오(container.broker)에 실제 체결을 남기므로, 전략별 손익 집계
+    # (app/workflow/pnl.py)와 GET /runs/{run_id} 재생이 테스트 실행에도 동작해야 한다.
+    container.node_event_repo.save_many(events_to_records(container.event_bus, run_id))
 
     events = container.event_bus.get_history(run_id)
     final_ctx = result.final_context

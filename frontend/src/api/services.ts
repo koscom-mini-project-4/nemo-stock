@@ -25,6 +25,7 @@ import type {
   WatchlistItemOut,
   WorkflowGraph,
   WorkflowOut,
+  WorkflowPnlOut,
   WorkflowStatus,
   WorkflowTemplateOut,
 } from './types'
@@ -84,6 +85,11 @@ export async function fetchWorkflows(): Promise<WorkflowOut[]> {
 
 export async function fetchWorkflow(id: string): Promise<WorkflowOut> {
   const { data } = await apiClient.get(`/workflows/${id}`)
+  return data
+}
+
+export async function fetchWorkflowPnlSummary(): Promise<WorkflowPnlOut[]> {
+  const { data } = await apiClient.get('/workflows/pnl-summary')
   return data
 }
 
