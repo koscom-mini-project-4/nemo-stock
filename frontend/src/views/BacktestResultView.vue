@@ -579,10 +579,8 @@ h2 {
 }
 
 .replay-debug {
-  height: 420px;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
+  border-radius: 6px;
 }
 
 .wf-node {

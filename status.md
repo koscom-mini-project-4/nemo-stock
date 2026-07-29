@@ -1453,6 +1453,51 @@ auto_ingest.py::ensure_price_data()`의 기존 단순화("요청 구간에 기�
 Playwright로 관리자 페이지 렌더링해 사이드바 접기/펼치기(너비 180↔40px), 태그 클릭 시
 탐색 탭으로 정확히 이동+키 자동 선택+클러스터 즉시 조회를 스크린샷/콘솔 에러 0건으로 확인.
 
+## 2026-07-29 후속 작업 3: 뉴스 분류 임베딩 사전필터링 + 백테스트 디버그패널 줄바꿈/레이아웃 개선
+
+사용자 질문("주제가 엄청 많은데 AI에 어떻게 전달되는지, 토큰 무겁지 않은지")에서 출발 —
+`app/vendor/news_classifier/classifier.py::call_ai()`가 뉴스 1건을 분류할 때마다 "보관기간
+(기본 7일) 내 클러스터 후보 전부"를 텍스트로 프롬프트에 넣고 있었음을 확인. 실측(DB 전체가
+마침 7일치라 사실상 전체 클러스터 968개가 후보): 약 9만 자(4~5만 토큰)가 분류 1건마다
+반복 전송 — 뉴스 유입량에 비례해 무한정 커지는 구조였다. 사용자 동의로 임베딩 기반 사전
+필터링 진행. 상세는 `app/vendor/news_classifier/VENDOR_NOTES.md` 참조.
+
+**임베딩 사전 필터링**: 새 파일 `embeddings.py` 추가 — 새 기사 제목을 `text-embedding-3-small`
+로 임베딩해 기존 클러스터 대표제목 임베딩과 코사인 유사도 top-K(`CLUSTER_CANDIDATE_TOP_K`,
+기본 20, env로 조정 가능)만 `call_ai()`에 넘기도록 `pipeline.py::classify_news` 수정.
+클러스터 판정 로직(`SYSTEM_PROMPT`) 자체는 그대로, LLM이 보는 후보 범위만 좁혔다.
+`db.py`의 `clusters` 테이블에 `embedding TEXT`(JSON) 컬럼 추가(`_migrate()`에 기존 DB용
+`ALTER TABLE` 가드, 기존 `title` 컬럼 마이그레이션과 동일 패턴 — 기존 968개 클러스터는
+embedding=NULL로 남고 앞으로 생성되는 클러스터부터 채워짐, top_k_similar는 임베딩 없는
+후보를 유사도 최하위로 자연스럽게 처리). 사용량은 기존 `classifier._usage_sink` 훅을 그대로
+재사용(`purpose="newsstock_embed"`)해 관리자 페이지 AI 사용량 통계에 자동 반영, `app/admin/
+pricing.py`에 `text-embedding-3-small`(입력 $0.02/1M) 단가 추가.
+
+**검증**: 신규 유닛 테스트 5개(`test_vendor_news_classifier_embeddings.py` — cosine_similarity/
+top_k_similar 로직 + `classify_news`가 후보가 top-K보다 많아도 실제로 top-K만 `call_ai`에
+넘기는지 회귀 검증) 포함 백엔드 pytest **377개 전부 통과**. 추가로 실제 `newsstock.db`
+복사본(968개 클러스터)에 대해 마이그레이션 + 실제 OpenAI 호출(임베딩+분류)까지 엔드투엔드
+스모크 테스트해 스키마 무손실 마이그레이션과 정상 분류(신규 클러스터 991 생성, 1536차원
+임베딩 저장)를 직접 확인(실 DB는 건드리지 않고 스크래치 복사본에서만 실행). **주의**: 이미
+떠 있는 백엔드 프로세스는 재시작해야 이 변경이 실제 자동 뉴스 갱신 경로에 반영된다(코드
+핫리로드 없음, uvicorn `--reload` 미사용 시).
+
+**백테스트 "일자별 노드 그래프" 디버그패널 정리**: 사용자가 스크린샷으로 신고한 "판단 결과"
+텍스트가 justify처럼 큰 간격으로 이상하게 줄바꿈되는 문제 — 원인은 `DebugPanel.vue`가 자연어
+문장인 `row.reason`에 전역 `.mono` 클래스(`white-space:pre-wrap; word-break:break-all`,
+JSON/해시 등 안 끊기는 토큰용)를 그대로 씌운 것이었다. 모노스페이스 폰트에 한글 글리프가
+없어 브라우저가 프로포셔널 한글 폴백 폰트로 렌더링하면서 라틴/숫자 구간과 한글 구간의 폭
+불일치가 큰 간격처럼 보인 것 — `mono` 클래스를 제거하고(`decision-table` 셀은 `table-layout:
+fixed`로 컬럼폭 고정 + `word-break: keep-all` + `overflow-wrap: break-word`) 정상적인 한글
+줄바꿈으로 교체. "그 아래 진행 로그가 스크롤 바깥에 나오게" 요청도 반영 — `BacktestResultView
+.vue`의 `.replay-debug`(고정 420px + overflow hidden)와 `DebugPanel.vue`의 `.debug-panel`
+(height:100%+overflow-y:auto)이 이중으로 내부 스크롤박스를 만들던 것을 제거해, 이제 그래프
+아래 이벤트 로그/판단결과/입출력 JSON이 전부 페이지 자연 스크롤을 따라간다(StrategyBuilderView
+쪽 디버그 탭은 원래부터 `.tab-content`가 스크롤을 담당하고 있어 영향 없음, Playwright로
+`overflow-y: auto`→계산됨 확인해 회귀 없음 검증). 부수적으로 상태별 좌측 색상 바, 판단결과
+표 줄무늬, 디테일 카드 스타일 등 시각적 정리도 함께 진행. `vue-tsc -b` 통과, Playwright로
+실제 렌더링해 줄바꿈/레이아웃 확인.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.

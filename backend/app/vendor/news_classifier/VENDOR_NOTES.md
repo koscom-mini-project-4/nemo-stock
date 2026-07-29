@@ -25,6 +25,25 @@
   얇게 감쌈)와 `keys_in_range(group, start, end)`(기존 `db.group_keys`를 감쌈)를 추가했다 —
   관리자 페이지에서 "종목/섹터/거시로부터 관련 클러스터 탐색"(반대 방향)을 위한 조회 전용
   메서드, 원본 로직은 건드리지 않고 새 진입점만 얹었다.
+- `embeddings.py`(2026-07-29, 신규 파일, upstream에 없음): `classifier.call_ai()`가 매 분류
+  호출마다 "보관기간(기본 7일) 내 클러스터 후보 전부"를 텍스트로 프롬프트에 넣던 문제 —
+  실측 기준 후보 968개일 때 약 9만 자(4~5만 토큰)가 뉴스 한 건 분류할 때마다 반복 전송되고
+  있었다(뉴스 유입량에 비례해 무한정 커지는 구조). 새 기사 제목을 `text-embedding-3-small`로
+  임베딩해 기존 클러스터 대표제목 임베딩과 코사인 유사도 top-K(`CLUSTER_CANDIDATE_TOP_K`,
+  기본 20)만 `call_ai()`에 넘기도록 `pipeline.py::classify_news`를 수정했다. 클러스터 판정
+  로직(`classifier.SYSTEM_PROMPT`) 자체는 그대로이고, LLM이 보는 후보 범위만 좁혔다.
+  - `db.py`: `clusters` 테이블에 `embedding TEXT`(JSON 배열) 컬럼 추가 + `_migrate()`에 기존
+    DB용 `ALTER TABLE` 가드 추가(기존 `title` 컬럼 마이그레이션과 동일 패턴). `create_cluster()`
+    가 `embedding` 키워드 인자(기본 None, 하위호환)를 받고, `recent_clusters()`가 각 후보의
+    임베딩을 파싱해 함께 돌려준다.
+  - `config.py`: `CLUSTER_CANDIDATE_TOP_K`(환경변수로 조정 가능, 기본 20) 추가.
+  - 사용량 계측은 `classifier._usage_sink`(기존 훅)를 그대로 재사용해 `purpose=
+    "newsstock_embed"`로 기록(관리자 페이지 AI 사용량 통계에 자동으로 잡힘, `app/admin/
+    pricing.py`에 `text-embedding-3-small` 단가 추가).
+  - 회귀 테스트: `backend/tests/unit/test_vendor_news_classifier_embeddings.py`(cosine_similarity/
+    top_k_similar 단위 테스트 + `classify_news`가 실제로 top-K만 `call_ai`에 넘기는지 검증).
+    실 DB 복사본(968개 클러스터)에 대한 마이그레이션 + 실제 OpenAI 호출 스모크 테스트도
+    별도로 수행해 확인(스크립트는 커밋하지 않음).
 
 그 외 파일은 원본 그대로다. 사용 방법은 `README.md`/`docs/API.md`(원본 문서, 그대로 유지) 참고.
 nemo-stock 쪽 배선(Container.news_trader_factory, ai.news_signal 노드, /data/news/update

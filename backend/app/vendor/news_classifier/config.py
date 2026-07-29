@@ -16,6 +16,10 @@ DB_PATH = _db if os.path.isabs(_db) else str(BASE_DIR / _db)
 
 CLUSTER_RETENTION_DAYS = int(os.getenv("CLUSTER_RETENTION_DAYS", "7"))
 CONTENT_MAX_CHARS = int(os.getenv("CONTENT_MAX_CHARS", "1500"))
+# nemo-stock 통합 시 추가: call_ai()에 후보 클러스터를 몇 개까지 넣을지(embeddings.py 참조).
+# 보관기간(CLUSTER_RETENTION_DAYS) 내 클러스터가 아무리 많아져도 프롬프트 크기는 이 값으로
+# 상한이 걸린다 — 없으면 클러스터가 쌓일수록 분류 1건당 토큰이 계속 커지는 문제가 있었다.
+CLUSTER_CANDIDATE_TOP_K = int(os.getenv("CLUSTER_CANDIDATE_TOP_K", "20"))
 
 # ---------------------------------------------------------------- 크롤러
 NAVER_LIST_URL = "https://news.naver.com/main/list.naver?mode=LSD&mid=sec&sid1=101"

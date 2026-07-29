@@ -1,7 +1,7 @@
 """뉴스 -> AI 분류 -> 검증 -> SQLite 저장."""
-from . import db
+from . import db, embeddings
 from .classifier import call_ai
-from .config import SECTORS, MACROS, STRENGTHS, CLUSTER_RETENTION_DAYS
+from .config import SECTORS, MACROS, STRENGTHS, CLUSTER_RETENTION_DAYS, CLUSTER_CANDIDATE_TOP_K
 
 
 def _snap_strength(value) -> float:
@@ -47,7 +47,12 @@ def classify_news(conn, news: dict, purge: bool = True,
     if purge:
         db.purge_old_clusters(conn, now, CLUSTER_RETENTION_DAYS)
 
-    candidates = db.recent_clusters(conn, now, CLUSTER_RETENTION_DAYS)
+    # 보관기간 내 클러스터 전부(candidate_pool)를 LLM에 그대로 넘기면 뉴스가 쌓일수록
+    # 분류 1건당 토큰이 무한정 커진다(embeddings.py 모듈 docstring 참조) — 새 기사 제목을
+    # 임베딩해 대표제목 유사도 top-K만 후보로 추려 call_ai()에 넘긴다.
+    candidate_pool = db.recent_clusters(conn, now, CLUSTER_RETENTION_DAYS)
+    query_embedding = embeddings.embed(news.get("title", ""), api_key=api_key)
+    candidates = embeddings.top_k_similar(query_embedding, candidate_pool, CLUSTER_CANDIDATE_TOP_K)
     ai = call_ai(news, candidates, model=model, api_key=api_key)
 
     strength = _snap_strength(ai.get("strength"))
@@ -63,7 +68,9 @@ def classify_news(conn, news: dict, purge: bool = True,
         strength = cluster["strength"]
     else:
         rep_title = (ai.get("representative_title") or "").strip() or news.get("title", "")
-        cluster_id = db.create_cluster(conn, rep_title, published_at, strength)
+        # representative_title은 원문 제목을 다듬은 형태(SYSTEM_PROMPT)라 의미상 news title과
+        # 거의 같으므로, 이미 계산해둔 query_embedding을 그대로 재사용한다(추가 API 호출 없음).
+        cluster_id = db.create_cluster(conn, rep_title, published_at, strength, embedding=query_embedding)
 
     # 아이템 정리 ---------------------------------------------------------
     items = ai.get("items")

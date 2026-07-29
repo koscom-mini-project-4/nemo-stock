@@ -70,7 +70,7 @@ defineExpose({ select })
     <div v-if="selectedIndex !== null && events[selectedIndex]" class="debug-detail">
       <div v-if="events[selectedIndex].error" class="error mono">{{ events[selectedIndex].error }}</div>
       <div v-if="decisionsForEvent(events[selectedIndex]).length" class="detail-block">
-        <div class="text-muted">판단 결과</div>
+        <div class="detail-label">판단 결과</div>
         <table class="decision-table">
           <tbody>
             <tr
@@ -78,19 +78,19 @@ defineExpose({ select })
               :key="row.symbol"
               :class="row.pass ? 'decision-pass' : 'decision-fail'"
             >
-              <td class="mono">{{ row.symbol }}</td>
+              <td class="mono decision-symbol">{{ row.symbol }}</td>
               <td class="decision-badge">{{ row.pass ? '✅ 통과' : '⛔ 탈락' }}</td>
-              <td class="decision-reason mono">{{ row.reason }}</td>
+              <td class="decision-reason">{{ row.reason }}</td>
             </tr>
           </tbody>
         </table>
       </div>
       <div class="detail-block">
-        <div class="text-muted">input</div>
+        <div class="detail-label">input</div>
         <pre class="mono">{{ JSON.stringify(events[selectedIndex].input_snapshot, null, 2) }}</pre>
       </div>
       <div class="detail-block">
-        <div class="text-muted">output</div>
+        <div class="detail-label">output</div>
         <pre class="mono">{{ JSON.stringify(events[selectedIndex].output_snapshot, null, 2) }}</pre>
       </div>
     </div>
@@ -103,8 +103,12 @@ defineExpose({ select })
   display: flex;
   flex-direction: column;
   gap: 10px;
-  height: 100%;
-  overflow-y: auto;
+}
+
+.debug-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .debug-item {
@@ -112,15 +116,36 @@ defineExpose({ select })
   align-items: center;
   flex-wrap: wrap;
   gap: 6px 10px;
-  padding: 8px 10px;
+  padding: 9px 12px;
+  border-left: 3px solid transparent;
   border-radius: 4px;
   cursor: pointer;
   font-size: 15px;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 
-.debug-item:hover,
-.debug-item.selected {
+.debug-item.status-running {
+  border-left-color: var(--running);
+}
+
+.debug-item.status-success {
+  border-left-color: var(--success);
+}
+
+.debug-item.status-error {
+  border-left-color: var(--danger);
+}
+
+.debug-item.status-skipped {
+  border-left-color: var(--border);
+}
+
+.debug-item:hover {
   background: var(--bg);
+}
+
+.debug-item.selected {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
 }
 
 .icon {
@@ -165,44 +190,85 @@ defineExpose({ select })
 
 .decision-table {
   width: 100%;
-  margin-top: 4px;
+  table-layout: fixed;
+  margin-top: 6px;
   border-collapse: collapse;
   font-size: 14px;
 }
 
-.decision-table td {
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
+.decision-table .decision-symbol {
+  width: 15%;
 }
 
 .decision-table .decision-badge {
+  width: 12%;
   white-space: nowrap;
 }
 
 .decision-table .decision-reason {
+  width: 73%;
+}
+
+.decision-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.decision-table tr:nth-child(even) {
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+}
+
+.decision-table .decision-reason {
   color: var(--text-muted);
+  line-height: 1.5;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .decision-table .decision-pass .decision-badge {
   color: var(--success);
+  font-weight: 600;
 }
 
 .decision-table .decision-fail .decision-badge {
   color: var(--danger);
+  font-weight: 600;
+}
+
+.debug-detail {
+  margin-top: 4px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 50%, transparent);
+  border-radius: 0 0 6px 6px;
 }
 
 .detail-block {
-  margin-bottom: 8px;
+  margin-bottom: 14px;
+}
+
+.detail-block:last-child {
+  margin-bottom: 0;
+}
+
+.detail-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
 }
 
 .detail-block pre {
-  margin: 4px 0 0;
-  background: var(--bg);
-  padding: 8px;
+  margin: 6px 0 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 10px;
   border-radius: 4px;
-  max-height: 180px;
+  max-height: 260px;
   overflow: auto;
+  line-height: 1.5;
 }
 
 .debug-detail .error {

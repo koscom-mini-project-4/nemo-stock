@@ -4,6 +4,7 @@
 -> "원하는 날짜 사이의 클러스터 개수"는 COUNT + BETWEEN 한 줄로 끝난다.
 뉴스는 cluster_id 로 클러스터를 참조하므로 클러스터별 뉴스 개수도 GROUP BY 로 나온다.
 """
+import json
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -14,7 +15,9 @@ CREATE TABLE IF NOT EXISTS clusters (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     representative_title TEXT NOT NULL,
     first_seen_at        TEXT NOT NULL,   -- 'YYYY-MM-DD HH:MM:SS'
-    strength             REAL NOT NULL
+    strength             REAL NOT NULL,
+    embedding            TEXT             -- nemo-stock 통합 시 추가: 대표제목 임베딩(JSON 배열).
+                                           -- 후보 클러스터 사전 필터링(embeddings.top_k_similar)용.
 );
 CREATE INDEX IF NOT EXISTS idx_clusters_first_seen ON clusters(first_seen_at);
 
@@ -136,6 +139,12 @@ def _migrate(conn) -> None:
                      "(SELECT n.title FROM news n WHERE n.url_hash = classifications.url_hash)")
         conn.commit()
 
+    # nemo-stock 통합 시 추가: 클러스터 후보 사전 필터링용 임베딩 컬럼.
+    cluster_cols = {r["name"] for r in conn.execute("PRAGMA table_info(clusters)")}
+    if "embedding" not in cluster_cols:
+        conn.execute("ALTER TABLE clusters ADD COLUMN embedding TEXT")
+        conn.commit()
+
     # 그룹 테이블이 아직 안 채워진 예전 DB면 classifications 로부터 한 번 채운다.
     has_cls = conn.execute("SELECT 1 FROM classifications LIMIT 1").fetchone()
     has_grp = conn.execute("SELECT 1 FROM group_a LIMIT 1").fetchone() or \
@@ -163,14 +172,21 @@ def _shift_days(ts: str, days: int) -> str:
 # ---------------------------------------------------------------- 클러스터
 
 def recent_clusters(conn, now: str, days: int = CLUSTER_RETENTION_DAYS) -> list:
-    """프롬프트에 넣을 후보 클러스터 (최근 days 일)."""
+    """프롬프트 후보 클러스터 (최근 days 일). 실제 프롬프트에는 이 중 임베딩 유사도
+    top-K만 들어간다(embeddings.top_k_similar) — 이 함수는 그 전체 풀을 돌려준다."""
     cutoff = _shift_days(now, days)
     rows = conn.execute(
-        "SELECT id, representative_title, first_seen_at, strength "
+        "SELECT id, representative_title, first_seen_at, strength, embedding "
         "FROM clusters WHERE first_seen_at >= ? ORDER BY first_seen_at DESC",
         (cutoff,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        raw = d.pop("embedding")
+        d["embedding"] = json.loads(raw) if raw else None
+        out.append(d)
+    return out
 
 
 def get_cluster(conn, cluster_id: int):
@@ -178,10 +194,14 @@ def get_cluster(conn, cluster_id: int):
     return dict(row) if row else None
 
 
-def create_cluster(conn, title: str, first_seen_at: str, strength: float) -> int:
+def create_cluster(conn, title: str, first_seen_at: str, strength: float,
+                    embedding: list | None = None) -> int:
+    """embedding: nemo-stock 통합 시 추가한 파라미터(원본은 3개 인자만 받음) — 이 클러스터의
+    대표제목 임베딩(있으면). 이후 새 기사와의 유사도 후보 필터링에 쓰인다."""
     cur = conn.execute(
-        "INSERT INTO clusters (representative_title, first_seen_at, strength) VALUES (?, ?, ?)",
-        (title, first_seen_at, strength),
+        "INSERT INTO clusters (representative_title, first_seen_at, strength, embedding) "
+        "VALUES (?, ?, ?, ?)",
+        (title, first_seen_at, strength, json.dumps(embedding) if embedding else None),
     )
     conn.commit()
     return cur.lastrowid

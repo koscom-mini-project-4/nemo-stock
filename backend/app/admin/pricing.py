@@ -41,6 +41,9 @@ _PRICES: dict[str, ModelPrice] = {
     "gpt-4.1": ModelPrice(2.00, 8.00),
     "gpt-4.1-mini": ModelPrice(0.40, 1.60),
     "gpt-4.1-nano": ModelPrice(0.10, 0.40),
+    # 임베딩 — output 토큰 없음(0.0), newsstock-lib 클러스터 후보 사전 필터링용
+    # (app/vendor/news_classifier/embeddings.py)
+    "text-embedding-3-small": ModelPrice(0.02, 0.0),
     # Anthropic — claude-sonnet-5는 2026-08-31까지 도입가
     "claude-fable-5": ModelPrice(10.00, 50.00),
     "claude-opus-5": ModelPrice(5.00, 25.00),
