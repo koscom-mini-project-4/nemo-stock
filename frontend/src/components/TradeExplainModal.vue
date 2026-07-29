@@ -109,14 +109,15 @@ const STATUS_ICON: Record<string, string> = { running: '⏳', success: '✅', er
     <div class="card modal">
       <div class="modal-header">
         <h2>
-          {{ trade.side === 'buy' ? '매수' : '매도' }} 근거 —
+          <span :class="trade.side === 'buy' ? 'positive' : 'negative'">{{ trade.side === 'buy' ? '매수' : '매도' }}</span>
+          근거 —
           {{ trade.symbol }} · {{ trade.date }}
         </h2>
         <button class="btn" type="button" @click="emit('close')">닫기</button>
       </div>
       <p class="trade-summary text-muted">
         {{ trade.qty }}주 @ {{ trade.price.toLocaleString() }}원 · 상태 {{ trade.status }}
-        <span v-if="trade.realized_pnl != null">
+        <span v-if="trade.realized_pnl != null" :class="trade.realized_pnl >= 0 ? 'positive' : 'negative'">
           · 실현손익 {{ trade.realized_pnl >= 0 ? '+' : '' }}{{ trade.realized_pnl.toLocaleString() }}원
         </span>
       </p>
@@ -255,7 +256,7 @@ const STATUS_ICON: Record<string, string> = { running: '⏳', success: '✅', er
 .badge-fail {
   font-size: 11px;
   padding: 1px 6px;
-  border-radius: 10px;
+  border-radius: 4px;
   background: var(--bg);
 }
 
@@ -285,7 +286,7 @@ const STATUS_ICON: Record<string, string> = { running: '⏳', success: '✅', er
   line-height: 1.55;
   white-space: pre-wrap;
   background: var(--bg);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 10px;
 }
 </style>

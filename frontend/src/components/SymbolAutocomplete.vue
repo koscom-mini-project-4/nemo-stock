@@ -111,7 +111,7 @@ function onBlur() {
   list-style: none;
   background: var(--surface, #fff);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 

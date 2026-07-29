@@ -593,7 +593,7 @@ h2 {
   color: var(--text-muted);
   font-size: 13.5px;
   padding: 9px 12px;
-  border-radius: 8px;
+  border-radius: 4px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
@@ -619,7 +619,7 @@ h2 {
 
 .card {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 4px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   padding: 18px;
   background: var(--surface);
@@ -632,7 +632,7 @@ h2 {
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  border-radius: 10px;
+  border-radius: 4px;
   background: var(--accent);
   color: white;
   font-size: 11px;
@@ -724,7 +724,7 @@ th {
 .stats-json {
   background: var(--bg);
   padding: 10px;
-  border-radius: 6px;
+  border-radius: 4px;
   max-height: 220px;
   overflow: auto;
   font-size: 12px;
@@ -765,7 +765,7 @@ th {
   display: inline-block;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 4px;
   padding: 1px 8px;
   margin: 0 4px 4px 0;
   font-size: 11.5px;

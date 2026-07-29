@@ -11,6 +11,11 @@ const router = createRouter({
     {
       path: '/strategies/new',
       name: 'strategy-new',
+      component: () => import('@/views/NewStrategyView.vue'),
+    },
+    {
+      path: '/strategies/new/canvas',
+      name: 'strategy-new-canvas',
       component: () => import('@/views/StrategyBuilderView.vue'),
     },
     {
@@ -24,11 +29,6 @@ const router = createRouter({
       name: 'backtest-result',
       component: () => import('@/views/BacktestResultView.vue'),
       props: true,
-    },
-    {
-      path: '/ai/generate',
-      name: 'ai-generate',
-      component: () => import('@/views/AIGenerateView.vue'),
     },
     {
       path: '/admin',

@@ -113,7 +113,7 @@ function applyCode() {
   gap: 4px;
   margin-bottom: 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 2px;
 }
 

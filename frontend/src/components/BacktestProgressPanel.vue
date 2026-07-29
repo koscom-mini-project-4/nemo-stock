@@ -58,7 +58,7 @@ const totalTokens = computed(() => snapshots.value.reduce((sum, s) => sum + (s.a
 <style scoped>
 .progress-panel {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -99,7 +99,7 @@ const totalTokens = computed(() => snapshots.value.reduce((sum, s) => sum + (s.a
   gap: 3px;
   font-size: 11.5px;
   background: var(--bg);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 8px;
 }
 
