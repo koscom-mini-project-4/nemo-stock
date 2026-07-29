@@ -617,6 +617,41 @@ mock 기반 유닛 테스트로 구조/필드만 확인.
 SSE 프레임(`chunk`→`result`)이 순서대로 오는 것을 라이브 확인. 브라우저 자동화 도구가 없어
 실제 화면 렌더링 라이브 확인은 못함(기존 세션과 동일 제약).
 
+## 0-19. 전략 생성 AI와 나머지 AI의 모델을 .env에서 별도 선택 (2026-07-29 사용자 요청)
+
+사용자 요청: "전략 생성 ai랑 나머지 ai 에서 사용할 모델을 별도로 선택할 수 있도록 해 주세요.
+.env에서 사용 모델을 각각 선택하고 싶어요." 기존 `AI_PROVIDER`+`OPENAI_MODEL`/
+`ANTHROPIC_MODEL` 하나로 전략 생성(`POST /ai/generate-draft`)과 나머지 AI 기능(캔버스
+챗봇/백테스트 설명/자유 프롬프트 노드 등)이 항상 같은 모델을 썼다 — 전략 생성만 더 고성능
+모델을 쓰고 나머지는 저렴한 모델을 쓰는 식의 분리가 불가능했다.
+
+- `app/dependencies.py::_build_ai_client(settings, ai_usage_repo, model_override=None)` —
+  기존 팩토리 함수에 `model_override` 파라미터만 추가(없으면 기존과 동일하게
+  `openai_model`/`anthropic_model` 사용). `Container`에 `strategy_ai_client: AIClient`
+  필드를 신설하고, `build_container()`에서 `_build_ai_client`를 **두 번** 호출 —
+  `ai_client`(기본 모델)와 `strategy_ai_client`(모델 오버라이드 있으면 그걸 사용, 없으면
+  기본 모델과 동일한 클라이언트를 별도 인스턴스로 생성).
+- `app/config.py::Settings.ai_model_strategy: str | None = None` 신규 — 비워두면
+  `OPENAI_MODEL`/`ANTHROPIC_MODEL`과 동일 모델을 그대로 쓴다.
+- `app/api/deps.py::get_strategy_ai_client` 신규 — `container.strategy_ai_client`를
+  반환. `app/api/routers/ai.py`의 `generate_draft`/`generate_draft_stream`(블로킹 +
+  스트림 둘 다) 두 엔드포인트만 `Depends(get_ai_client)` → `Depends(get_strategy_ai_client)`
+  로 교체. `workflow_chat`/`workflow_chat_stream`/`backtest_explain`/
+  `backtest_explain_stream`은 기존 그대로 `get_ai_client` 유지 — "전략 생성만 별도, 나머지는
+  기본 모델" 요구사항 그대로 반영.
+- `.env`/`.env.example`에 `AI_MODEL_STRATEGY=` 신규(빈 값 = 기본 모델과 동일, 주석으로
+  용도 설명).
+
+**검증**: `test_provider_selection.py`에 `_build_ai_client`의 `model_override` 동작
+유닛 테스트 2개 추가(오버라이드 있을 때/없을 때). `test_api_ai_flow.py`의 기존
+`/ai/generate-draft`(+`/stream`) 테스트 5개가 `dependency_overrides[get_ai_client]`를
+쓰고 있었는데, 이제 이 두 엔드포인트가 `get_strategy_ai_client`를 쓰므로 오버라이드 키를
+맞춰 수정(동작 자체가 아니라 테스트가 어느 의존성을 갈아끼워야 하는지만 바뀐 것). 새 통합
+테스트 `test_generate_draft_uses_strategy_ai_client_not_default`로 두 클라이언트가 실제로
+독립적으로 주입되는지(`get_strategy_ai_client`만 오버라이드하면 `/ai/generate-draft`는
+성공하고 `/ai/workflow-chat`은 여전히 400) 확인. 백엔드 pytest 361→364개 전부 통과.
+`vue-tsc -b` 통과(프론트 변경 없음).
+
 ---
 
 ## 1. 목표와 PoC 범위

@@ -19,6 +19,12 @@ def get_ai_client(container: Container = Depends(get_container)) -> AIClient:
     return container.ai_client
 
 
+def get_strategy_ai_client(container: Container = Depends(get_container)) -> AIClient:
+    """전략 생성(AI 초안 생성) 전용 AIClient(§0-19) — AI_MODEL_STRATEGY가 설정돼 있으면
+    나머지 AI 기능(챗봇/백테스트 설명/뉴스 감성 등)과 다른 모델을 쓴다."""
+    return container.strategy_ai_client
+
+
 def get_intraday_price_bar_repo(container: Container = Depends(get_container)) -> IntradayPriceBarRepository:
     return container.intraday_price_bar_repo
 

@@ -110,3 +110,16 @@ def test_ai_client_claude_without_key_is_unavailable():
     settings = Settings(_env_file=None, ai_provider="claude")
     client = _build_ai_client(settings, ai_usage_repo=None)
     assert client.available is False
+
+
+def test_ai_client_model_override_used_when_given():
+    """§0-19: 전략 생성 전용 모델(AI_MODEL_STRATEGY)이 있으면 기본 모델 대신 그걸 쓴다."""
+    settings = Settings(_env_file=None, ai_provider="openai", openai_model="gpt-default")
+    strategy_client = _build_ai_client(settings, ai_usage_repo=None, model_override="gpt-strategy")
+    assert strategy_client.model_name == "gpt-strategy"
+
+
+def test_ai_client_without_model_override_falls_back_to_default_model():
+    settings = Settings(_env_file=None, ai_provider="openai", openai_model="gpt-default")
+    client = _build_ai_client(settings, ai_usage_repo=None, model_override=None)
+    assert client.model_name == "gpt-default"

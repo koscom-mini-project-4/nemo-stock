@@ -95,6 +95,7 @@ class Container:
     portfolio_repo: PortfolioRepository
     watchlist_repo: WatchlistRepository
     ai_client: AIClient
+    strategy_ai_client: AIClient
     news_trader_factory: Callable[..., NewsTrader]
     event_bus: EventBus
     market_data: MarketDataProvider
@@ -175,19 +176,27 @@ def _build_order_provider(
     return DummyOrderExecutionProvider(initial_cash=settings.initial_portfolio_cash)
 
 
-def _build_ai_client(settings: Settings, ai_usage_repo: AIUsageRepository) -> AIClient:
+def _build_ai_client(
+    settings: Settings, ai_usage_repo: AIUsageRepository, model_override: str | None = None
+) -> AIClient:
     """AI_PROVIDER(.env)로 OpenAI/Claude 중 어느 쪽을 쓸지 결정한다. 이 함수 하나만 바꾸면
     되는 이유: app/nodes/ai/*, app/ai/workflow_draft.py 등 모든 소비자가 app.ai.base.AIClient
     인터페이스로만 의존한다(§0-15). 자격증명 없이도 생성은 되고(available=False), 각 라우터가
     실제 호출 시점에 AIUnavailableError를 잡아 400으로 안내한다 — market_data/order provider와
     달리 RuntimeError로 즉시 막지 않는 게 기존 OpenAIClient의 동작이라 그대로 따른다.
 
+    model_override가 있으면 settings의 기본 모델 대신 그 모델로 클라이언트를 만든다(§0-19,
+    전략 생성 전용 모델 분리 — build_container()가 이 함수를 두 번 호출해 ai_client/
+    strategy_ai_client를 각각 만든다).
+
     app/vendor/news_classifier(newsstock-lib, ai.news_signal 노드)는 이 설정과 무관하게 자체
     OpenAI 클라이언트를 그대로 쓴다(vendored 코드 최소 수정 원칙, §0-15에 명시).
     """
     if settings.ai_provider == "claude":
-        return ClaudeClient(settings.anthropic_api_key, settings.anthropic_model, usage_repo=ai_usage_repo)
-    return OpenAIClient(settings.openai_api_key, settings.openai_model, usage_repo=ai_usage_repo)
+        model = model_override or settings.anthropic_model
+        return ClaudeClient(settings.anthropic_api_key, model, usage_repo=ai_usage_repo)
+    model = model_override or settings.openai_model
+    return OpenAIClient(settings.openai_api_key, model, usage_repo=ai_usage_repo)
 
 
 def _build_news_trader_factory(settings: Settings) -> Callable[..., NewsTrader]:
@@ -239,6 +248,9 @@ def build_container(settings: Settings) -> Container:
     portfolio_repo = SqlitePortfolioRepository(session_factory)
     watchlist_repo = SqliteWatchlistRepository(session_factory)
     ai_client: AIClient = _build_ai_client(settings, ai_usage_repo)
+    strategy_ai_client: AIClient = _build_ai_client(
+        settings, ai_usage_repo, model_override=settings.ai_model_strategy
+    )
 
     # 부팅 시 직전 종목 마스터 동기화 결과(§0-10)를 sqlite에서 in-memory 캐시로 복원한다.
     # 비어있으면(최초 부팅, 한 번도 동기화 안 함) load_cache()가 아무것도 안 해 기존 8개
@@ -328,6 +340,7 @@ def build_container(settings: Settings) -> Container:
         portfolio_repo=portfolio_repo,
         watchlist_repo=watchlist_repo,
         ai_client=ai_client,
+        strategy_ai_client=strategy_ai_client,
         news_trader_factory=news_trader_factory,
         event_bus=event_bus,
         market_data=market_data,

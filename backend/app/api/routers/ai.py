@@ -13,7 +13,7 @@ from app.ai.backtest_explain import BacktestExplainError, explain_backtest
 from app.ai.base import AIClient, AIUnavailableError
 from app.ai.workflow_chat import WorkflowChatError, chat_about_workflow
 from app.ai.workflow_draft import WorkflowDraftError, generate_workflow_draft
-from app.api.deps import get_ai_client, get_container
+from app.api.deps import get_ai_client, get_container, get_strategy_ai_client
 from app.dao.base import NodeEventRecord
 from app.dependencies import Container
 from app.nodes.ai.news_signal import resolve_news_signal_clusters
@@ -92,7 +92,7 @@ def _stream_sse(worker: Callable[[Callable[[str], None]], dict]) -> Iterator[str
 @router.post("/generate-draft", response_model=GenerateDraftResponse)
 def generate_draft(
     payload: GenerateDraftRequest,
-    ai_client: AIClient = Depends(get_ai_client),
+    ai_client: AIClient = Depends(get_strategy_ai_client),
     container: Container = Depends(get_container),
 ) -> GenerateDraftResponse:
     if not ai_client.available:
@@ -119,7 +119,7 @@ def generate_draft(
 @router.post("/generate-draft/stream")
 def generate_draft_stream(
     payload: GenerateDraftRequest,
-    ai_client: AIClient = Depends(get_ai_client),
+    ai_client: AIClient = Depends(get_strategy_ai_client),
     container: Container = Depends(get_container),
 ) -> StreamingResponse:
     """generate_draft(§0-11 이전)와 동일한 로직이지만 생성 중인 원문을 SSE로 실시간

@@ -1128,6 +1128,27 @@ grep으로 재확인.
 **검증**: 신규 유닛/통합 테스트 포함 백엔드 pytest 350→361개 전부 통과. `vue-tsc -b` 통과.
 curl/TestClient로 실제 SSE 프레임 순서(chunk→result) 라이브 확인.
 
+## 2026-07-29 후속 작업 22: 전략 생성 AI와 나머지 AI의 모델을 .env에서 별도 선택 (DESIGN.md §0-19)
+
+사용자 요청: "전략 생성 ai랑 나머지 ai 에서 사용할 모델을 별도로 선택할 수 있도록 해 주세요.
+.env에서 사용 모델을 각각 선택하고 싶어요." 기존엔 `AI_PROVIDER`+`OPENAI_MODEL`/
+`ANTHROPIC_MODEL` 하나로 전략 생성과 나머지 AI 기능이 항상 같은 모델을 썼다.
+
+- `_build_ai_client(settings, ai_usage_repo, model_override=None)` — 기존 팩토리에
+  `model_override` 파라미터만 추가. `Container`에 `strategy_ai_client` 필드 신설,
+  `build_container()`에서 팩토리를 두 번 호출해 `ai_client`(기본)와
+  `strategy_ai_client`(`AI_MODEL_STRATEGY` 있으면 그걸, 없으면 기본과 동일)를 분리 생성.
+- `Settings.ai_model_strategy` + `.env`/`.env.example`에 `AI_MODEL_STRATEGY=` 신규(빈 값 =
+  기본 모델 그대로).
+- `get_strategy_ai_client` 신규 의존성. `POST /ai/generate-draft`(+`/stream`) 두 엔드포인트만
+  이걸로 교체, `workflow-chat`/`backtest-explain`(+`/stream`)은 기존 `get_ai_client` 유지.
+
+**검증**: `_build_ai_client` model_override 유닛 테스트 2개 추가. 기존 `/ai/generate-draft`
+테스트 5개가 `dependency_overrides[get_ai_client]`를 쓰고 있어 엔드포인트가 이제
+`get_strategy_ai_client`를 쓰는 데 맞춰 오버라이드 키 수정(동작이 아니라 테스트가 갈아끼울
+의존성만 변경). 두 클라이언트가 독립적으로 주입되는지 확인하는 통합 테스트 신규 추가.
+백엔드 pytest 361→364개 전부 통과. `vue-tsc -b` 통과(프론트 변경 없음).
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.
