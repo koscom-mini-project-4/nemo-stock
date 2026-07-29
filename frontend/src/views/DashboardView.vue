@@ -146,6 +146,23 @@ async function removeFromWatchlist(symbol: string) {
   await load()
 }
 
+// 관심종목 드래그 정렬: 서버에 순서를 저장하지 않고 화면 표시 순서만 바꾼다(새로고침 시 초기화).
+const draggingWatchSymbol = ref<string | null>(null)
+function onWatchDragStart(symbol: string) {
+  draggingWatchSymbol.value = symbol
+}
+function onWatchDrop(targetSymbol: string) {
+  const from = draggingWatchSymbol.value
+  draggingWatchSymbol.value = null
+  if (!from || from === targetSymbol) return
+  const arr = watchlist.value
+  const fromIdx = arr.findIndex((w) => w.symbol === from)
+  const toIdx = arr.findIndex((w) => w.symbol === targetSymbol)
+  if (fromIdx === -1 || toIdx === -1) return
+  const [moved] = arr.splice(fromIdx, 1)
+  arr.splice(toIdx, 0, moved)
+}
+
 async function toggleActive(wf: WorkflowOut) {
   const nextStatus = wf.status === 'active' ? 'inactive' : 'active'
   try {
@@ -211,6 +228,50 @@ onMounted(load)
       </div>
 
       <section>
+        <h2>내 전략 ({{ workflows.length }})</h2>
+        <p v-if="workflows.length === 0" class="text-muted">
+          아직 전략이 없습니다. "새 전략 만들기"로 시작하세요.
+        </p>
+
+        <div v-else class="workflow-grid">
+          <div v-for="wf in workflows" :key="wf.id" class="card workflow-card">
+            <div class="workflow-card-head">
+              <RouterLink :to="`/strategies/${wf.id}`" class="workflow-name">{{ wf.name }}</RouterLink>
+              <span :class="['badge', `badge-${wf.status}`]">{{ statusLabel(wf.status) }}</span>
+            </div>
+            <p class="text-muted">
+              노드 {{ wf.graph.nodes.length }}개 · 주기 {{ wf.schedule_interval_sec }}초 · 수정 {{ formatDateTimeKst(wf.updated_at) }}
+            </p>
+            <p
+              v-if="workflowPnl[wf.id] && workflowPnl[wf.id].trade_count > 0"
+              class="pnl-line"
+              :class="pnlClass(workflowPnl[wf.id].total_pnl)"
+              role="button"
+              tabindex="0"
+              title="클릭하면 수익률/수익금액 표시가 바뀝니다"
+              @click="toggleAmountMode(`wf:${wf.id}`)"
+              @keydown.enter="toggleAmountMode(`wf:${wf.id}`)"
+            >
+              {{
+                amountMode.has(`wf:${wf.id}`) || workflowPnl[wf.id].return_pct === null
+                  ? formatSignedKrw(workflowPnl[wf.id].total_pnl)
+                  : formatSignedPct(workflowPnl[wf.id].return_pct!)
+              }}
+              <span class="text-muted pnl-trade-count">(체결 {{ workflowPnl[wf.id].trade_count }}건)</span>
+            </p>
+            <p v-else class="text-muted pnl-line">실거래 체결 이력 없음</p>
+            <div class="workflow-card-actions">
+              <button class="btn" @click="router.push(`/strategies/${wf.id}`)">편집</button>
+              <button class="btn" @click="toggleActive(wf)">
+                {{ wf.status === 'active' ? '중지' : '활성화' }}
+              </button>
+              <button class="btn btn-danger" @click="remove(wf)">삭제</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
         <div class="section-head">
           <h2>보유 종목 시세</h2>
           <button class="btn" type="button" @click="openCreatePosition">종목 직접 추가</button>
@@ -270,9 +331,22 @@ onMounted(load)
           보유 여부와 무관하게 추적하고 싶은 종목을 추가해보세요.
         </p>
         <div v-else class="price-grid">
-          <div v-for="item in watchlistOnly" :key="item.symbol" class="card price-card">
+          <div
+            v-for="item in watchlistOnly"
+            :key="item.symbol"
+            class="card price-card"
+            :class="{ 'price-card-dragging': draggingWatchSymbol === item.symbol }"
+            draggable="true"
+            @dragstart="onWatchDragStart(item.symbol)"
+            @dragover.prevent
+            @drop="onWatchDrop(item.symbol)"
+            @dragend="draggingWatchSymbol = null"
+          >
             <div class="price-card-head">
-              <span class="price-card-symbol">{{ symbolMaster.displayName(item.symbol) }}</span>
+              <span class="price-card-symbol">
+                <span class="drag-handle" title="끌어서 순서 변경">⠿</span>
+                {{ symbolMaster.displayName(item.symbol) }}
+              </span>
               <div class="price-card-meta">
                 <span class="badge">관심종목</span>
                 <button class="icon-btn" type="button" title="삭제" @click="removeFromWatchlist(item.symbol)">
@@ -294,50 +368,6 @@ onMounted(load)
         @close="positionModalVisible = false"
         @save="savePosition"
       />
-
-      <section>
-        <h2>내 전략 ({{ workflows.length }})</h2>
-        <p v-if="workflows.length === 0" class="text-muted">
-          아직 전략이 없습니다. "새 전략 만들기"로 시작하세요.
-        </p>
-
-        <div v-else class="workflow-grid">
-          <div v-for="wf in workflows" :key="wf.id" class="card workflow-card">
-            <div class="workflow-card-head">
-              <RouterLink :to="`/strategies/${wf.id}`" class="workflow-name">{{ wf.name }}</RouterLink>
-              <span :class="['badge', `badge-${wf.status}`]">{{ statusLabel(wf.status) }}</span>
-            </div>
-            <p class="text-muted">
-              노드 {{ wf.graph.nodes.length }}개 · 주기 {{ wf.schedule_interval_sec }}초 · 수정 {{ formatDateTimeKst(wf.updated_at) }}
-            </p>
-            <p
-              v-if="workflowPnl[wf.id] && workflowPnl[wf.id].trade_count > 0"
-              class="pnl-line"
-              :class="pnlClass(workflowPnl[wf.id].total_pnl)"
-              role="button"
-              tabindex="0"
-              title="클릭하면 수익률/수익금액 표시가 바뀝니다"
-              @click="toggleAmountMode(`wf:${wf.id}`)"
-              @keydown.enter="toggleAmountMode(`wf:${wf.id}`)"
-            >
-              {{
-                amountMode.has(`wf:${wf.id}`) || workflowPnl[wf.id].return_pct === null
-                  ? formatSignedKrw(workflowPnl[wf.id].total_pnl)
-                  : formatSignedPct(workflowPnl[wf.id].return_pct!)
-              }}
-              <span class="text-muted pnl-trade-count">(체결 {{ workflowPnl[wf.id].trade_count }}건)</span>
-            </p>
-            <p v-else class="text-muted pnl-line">실거래 체결 이력 없음</p>
-            <div class="workflow-card-actions">
-              <button class="btn" @click="router.push(`/strategies/${wf.id}`)">편집</button>
-              <button class="btn" @click="toggleActive(wf)">
-                {{ wf.status === 'active' ? '중지' : '활성화' }}
-              </button>
-              <button class="btn btn-danger" @click="remove(wf)">삭제</button>
-            </div>
-          </div>
-        </div>
-      </section>
     </template>
   </div>
 </template>
@@ -453,6 +483,17 @@ section h2 {
   font-size: 14px;
 }
 
+.price-card-dragging {
+  opacity: 0.4;
+}
+
+.drag-handle {
+  display: inline-block;
+  margin-right: 4px;
+  cursor: grab;
+  color: var(--text-muted);
+}
+
 .price-card-meta {
   display: flex;
   align-items: baseline;
@@ -511,12 +552,20 @@ section h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
 .workflow-name {
   font-weight: 600;
   text-decoration: none;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-card-head .badge {
+  flex-shrink: 0;
 }
 
 .workflow-card-actions {

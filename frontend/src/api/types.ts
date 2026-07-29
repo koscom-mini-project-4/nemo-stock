@@ -248,6 +248,11 @@ export interface AIUsageByBreakdown {
   model?: string
   calls: number
   total_tokens: number
+  /** 추정 비용(USD). 가격표에 없는 모델이면 null(by_model만 — by_purpose는 항상 숫자,
+   * unpriced_tokens로 미가격 토큰을 별도 표시). */
+  cost_usd: number | null
+  /** by_purpose 항목에만 존재: 이 목적 내에서 가격표에 없는 모델이 사용한 토큰 수. */
+  unpriced_tokens?: number
 }
 
 export interface AIUsageSummary {
@@ -255,6 +260,10 @@ export interface AIUsageSummary {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  /** 가격표에 있는 모델들만 합산한 추정 비용(USD) — 하한 추정치. */
+  total_cost_usd: number
+  /** 가격표에 없는 모델이 사용한 토큰 총합(위 비용에 포함 안 됨). */
+  total_unpriced_tokens: number
   by_purpose: AIUsageByBreakdown[]
   by_model: AIUsageByBreakdown[]
 }

@@ -1239,6 +1239,61 @@ AI 초안 폼(기존 `AIGenerateView.vue`의 스트리밍 생성/예시 프롬�
 없어 수행하지 못했음(백엔드 API curl 검증 + 프론트 타입체크 + dev 서버 로그의 정상 200 응답까지만
 확인) — 다음 세션에서 브라우저로 실제 클릭 토글/색상 표시를 확인 필요.
 
+## 2026-07-29 후속 작업 2: 관리자 페이지 AI 사용량에 추정 비용(USD) 추가
+
+사용자가 OpenAI/Anthropic 공식 가격표를 붙여넣고 관리자 메뉴 "사용량 통계"에서 비용도
+볼 수 있게 해달라고 요청. 기존에 `AIUsageRecord`(purpose/model/prompt_tokens/
+completion_tokens)는 이미 있었으나 $ 환산이 없었음.
+
+**`backend/app/admin/pricing.py`(신규)**: 2026-07-29 기준 스냅샷 가격표(하드코딩,
+자동 갱신 안 됨) — OpenAI(gpt-5.6/5.4/5.2/5.1/5/4.1 계열)와 사용자가 지정한 Claude 4종
+(sonnet-5/opus-5/haiku-4-5/fable-5). `claude-sonnet-5`는 2026-08-31까지 도입가($2/$10)
+적용, 이후 정가($3/$15)로 갱신 필요라고 주석에 명시. `estimate_cost_usd(model, prompt,
+completion)` — 가격표에 없는 모델은 `None`(합계에서 제외, "가격 미상"으로 표시).
+`AIUsageRecord`가 캐시 히트 여부를 기록하지 않아 prompt_tokens 전체를 표준(비캐시)
+단가로 계산 — 상한 추정치임을 관리자 페이지에 안내 문구로 명시.
+
+**`app/admin/metrics.py::aggregate_usage`**: by_purpose/by_model 각 항목에 `cost_usd`
+추가(by_purpose는 모델이 섞일 수 있어 `unpriced_tokens`도 별도 집계), 전체
+`total_cost_usd`/`total_unpriced_tokens` 추가. 기존 유닛 테스트(정확 dict 비교)가
+깨져서 갱신 + 미가격 모델 케이스 테스트 추가.
+
+**실기 중 발견한 가격표 공백**: 실행 중이던 dev 서버의 실제 사용 이력(`/admin/metrics`)으로
+검증하던 중 `gpt-5.4-nano`(742만 토큰, 전체의 약 25%)가 가격표에 빠져 있어
+`total_unpriced_tokens`가 0이 아니게 잡히는 것을 발견 — 사용자가 붙여넣은 표에 있던
+gpt-5.4 계열(5.4/5.4-mini/5.4-nano)과 5.2/5.1을 추가해 실사용 데이터 기준
+`total_unpriced_tokens=0`, `total_cost_usd≈$21.44`까지 확인.
+
+**프론트**: `AIUsageSummary`/`AIUsageByBreakdown`에 `cost_usd`/`total_cost_usd`/
+`unpriced_tokens`/`total_unpriced_tokens` 추가, `frontend/src/utils/format.ts`에
+`formatUsd`(소수점 4자리, 소액 표시용) 추가, `AdminView.vue`에 "추정 비용(USD)" KPI +
+목적별/모델별 표에 비용 컬럼 + 미가격 토큰 안내 문구.
+
+**회귀**: 백엔드 pytest 370/371 통과(실패 1건은 KOSCOM 실계좌 라이브 API 의존 사전
+존재 flaky 테스트, 무관), 프론트 `vue-tsc -b` 통과. 실행 중이던 dev 서버에 curl로
+`/admin/metrics` 직접 호출해 실제 이력 데이터 기준 값 확인.
+
+## 2026-07-29 후속 작업 3: 대시보드 배지 개행 수정 + "내 전략" 위치 이동 + 관심종목 드래그 정렬
+
+사용자가 스크린샷으로 "중지"/"초안" 배지 글씨가 두 줄로 개행되는 문제를 지적, "내 전략"
+섹션을 5개 KPI 요약 카드 바로 아래로 옮겨달라고 요청, 관심종목을 드래그로 순서 변경할 수
+있게 해달라고 요청.
+
+**`frontend/src/style.css`**: `.badge`에 `white-space: nowrap` 추가.
+`DashboardView.vue`의 `.workflow-name`에 ellipsis 처리 + `.workflow-card-head`에
+`gap` 추가해 긴 전략명이 배지를 밀어내 개행되는 것도 방지.
+
+**`frontend/src/views/DashboardView.vue`**: "내 전략" `<section>`을 KPI 그리드
+바로 아래(보유 종목 시세 섹션보다 위)로 이동. 관심종목 카드에 `draggable="true"` +
+드래그 핸들(⠿) 추가, `onWatchDragStart`/`onWatchDrop`으로 `watchlist` 배열을 직접
+splice해 순서 변경 — 백엔드에 순서 저장 필드가 없어 화면 표시 순서만 바뀌고 새로고침 시
+초기화됨(영구 저장하려면 추후 정렬 필드 추가 필요).
+
+**검증**: 프론트 `vue-tsc -b` 통과. `NODE_PATH`로 기존에 설치된 playwright
+(`/Users/2p31/mcp-servers/web-search-mcp/node_modules`)를 빌려 dev 서버
+스크린샷으로 배지 한 줄 표시/섹션 순서 확인 + 마우스 드래그 시뮬레이션으로 관심종목
+순서가 실제로 바뀌는 것까지 확인.
+
 ## 커밋 이력 참고
 
 상세 이력은 `git log --oneline`으로 확인. 주요 지점만 이 파일에 요약하며, 전체 diff/시각은 git이 원본이다.
